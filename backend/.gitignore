@@ -1,0 +1,17 @@
+# Environment variables
+.env
+.env.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Data directories (cold data, not code)
+data/base_market/
+data/cache/
+data/history/
+data/indicators/
+data/metadata/
+*.parquet
+*.log
+data/update_status.json
