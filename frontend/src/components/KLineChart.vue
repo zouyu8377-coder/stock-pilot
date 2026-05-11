@@ -2,6 +2,8 @@
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { createChart, CandlestickSeries, LineSeries, ColorType } from 'lightweight-charts'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
 const props = defineProps<{
   symbol: string
   indicators?: {
@@ -39,17 +41,12 @@ interface KLineData {
   ma60?: number | null
 }
 
-const maColorMap: Record<string, string> = {
-  ma5: '#facc15',
-  ma10: '#22c55e',
-  ma20: '#3b82f6',
-  ma30: '#a855f7',
-  ma60: '#ef4444'
-}
-
 async function fetchKLineData(): Promise<KLineData[]> {
   try {
-    const response = await fetch(`http://127.0.0.1:8000/api/history/${props.symbol}`)
+    const response = await fetch(`${API_BASE_URL}/api/history/${props.symbol}`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
     return await response.json()
   } catch (error) {
     console.error('[KLINE] Fetch error:', error)

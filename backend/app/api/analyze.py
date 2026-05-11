@@ -35,23 +35,14 @@ def analyze(req: AnalyzeRequest):
         indicators = cache.read_indicators(symbol)
         ma_series = None
 
-        if indicators is not None:
+        try:
+            history = collector.get_history(symbol)
+            cache.write_history(symbol, history)
+            indicators, ma_series = compute_indicators(history)
+            cache.write_indicators(symbol, indicators)
             history_ready = True
-            try:
-                history = collector.get_history(symbol)
-                _, ma_series = compute_indicators(history)
-            except Exception as e:
-                print(f"History reload for ma_series failed: {e}")
-
-        else:
-            try:
-                history = collector.get_history(symbol)
-                cache.write_history(symbol, history)
-                indicators, ma_series = compute_indicators(history)
-                cache.write_indicators(symbol, indicators)
-                history_ready = True
-            except Exception as e:
-                print(f"Cold path failed for {symbol}: {e}")
+        except Exception as e:
+            print(f"Cold path failed for {symbol}: {e}")
 
         result = {
             **quote,

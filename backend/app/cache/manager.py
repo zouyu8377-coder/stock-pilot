@@ -1,12 +1,13 @@
 from pathlib import Path
 import json
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 BASE_DATA_DIR = Path("data")
 HISTORY_DIR = BASE_DATA_DIR / "history"
 INDICATORS_DIR = BASE_DATA_DIR / "indicators"
+HOT_CACHE_TTL = timedelta(seconds=30)
 
 
 class CacheManager:
@@ -29,6 +30,14 @@ class CacheManager:
     def get_hot(self, symbol: str):
         item = self.hot_cache.get(symbol)
         if not item:
+            return None
+        try:
+            updated_at = datetime.fromisoformat(item["updated_at"])
+        except Exception:
+            self.hot_cache.pop(symbol, None)
+            return None
+        if datetime.utcnow() - updated_at > HOT_CACHE_TTL:
+            self.hot_cache.pop(symbol, None)
             return None
         return item["data"]
 

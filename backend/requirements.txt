@@ -5,6 +5,7 @@ pydantic-settings
 python-dotenv
 
 pandas
+pyarrow
 openai>=1.30.0
 
 redis

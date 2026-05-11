@@ -1,8 +1,11 @@
 import json
 import re
+import traceback
+from pydantic import ValidationError
+
 from app.ai.prompt_builder import build_prompt
 from app.ai.llm_client import call_llm
-from app.ai.schemas import ResearchReport
+from app.ai.schemas import ResearchReport, PriceLevel, TimeframeView
 from app.ai.formatter import format_research_report
 
 
@@ -20,12 +23,10 @@ def extract_json(text: str) -> dict:
 
     # Try to find JSON in markdown code block
     try:
-        # Remove markdown code blocks
         cleaned = re.sub(r'^```json\s*', '', text)
         cleaned = re.sub(r'^```\s*', '', cleaned)
         cleaned = re.sub(r'\s*```$', '', cleaned)
 
-        # Try to find JSON object
         match = re.search(r'\{[\s\S]*\}', cleaned)
         if match:
             return json.loads(match.group())
@@ -59,6 +60,17 @@ def extract_json(text: str) -> dict:
     return {}
 
 
+def _build_fallback(error_msg: str = "") -> dict:
+    """构建兼容新/旧结构的 fallback 响应"""
+    report = ResearchReport()
+    result = format_research_report(report)
+    result["trading_bias"] = "分析失败"
+    result["trading_advice"] = "AI返回格式异常"
+    result["risk_level"] = "高"
+    result["summary"] = f"错误: {error_msg[:50]}" if error_msg else "AI处理异常"
+    return result
+
+
 def generate_research_report(stock_data: dict) -> dict:
     prompt = build_prompt(stock_data)
 
@@ -69,39 +81,65 @@ def generate_research_report(stock_data: dict) -> dict:
         data = extract_json(raw_response)
         print(f"[PARSE] Parsed JSON keys: {list(data.keys()) if data else 'None'}")
 
-        # Validate required fields - check for new trading fields
-        required_fields = ['trading_bias', 'trading_advice', 'win_rate', 'profit_loss_ratio', 'risk_level', 'bull_score', 'bear_score']
-        missing = [f for f in required_fields if f not in data]
+        if not data:
+            print("[VALIDATION] Empty JSON extracted")
+            return _build_fallback("Empty JSON response")
 
-        if missing:
-            print(f"[VALIDATION] Missing fields: {missing}")
-            raise ValueError(f"Invalid JSON: missing {missing}")
-
-        report = ResearchReport(**data)
-        return format_research_report(report)
+        # 尝试用新 schema 解析
+        try:
+            report = ResearchReport(**data)
+            print("[VALIDATION] ResearchReport parsed successfully (new schema)")
+            return format_research_report(report)
+        except ValidationError as ve:
+            print(f"[VALIDATION] Pydantic validation failed: {ve}")
+            # 尝试修复常见字段缺失问题后重新解析
+            _patch_legacy_fields(data)
+            try:
+                report = ResearchReport(**data)
+                print("[VALIDATION] ResearchReport parsed after patching")
+                return format_research_report(report)
+            except ValidationError as ve2:
+                print(f"[VALIDATION] Second parse failed: {ve2}")
+                # 回退：手动填充默认值
+                return _build_fallback(f"Validation failed: {ve2}")
 
     except Exception as e:
-        import traceback
         print(f"[ERROR] Research generation failed: {e}")
         print(f"[ERROR] Traceback: {traceback.format_exc()}")
-        return {
-            "trading_bias": "分析失败",
-            "trading_advice": "AI返回格式异常",
-            "win_rate": 0,
-            "profit_loss_ratio": 0.0,
-            "risk_level": "高",
-            "bull_score": 0,
-            "bear_score": 0,
-            "key_drivers": ["系统错误"],
-            "sector_capital_flow": "获取失败",
-            "key_price_levels": ["未知"],
-            "short_term": "异常",
-            "medium_term": "异常",
-            "long_term": "异常",
-            "industry_analysis": "AI处理异常",
-            "risk_factors": ["系统错误"],
-            "summary": f"错误: {str(e)[:50]}"
-        }
+        return _build_fallback(str(e))
+
+
+def _patch_legacy_fields(data: dict) -> None:
+    """
+    将旧版字段映射到新版结构，以便兼容。
+    直接修改传入的 dict。
+    """
+    # key_price_levels 旧版是字符串数组，新版是对象数组
+    kpl = data.get("key_price_levels", [])
+    if kpl and isinstance(kpl, list) and len(kpl) > 0 and isinstance(kpl[0], str):
+        data["key_price_levels"] = [
+            {"price": 0, "type": "", "meaning": item}
+            for item in kpl
+        ]
+
+    # short_term / medium_term / long_term 旧版可能是字符串
+    for field in ["short_term", "medium_term", "long_term"]:
+        val = data.get(field)
+        if isinstance(val, str):
+            data[field] = {"view": val, "action": ""}
+
+    # 确保关键字段存在
+    for field in ["trade_thesis", "strategy_type", "invalid_condition", "company_alpha", "industry_beta", "market_regime"]:
+        if field not in data:
+            data[field] = ""
+
+    for field in ["confidence_score", "odds_score"]:
+        if field not in data:
+            data[field] = 50
+
+    for field in ["bullish_triggers", "bearish_triggers", "missing_data", "selected_models"]:
+        if field not in data:
+            data[field] = []
 
 
 if __name__ == "__main__":

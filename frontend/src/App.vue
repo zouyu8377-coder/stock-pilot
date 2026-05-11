@@ -4,7 +4,7 @@ import { analyzeStock, type AnalyzeResponse } from './api/client'
 import StockCard from './components/StockCard.vue'
 import DeepAnalysisPanel from './components/DeepAnalysisPanel.vue'
 import KLineChart from './components/KLineChart.vue'
-import IntradayChart from './components/IntradayChart.vue'
+import AnalysisPromptPanel from './components/AnalysisPromptPanel.vue'
 import { getSearchHistory, updateSearchHistory, type SearchHistoryItem } from './utils/searchHistory'
 
 const symbol = ref('600519')
@@ -227,7 +227,7 @@ const handleAnalyze = async () => {
             :symbol="result.stocks[0].symbol"
             :indicators="result.stocks[0].indicators"
           />
-          <IntradayChart :symbol="result.stocks[0].symbol" />
+          <AnalysisPromptPanel :symbol="result.stocks[0].symbol" />
         </div>
 
         <!-- Right Column: Fixed Width DeepAnalysisPanel -->

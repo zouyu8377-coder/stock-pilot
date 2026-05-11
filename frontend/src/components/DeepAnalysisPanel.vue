@@ -27,13 +27,61 @@ const loadCache = () => {
     try {
       const cache = JSON.parse(raw)
       if (cache && cache.data) {
-        data.value = cache.data
+        data.value = normalizeCache(cache.data)
         status.value = 'success'
         analysisTime.value = cache.formattedTime || ''
       }
     } catch {
       // ignore invalid cache
     }
+  }
+}
+
+// 兼容旧缓存：将旧字段映射到新结构
+function normalizeCache(raw: any): DeepAnalysisResult {
+  const d = raw as any
+
+  // 兼容 key_price_levels：旧版是字符串数组
+  let kpl = d.key_price_levels || []
+  if (kpl.length > 0 && typeof kpl[0] === 'string') {
+    kpl = kpl.map((item: string) => ({ price: 0, type: '', meaning: item }))
+  }
+
+  // 兼容 short/medium/long_term：旧版可能是字符串
+  function normalizeTimeframe(val: any): any {
+    if (typeof val === 'string') return { view: val, action: '' }
+    return val || { view: '', action: '' }
+  }
+
+  return {
+    trade_thesis: d.trade_thesis || '',
+    trading_bias: d.trading_bias || d.market_state || '观望',
+    strategy_type: d.strategy_type || '',
+    trading_advice: d.trading_advice || '等待分析',
+    confidence_score: d.confidence_score ?? d.win_rate ?? 50,
+    odds_score: d.odds_score ?? 50,
+    risk_level: d.risk_level || '中',
+    bull_score: d.bull_score ?? 50,
+    bear_score: d.bear_score ?? 50,
+    key_drivers: d.key_drivers || [],
+    key_price_levels: kpl,
+    invalid_condition: d.invalid_condition || '',
+    bullish_triggers: d.bullish_triggers || [],
+    bearish_triggers: d.bearish_triggers || [],
+    short_term: normalizeTimeframe(d.short_term),
+    medium_term: normalizeTimeframe(d.medium_term),
+    long_term: normalizeTimeframe(d.long_term),
+    company_alpha: d.company_alpha || '',
+    industry_beta: d.industry_beta || '',
+    industry_analysis: d.industry_analysis || '',
+    risk_factors: d.risk_factors || [],
+    missing_data: d.missing_data || [],
+    market_regime: d.market_regime || '',
+    selected_models: d.selected_models || [],
+    summary: d.summary || '',
+    sector_capital_flow: d.sector_capital_flow || '',
+    win_rate: d.win_rate,
+    profit_loss_ratio: d.profit_loss_ratio,
   }
 }
 
@@ -47,7 +95,7 @@ const startDeepAnalysis = async () => {
   try {
     const result = await deepAnalyze(props.symbol)
     if (result.success && result.data) {
-      data.value = result.data
+      data.value = normalizeCache(result.data)
       status.value = 'success'
 
       const now = new Date()
@@ -66,7 +114,7 @@ const startDeepAnalysis = async () => {
       status.value = 'error'
     }
   } catch (e: any) {
-    errorMsg.value = e.message || '网络错误'
+    errorMsg.value = e.response?.data?.detail || e.message || '网络错误'
     status.value = 'error'
   }
 }
@@ -92,6 +140,16 @@ function getDriverColor(driver: string): string {
   if (driver.startsWith('▲')) return 'text-red-500'
   if (driver.startsWith('▼')) return 'text-green-500'
   return 'text-gray-400'
+}
+
+function getTimeframeView(tf: any): string {
+  if (typeof tf === 'string') return tf
+  return tf?.view || '-'
+}
+
+function getTimeframeAction(tf: any): string {
+  if (typeof tf === 'string') return ''
+  return tf?.action || ''
 }
 </script>
 
@@ -140,14 +198,34 @@ function getDriverColor(driver: string): string {
       <template v-else-if="status === 'success' && data">
         <!-- 当前交易观点 -->
         <div class="rounded-lg bg-primary/10 p-4 border border-primary/20">
-          <h4 class="text-sm font-semibold text-foreground mb-2">当前交易观点</h4>
-          <div class="text-lg font-bold mb-3" :class="data.trading_bias.includes('多') ? 'text-red-500' : data.trading_bias.includes('空') ? 'text-green-500' : 'text-yellow-500'">
+          <div class="flex items-center gap-2 mb-2 flex-wrap">
+            <span v-if="data.market_regime"
+              class="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">
+              {{ data.market_regime }}
+            </span>
+            <span v-for="(m, i) in data.selected_models?.slice(0, 2)" :key="i"
+              class="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+              {{ m }}
+            </span>
+          </div>
+
+          <h4 class="text-sm font-semibold text-foreground mb-1">当前交易观点</h4>
+
+          <div v-if="data.trade_thesis" class="text-xs text-muted-foreground mb-2 leading-relaxed">
+            {{ data.trade_thesis }}
+          </div>
+
+          <div class="text-lg font-bold mb-2"
+            :class="data.trading_bias.includes('多') ? 'text-red-500' : data.trading_bias.includes('空') ? 'text-green-500' : 'text-yellow-500'"
+          >
             【{{ data.trading_advice }}】
           </div>
 
-          <div class="flex items-center gap-4 text-xs">
-            <span>胜率: <span class="font-semibold">{{ data.win_rate }}%</span></span>
-            <span>盈亏比: <span class="font-semibold">{{ data.profit_loss_ratio }}</span></span>
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span>偏向: <span class="font-semibold">{{ data.trading_bias }}</span></span>
+            <span v-if="data.strategy_type">策略: <span class="font-semibold">{{ data.strategy_type }}</span></span>
+            <span>信心: <span class="font-semibold">{{ data.confidence_score }}</span></span>
+            <span>赔率: <span class="font-semibold">{{ data.odds_score }}</span></span>
             <span>风险: <span :class="getRiskColor(data.risk_level)" class="font-semibold">{{ data.risk_level }}</span></span>
           </div>
         </div>
@@ -174,7 +252,7 @@ function getDriverColor(driver: string): string {
         </div>
 
         <!-- 核心驱动因素 -->
-        <div class="rounded-lg bg-secondary/20 p-3 border border-border/50">
+        <div v-if="data.key_drivers?.length" class="rounded-lg bg-secondary/20 p-3 border border-border/50">
           <h4 class="text-sm font-semibold text-foreground mb-2">核心驱动因素</h4>
           <ul class="space-y-1">
             <li v-for="(driver, idx) in data.key_drivers" :key="idx" class="text-xs flex items-start gap-1.5" :class="getDriverColor(driver)">
@@ -184,45 +262,112 @@ function getDriverColor(driver: string): string {
           </ul>
         </div>
 
+        <!-- 关键价格位（结构化） -->
+        <div v-if="data.key_price_levels?.length" class="rounded-lg bg-secondary/20 p-3 border border-border/50">
+          <h4 class="text-sm font-semibold text-foreground mb-2">关键价格位</h4>
+          <ul class="space-y-1.5">
+            <li v-for="(lvl, idx) in data.key_price_levels" :key="idx" class="text-xs flex items-center gap-2">
+              <span class="w-1.5 h-1.5 rounded-full"
+                :class="lvl.type === '支撑' ? 'bg-green-500' : lvl.type === '压力' ? 'bg-red-500' : 'bg-blue-500'"></span>
+              <span v-if="lvl.price" class="font-mono font-medium text-foreground">{{ lvl.price.toFixed(2) }}</span>
+              <span v-if="lvl.type" class="text-[10px] px-1 rounded bg-secondary text-muted-foreground">{{ lvl.type }}</span>
+              <span class="text-muted-foreground">{{ lvl.meaning }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 触发条件 -->
+        <div v-if="data.bullish_triggers?.length || data.bearish_triggers?.length"
+          class="rounded-lg bg-secondary/20 p-3 border border-border/50">
+          <h4 class="text-sm font-semibold text-foreground mb-2">触发条件</h4>
+          <div v-if="data.bullish_triggers?.length" class="mb-2">
+            <div class="text-[10px] text-red-500 mb-1">看多触发</div>
+            <ul class="space-y-1">
+              <li v-for="(t, i) in data.bullish_triggers" :key="i" class="text-xs text-muted-foreground flex items-start gap-1.5">
+                <span class="text-red-500 mt-0.5">+</span>{{ t }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="data.bearish_triggers?.length">
+            <div class="text-[10px] text-green-500 mb-1">看空触发</div>
+            <ul class="space-y-1">
+              <li v-for="(t, i) in data.bearish_triggers" :key="i" class="text-xs text-muted-foreground flex items-start gap-1.5">
+                <span class="text-green-500 mt-0.5">-</span>{{ t }}
+              </li>
+            </ul>
+          </div>
+        </div>
+
         <!-- 短线/中线/长线 -->
         <div class="grid grid-cols-3 gap-2">
           <div class="rounded-lg bg-secondary/20 p-3 border border-border/50 text-center">
             <div class="text-xs text-muted-foreground mb-1">短线</div>
-            <div class="text-sm font-semibold" :class="data.short_term.includes('多') ? 'text-red-500' : data.short_term.includes('空') ? 'text-green-500' : 'text-yellow-500'">
-              {{ data.short_term }}
+            <div class="text-sm font-semibold"
+              :class="getTimeframeView(data.short_term).includes('多') ? 'text-red-500' : getTimeframeView(data.short_term).includes('空') ? 'text-green-500' : 'text-yellow-500'"
+            >
+              {{ getTimeframeView(data.short_term) }}
+            </div>
+            <div v-if="getTimeframeAction(data.short_term)" class="text-[10px] text-muted-foreground mt-0.5">
+              {{ getTimeframeAction(data.short_term) }}
             </div>
           </div>
           <div class="rounded-lg bg-secondary/20 p-3 border border-border/50 text-center">
             <div class="text-xs text-muted-foreground mb-1">中线</div>
-            <div class="text-sm font-semibold" :class="data.medium_term.includes('多') ? 'text-red-500' : data.medium_term.includes('空') ? 'text-green-500' : 'text-yellow-500'">
-              {{ data.medium_term }}
+            <div class="text-sm font-semibold"
+              :class="getTimeframeView(data.medium_term).includes('多') ? 'text-red-500' : getTimeframeView(data.medium_term).includes('空') ? 'text-green-500' : 'text-yellow-500'"
+            >
+              {{ getTimeframeView(data.medium_term) }}
+            </div>
+            <div v-if="getTimeframeAction(data.medium_term)" class="text-[10px] text-muted-foreground mt-0.5">
+              {{ getTimeframeAction(data.medium_term) }}
             </div>
           </div>
           <div class="rounded-lg bg-secondary/20 p-3 border border-border/50 text-center">
             <div class="text-xs text-muted-foreground mb-1">长线</div>
-            <div class="text-sm font-semibold" :class="data.long_term.includes('多') ? 'text-red-500' : data.long_term.includes('空') ? 'text-green-500' : 'text-yellow-500'">
-              {{ data.long_term }}
+            <div class="text-sm font-semibold"
+              :class="getTimeframeView(data.long_term).includes('多') ? 'text-red-500' : getTimeframeView(data.long_term).includes('空') ? 'text-green-500' : 'text-yellow-500'"
+            >
+              {{ getTimeframeView(data.long_term) }}
+            </div>
+            <div v-if="getTimeframeAction(data.long_term)" class="text-[10px] text-muted-foreground mt-0.5">
+              {{ getTimeframeAction(data.long_term) }}
             </div>
           </div>
         </div>
 
-        <!-- 行业资金观察 -->
-        <div v-if="data.sector_capital_flow" class="rounded-lg bg-secondary/20 p-3 border border-border/50">
-          <h4 class="text-sm font-semibold text-foreground mb-2">行业资金观察</h4>
-          <p class="text-xs text-muted-foreground leading-relaxed">
-            {{ data.sector_capital_flow }}
-          </p>
+        <!-- Alpha / Beta 拆分 -->
+        <div v-if="data.company_alpha || data.industry_beta" class="rounded-lg bg-secondary/20 p-3 border border-border/50">
+          <h4 class="text-sm font-semibold text-foreground mb-2">Alpha / Beta 拆分</h4>
+          <div v-if="data.company_alpha" class="mb-2">
+            <div class="text-[10px] text-primary mb-0.5">公司 Alpha</div>
+            <p class="text-xs text-muted-foreground leading-relaxed">{{ data.company_alpha }}</p>
+          </div>
+          <div v-if="data.industry_beta">
+            <div class="text-[10px] text-primary mb-0.5">行业 Beta</div>
+            <p class="text-xs text-muted-foreground leading-relaxed">{{ data.industry_beta }}</p>
+          </div>
         </div>
 
-        <!-- 关键价格位 -->
-        <div v-if="data.key_price_levels?.length" class="rounded-lg bg-secondary/20 p-3 border border-border/50">
-          <h4 class="text-sm font-semibold text-foreground mb-2">关键价格位</h4>
+        <!-- 失效条件 -->
+        <div v-if="data.invalid_condition" class="rounded-lg bg-yellow-500/10 p-3 border border-yellow-500/20">
+          <h4 class="text-sm font-semibold text-yellow-400 mb-1">交易假设失效条件</h4>
+          <p class="text-xs text-muted-foreground leading-relaxed">{{ data.invalid_condition }}</p>
+        </div>
+
+        <!-- 数据缺口 -->
+        <div v-if="data.missing_data?.length" class="rounded-lg bg-blue-500/10 p-3 border border-blue-500/20">
+          <h4 class="text-sm font-semibold text-blue-400 mb-2">数据缺口</h4>
           <ul class="space-y-1">
-            <li v-for="(level, idx) in data.key_price_levels" :key="idx" class="text-xs text-muted-foreground flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-              {{ level }}
+            <li v-for="(item, idx) in data.missing_data" :key="idx" class="text-xs text-muted-foreground flex items-start gap-1.5">
+              <span class="text-blue-500 mt-0.5">?</span>{{ item }}
             </li>
           </ul>
+        </div>
+
+        <!-- 行业资金观察（兼容旧字段） -->
+        <div v-if="data.sector_capital_flow" class="rounded-lg bg-secondary/20 p-3 border border-border/50">
+          <h4 class="text-sm font-semibold text-foreground mb-2">行业资金观察</h4>
+          <p class="text-xs text-muted-foreground leading-relaxed">{{ data.sector_capital_flow }}</p>
         </div>
 
         <!-- 风险提示 -->
@@ -238,9 +383,7 @@ function getDriverColor(driver: string): string {
 
         <!-- 总结 -->
         <div v-if="data.summary" class="rounded-lg bg-primary/5 p-3 border border-primary/10">
-          <p class="text-xs text-foreground/80 leading-relaxed">
-            {{ data.summary }}
-          </p>
+          <p class="text-xs text-foreground/80 leading-relaxed">{{ data.summary }}</p>
         </div>
       </template>
     </div>

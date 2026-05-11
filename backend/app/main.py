@@ -5,6 +5,7 @@ import asyncio
 from app.api.analyze import router as analyze_router
 from app.api.history import router as history_router
 from app.api.deep_analyze import router as deep_analyze_router
+from app.core.config import settings
 
 app = FastAPI(
     title="Stock Copilot API",
@@ -14,7 +15,7 @@ app = FastAPI(
 # 允许前端访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
