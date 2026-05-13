@@ -5,6 +5,8 @@ import asyncio
 from app.api.analyze import router as analyze_router
 from app.api.history import router as history_router
 from app.api.deep_analyze import router as deep_analyze_router
+from app.api.system import router as system_router
+from app.api.search import router as search_router
 from app.core.config import settings
 
 app = FastAPI(
@@ -25,6 +27,8 @@ app.add_middleware(
 app.include_router(analyze_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(deep_analyze_router, prefix="/api")
+app.include_router(system_router, prefix="/api")
+app.include_router(search_router, prefix="/api")
 
 
 @app.on_event("startup")

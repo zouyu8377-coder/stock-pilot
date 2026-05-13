@@ -4,7 +4,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000
 
 const client = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000,
+  timeout: 210000,
 })
 
 export interface PriceLevel {
@@ -58,6 +58,16 @@ export interface DeepAnalysisResult {
   // 风险与数据缺口
   risk_factors: string[]
   missing_data: string[]
+  data_coverage?: {
+    provided?: Array<Record<string, any>>
+    missing?: Array<{
+      key: string
+      label: string
+      reason?: string
+      possible_sources?: string[]
+    }>
+    missing_labels?: string[]
+  }
 
   // 交易环境
   market_regime: string
@@ -65,6 +75,7 @@ export interface DeepAnalysisResult {
 
   // 总结
   summary: string
+  is_fallback?: boolean
 
   // 兼容旧字段
   sector_capital_flow?: string

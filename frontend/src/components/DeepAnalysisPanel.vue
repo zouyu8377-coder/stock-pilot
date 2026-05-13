@@ -27,6 +27,10 @@ const loadCache = () => {
     try {
       const cache = JSON.parse(raw)
       if (cache && cache.data) {
+        if (isFallbackAnalysis(cache.data)) {
+          localStorage.removeItem(cacheKey)
+          return
+        }
         data.value = normalizeCache(cache.data)
         status.value = 'success'
         analysisTime.value = cache.formattedTime || ''
@@ -35,6 +39,14 @@ const loadCache = () => {
       // ignore invalid cache
     }
   }
+}
+
+function isFallbackAnalysis(value: any): boolean {
+  return Boolean(
+    value?.is_fallback ||
+    value?.trading_advice === 'AI返回格式异常' ||
+    value?.trading_bias === '分析失败'
+  )
 }
 
 // 兼容旧缓存：将旧字段映射到新结构
@@ -76,9 +88,11 @@ function normalizeCache(raw: any): DeepAnalysisResult {
     industry_analysis: d.industry_analysis || '',
     risk_factors: d.risk_factors || [],
     missing_data: d.missing_data || [],
+    data_coverage: d.data_coverage,
     market_regime: d.market_regime || '',
     selected_models: d.selected_models || [],
     summary: d.summary || '',
+    is_fallback: d.is_fallback || false,
     sector_capital_flow: d.sector_capital_flow || '',
     win_rate: d.win_rate,
     profit_loss_ratio: d.profit_loss_ratio,
@@ -95,6 +109,11 @@ const startDeepAnalysis = async () => {
   try {
     const result = await deepAnalyze(props.symbol)
     if (result.success && result.data) {
+      if (isFallbackAnalysis(result.data)) {
+        errorMsg.value = result.data.summary || result.data.trading_advice || 'AI分析失败'
+        status.value = 'error'
+        return
+      }
       data.value = normalizeCache(result.data)
       status.value = 'success'
 
@@ -359,7 +378,16 @@ function getTimeframeAction(tf: any): string {
           <h4 class="text-sm font-semibold text-blue-400 mb-2">数据缺口</h4>
           <ul class="space-y-1">
             <li v-for="(item, idx) in data.missing_data" :key="idx" class="text-xs text-muted-foreground flex items-start gap-1.5">
-              <span class="text-blue-500 mt-0.5">?</span>{{ item }}
+              <span class="text-blue-500 mt-0.5">?</span>
+              <span>
+                {{ item }}
+                <span
+                  v-if="data.data_coverage?.missing?.find((x) => x.label === item)?.possible_sources?.length"
+                  class="text-muted-foreground/60"
+                >
+                  · 可补：{{ data.data_coverage?.missing?.find((x) => x.label === item)?.possible_sources?.join('、') }}
+                </span>
+              </span>
             </li>
           </ul>
         </div>

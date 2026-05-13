@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 BASE_DATA_DIR = Path("data")
 HISTORY_DIR = BASE_DATA_DIR / "history"
 INDICATORS_DIR = BASE_DATA_DIR / "indicators"
+DEEP_ANALYSIS_DIR = BASE_DATA_DIR / "deep_analysis"
 HOT_CACHE_TTL = timedelta(seconds=30)
 
 
@@ -20,6 +21,7 @@ class CacheManager:
 
         HISTORY_DIR.mkdir(parents=True, exist_ok=True)
         INDICATORS_DIR.mkdir(parents=True, exist_ok=True)
+        DEEP_ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
 
     def set_hot(self, symbol: str, data: dict):
         self.hot_cache[symbol] = {
@@ -82,6 +84,31 @@ class CacheManager:
 
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
+
+    def _deep_analysis_path(self, symbol: str):
+        return DEEP_ANALYSIS_DIR / f"{symbol}.json"
+
+    def write_deep_analysis(self, symbol: str, result: dict):
+        payload = {
+            "updated_at": datetime.utcnow().isoformat(),
+            "data": result,
+        }
+        with open(self._deep_analysis_path(symbol), "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    def read_deep_analysis(self, symbol: str, max_age: timedelta):
+        path = self._deep_analysis_path(symbol)
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            updated_at = datetime.fromisoformat(payload["updated_at"])
+        except Exception:
+            return None
+        if datetime.utcnow() - updated_at > max_age:
+            return None
+        return payload.get("data")
 
 
 cache = CacheManager()

@@ -55,7 +55,9 @@ backend/data/base_market/
 backend/data/cache/
 backend/data/history/
 backend/data/indicators/
+backend/data/deep_analysis/
 backend/data/metadata/
+backend/data/*.lock
 *.parquet
 
 # Logs

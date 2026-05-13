@@ -54,9 +54,47 @@ export interface AnalyzeResponse {
   stocks: Stock[]
 }
 
+export interface ColdDataStatus {
+  status: string
+  provider: string
+  target_date: string
+  last_trading_date: string | null
+  completed_count: number
+  failed_count: number
+  total_symbols: number
+  remaining_count: number
+  processed_count: number
+  current_symbol?: string | null
+  progress: number
+  updated_at?: string | null
+  failure_reasons: Record<string, number>
+}
+
+export interface StockSearchItem {
+  symbol: string
+  name: string
+  industry?: string
+  area?: string
+}
+
 export async function analyzeStock(symbol: string): Promise<AnalyzeResponse> {
   const response = await client.post<AnalyzeResponse>('/api/analyze', {
     symbols: [symbol],
   })
   return response.data
+}
+
+export async function getColdDataStatus(): Promise<ColdDataStatus> {
+  const response = await client.get<ColdDataStatus>('/api/system/cold-data-status')
+  return response.data
+}
+
+export async function searchStocks(query: string, limit = 20): Promise<StockSearchItem[]> {
+  const response = await client.get<{ items: StockSearchItem[] }>('/api/stocks/search', {
+    params: {
+      q: query,
+      limit,
+    },
+  })
+  return response.data.items
 }

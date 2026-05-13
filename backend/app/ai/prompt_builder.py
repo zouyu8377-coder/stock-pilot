@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping, Sequence
 
 from app.ai.templates.generic import GENERIC_TEMPLATE
 from app.ai.templates.baijiu import BAIJIU_TEMPLATE
@@ -16,6 +17,23 @@ from app.strategy.models import (
     get_alpha_beta_model_rules,
     get_risk_reward_model_rules,
 )
+
+
+def _compact_for_prompt(value, max_items: int = 8):
+    if isinstance(value, Mapping):
+        return {k: _compact_for_prompt(v, max_items) for k, v in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        items = list(value)
+        if len(items) <= max_items:
+            return [_compact_for_prompt(v, max_items) for v in items]
+        head = [_compact_for_prompt(v, max_items) for v in items[:3]]
+        tail = [_compact_for_prompt(v, max_items) for v in items[-3:]]
+        return {
+            "summary": f"sequence omitted, length={len(items)}",
+            "head": head,
+            "tail": tail,
+        }
+    return value
 
 
 def _select_template(industry: str | None) -> str:
@@ -111,6 +129,32 @@ def _format_model_rules(selected_models: list[str]) -> str:
     return "\n".join(sections)
 
 
+def _format_data_coverage(data_coverage: dict | None) -> str:
+    if not data_coverage:
+        return "未提供数据覆盖度检查。"
+
+    lines = ["已覆盖数据："]
+    provided = data_coverage.get("provided", [])
+    if provided:
+        for item in provided:
+            lines.append(f"- {item.get('label', '')}: 已覆盖（来源：{item.get('source', '')}）")
+    else:
+        lines.append("- 无")
+
+    lines.append("")
+    lines.append("仍缺失数据：")
+    missing = data_coverage.get("missing", [])
+    if missing:
+        for item in missing:
+            sources = "、".join(item.get("possible_sources", []))
+            suffix = f"；可补来源：{sources}" if sources else ""
+            lines.append(f"- {item.get('label', '')}: {item.get('reason', '')}{suffix}")
+    else:
+        lines.append("- 无")
+
+    return "\n".join(lines)
+
+
 def build_prompt(stock_data: dict) -> str:
     name = stock_data.get("name", "")
     symbol = stock_data.get("symbol", "")
@@ -121,15 +165,17 @@ def build_prompt(stock_data: dict) -> str:
     analysis = stock_data.get("analysis", {})
     company_profile: CompanyProfile | None = stock_data.get("company_profile")
     strategy_context: StrategyContext | None = stock_data.get("strategy_context")
+    data_coverage = stock_data.get("data_coverage")
 
     template = _select_template(industry)
     factors_str = _format_factors(industry)
     profile_str = _format_company_profile(company_profile)
     strategy_str = _format_strategy_context(strategy_context)
     model_rules_str = _format_model_rules(strategy_context.selected_models if strategy_context else [])
+    data_coverage_str = _format_data_coverage(data_coverage)
 
-    indicators_str = json.dumps(indicators, ensure_ascii=False, indent=2)
-    analysis_str = json.dumps(analysis, ensure_ascii=False, indent=2)
+    indicators_str = json.dumps(_compact_for_prompt(indicators), ensure_ascii=False, indent=2)
+    analysis_str = json.dumps(_compact_for_prompt(analysis), ensure_ascii=False, indent=2)
 
     profile_section = f"""
 ## 公司画像
@@ -183,6 +229,9 @@ def build_prompt(stock_data: dict) -> str:
 
 {model_rules_section}
 
+## 数据覆盖度检查（系统生成，必须遵守）
+{data_coverage_str}
+
 ## 技术指标
 {indicators_str}
 
@@ -230,32 +279,33 @@ def build_prompt(stock_data: dict) -> str:
 ## 输出要求
 
 生成严格JSON，字段如下：
+性能约束：输出必须精简，整体控制在 1800 个中文字符以内；不要展开长段解释。
 
-1. trade_thesis: 当前市场正在交易的核心假设（80字以内）
+1. trade_thesis: 当前市场正在交易的核心假设（60字以内）
 2. trading_bias: 交易偏向，如"偏多震荡"/"偏空震荡"/"趋势主升"/"高位分歧"/"观望"（15字以内）
 3. strategy_type: 适合的策略类型，如"回调低吸"/"趋势持有"/"箱体交易"/"事件博弈"/"只观察不参与"（15字以内）
-4. trading_advice: 一句交易建议，必须短，不超过50字
+4. trading_advice: 一句交易建议，必须短，不超过35字
 5. confidence_score: 主观信心评分，0-100整数
 6. odds_score: 赔率评分，0-100整数
 7. risk_level: 风险等级，"低"/"中"/"高"
 8. bull_score: 多头评分，0-100整数
 9. bear_score: 空头评分，0-100整数
-10. key_drivers: 核心驱动因素（数组，最多6项，每项24字以内，▲开头=利多，▼开头=利空）
-11. key_price_levels: 关键价格位（数组，对象格式，每项包含 price/type/meaning，meaning不超过24字）
-12. invalid_condition: 交易假设失效条件（80字以内）
-13. bullish_triggers: 看多触发条件（数组，最多3项，每项24字以内）
-14. bearish_triggers: 看空触发条件（数组，最多3项，每项24字以内）
-15. short_term: 短线判断，对象格式 {{"view": "...", "action": "..."}}
-16. medium_term: 中线判断，对象格式 {{"view": "...", "action": "..."}}
-17. long_term: 长线判断，对象格式 {{"view": "...", "action": "..."}}
-18. company_alpha: 公司自身逻辑（80字以内）
-19. industry_beta: 行业/板块逻辑（80字以内）
-20. industry_analysis: 行业分析（100字以内）
-21. risk_factors: 风险因素（数组，最多3项，每项24字以内）
-22. missing_data: 缺失数据（数组，每项20字以内）
+10. key_drivers: 核心驱动因素（数组，最多4项，每项18字以内，▲开头=利多，▼开头=利空）
+11. key_price_levels: 关键价格位（数组，最多3项；对象格式，包含 price/type/meaning，meaning不超过16字）
+12. invalid_condition: 交易假设失效条件（45字以内）
+13. bullish_triggers: 看多触发条件（数组，最多2项，每项18字以内）
+14. bearish_triggers: 看空触发条件（数组，最多2项，每项18字以内）
+15. short_term: 短线判断，对象格式 {{"view": "...", "action": "..."}}，每项20字以内
+16. medium_term: 中线判断，对象格式 {{"view": "...", "action": "..."}}，每项20字以内
+17. long_term: 长线判断，对象格式 {{"view": "...", "action": "..."}}，每项20字以内
+18. company_alpha: 公司自身逻辑（45字以内）
+19. industry_beta: 行业/板块逻辑（45字以内）
+20. industry_analysis: 行业分析（60字以内）
+21. risk_factors: 风险因素（数组，最多2项，每项18字以内）
+22. missing_data: 缺失数据（数组，只能从“数据覆盖度检查”的“仍缺失数据”标签中选择，不得自行新增；每项20字以内）
 23. market_regime: 交易环境（如"趋势主升"）
 24. selected_models: 采用的模型（字符串数组）
-25. summary: 总结（100字以内）
+25. summary: 总结（60字以内）
 
 ---
 
@@ -285,12 +335,14 @@ def build_human_prompt(stock_data: dict) -> str:
     analysis = stock_data.get("analysis", {})
     company_profile: CompanyProfile | None = stock_data.get("company_profile")
     strategy_context: StrategyContext | None = stock_data.get("strategy_context")
+    data_coverage = stock_data.get("data_coverage")
 
     template = _select_template(industry)
     factors_str = _format_factors(industry)
     profile_str = _format_company_profile(company_profile)
     strategy_str = _format_strategy_context(strategy_context)
     model_rules_str = _format_model_rules(strategy_context.selected_models if strategy_context else [])
+    data_coverage_str = _format_data_coverage(data_coverage)
 
     # 将技术指标格式化为可读列表
     indicators_lines = []
@@ -337,6 +389,9 @@ def build_human_prompt(stock_data: dict) -> str:
 {strategy_section}
 
 {model_rules_section}
+
+## 数据覆盖度检查（系统生成）
+{data_coverage_str}
 
 ## 技术指标
 {indicators_text}
@@ -422,7 +477,7 @@ def build_human_prompt(stock_data: dict) -> str:
 - 什么信号出现说明当前假设不再成立
 
 ### 10. 数据缺口
-- 哪些关键信息缺失，可能影响判断
+- 只能列出“数据覆盖度检查”中“仍缺失数据”的项目，不要自行新增缺口
 
 ### 11. 风险提示
 - 最多 3 项主要风险

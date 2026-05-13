@@ -53,11 +53,13 @@ def format_research_report(report: ResearchReport) -> dict:
 
         "risk_factors": report.risk_factors,
         "missing_data": report.missing_data,
+        "data_coverage": {},
 
         "market_regime": report.market_regime,
         "selected_models": report.selected_models,
 
         "summary": report.summary,
+        "is_fallback": False,
 
         # 兼容旧字段
         "sector_capital_flow": report.sector_capital_flow,
