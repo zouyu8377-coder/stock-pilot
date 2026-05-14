@@ -1,5 +1,5 @@
 # Stock-Pilot
-
+面向个人投资者的辅助分析工具，目标不是替代投资决策，而是把行情、技术指标、行业因子、规则分析和 LLM 研报生成整合到一个工作流里，帮助用户更快完成个股初筛与复盘。
 ## Demo
 
 ![Stock-Pilot workflow](docs/assets/stock-pilot-flow.gif)
