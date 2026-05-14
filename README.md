@@ -1,5 +1,9 @@
 # Stock-Pilot
 
+## Demo
+
+![Stock-Pilot workflow](docs/assets/stock-pilot-flow.gif)
+
 A 股智能分析助手 —— 输入股票代码，实时获取行情与历史数据，自动计算技术指标，调用 LLM 生成专业投资分析。
 
 ## 项目架构

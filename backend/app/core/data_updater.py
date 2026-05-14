@@ -15,6 +15,7 @@ import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 BASE_MARKET_DIR = BASE_DIR / "data" / "base_market"
+METADATA_FILE = BASE_DIR / "data" / "metadata" / "stock_meta.parquet"
 STATUS_FILE = BASE_DIR / "data" / "update_status.json"
 UPDATE_LOCK_FILE = BASE_DIR / "data" / "update_worker.lock"
 
@@ -109,6 +110,51 @@ def _clear_stale_update_lock() -> bool:
 
 def extract_symbol(path: Path) -> str:
     return path.stem
+
+
+def _ts_code_to_baostock_symbol(ts_code: str) -> str | None:
+    text = str(ts_code).strip()
+    if not text or "." not in text:
+        return None
+
+    code, exchange = text.split(".", 1)
+    exchange = exchange.lower()
+    if exchange == "sh":
+        return f"sh.{code}"
+    if exchange == "sz":
+        return f"sz.{code}"
+    return None
+
+
+def _load_active_symbols() -> set[str]:
+    if not METADATA_FILE.exists():
+        print(f"[DataUpdater] Metadata file not found, using all local market files: {METADATA_FILE}")
+        return set()
+
+    try:
+        meta = pd.read_parquet(METADATA_FILE, columns=["ts_code"])
+    except Exception as e:
+        print(f"[DataUpdater] Failed to load metadata, using all local market files: {e}")
+        return set()
+
+    symbols = {
+        symbol
+        for symbol in (_ts_code_to_baostock_symbol(value) for value in meta["ts_code"].dropna())
+        if symbol
+    }
+    print(f"[DataUpdater] Active symbols from metadata: {len(symbols)}")
+    return symbols
+
+
+def _market_files(active_symbols: set[str] | None = None) -> list[Path]:
+    files = sorted(BASE_MARKET_DIR.glob("*.parquet"))
+    if active_symbols:
+        files = [
+            path
+            for path in files
+            if extract_symbol(path) in active_symbols
+        ]
+    return files
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -212,7 +258,8 @@ def check_update_status(target_date: date) -> tuple[bool, list[str], int]:
     if not BASE_MARKET_DIR.exists():
         return False, [], 0
 
-    files = sorted(BASE_MARKET_DIR.glob("*.parquet"))
+    active_symbols = _load_active_symbols()
+    files = _market_files(active_symbols)
     total = len(files)
     outdated = [
         extract_symbol(path)
@@ -255,7 +302,7 @@ def update_single_symbol(path: Path, target_date: date) -> tuple[bool, str | Non
 def _market_files_for_symbols(symbols: set[str]) -> list[Path]:
     return [
         path
-        for path in sorted(BASE_MARKET_DIR.glob("*.parquet"))
+        for path in _market_files()
         if extract_symbol(path) in symbols
     ]
 
