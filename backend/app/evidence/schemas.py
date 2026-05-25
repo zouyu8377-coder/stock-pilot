@@ -65,6 +65,8 @@ class EvidenceType(str, Enum):
     ANNOUNCEMENT_EXCERPT_MANUAL = "announcement_excerpt_manual"
     SURVEY_EXCERPT_MANUAL = "survey_excerpt_manual"
     MACRO_OBSERVATION_MANUAL = "macro_observation_manual"
+    EXTERNAL_DRIVER_FACT = "external_driver_fact"
+    EXTERNAL_DRIVER_SIGNAL = "external_driver_signal"
 
 
 class EvidenceItem(BaseModel):

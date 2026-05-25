@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -79,11 +80,26 @@ def _fake_stock_snapshot(symbol: str, user_question=None, persist=True):
     )
 
 
+def _unmapped_external_context(symbol: str, primary_theme=None):
+    return SimpleNamespace(
+        mapping_status="not_configured",
+        profile_id="DEFAULT_UNMAPPED_V1",
+        symbol=symbol,
+        message="当前未为该标的配置专属外部驱动因子。系统仅保留个股自身证据，不自动附加商品、汇率或板块驱动。",
+        future_extension="可在后续根据行业、主题或用户观察需求新增映射。",
+        drivers=[],
+        boundary="External-driver mapping is a product configuration used to select observation variables.",
+        evidence=[],
+        missing_data=[],
+    )
+
+
 def test_single_stock_packet_without_holding_has_manual_account_boundary(tmp_path, monkeypatch):
     service = PortfolioService(root=tmp_path / "portfolio")
     service.save_snapshot(PortfolioSnapshotInput(cash_available=1000, positions=[]))
     monkeypatch.setattr(packet_service, "portfolio_service", service)
     monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+    monkeypatch.setattr(packet_service, "build_external_driver_context", _unmapped_external_context)
     monkeypatch.setattr(packet_service.settings, "ANALYSIS_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
 
     result = packet_service.build_single_stock_packet("600000", persist=True)
@@ -147,6 +163,7 @@ def test_single_stock_packet_includes_holding_and_only_selected_manual_evidence(
     ))
     monkeypatch.setattr(packet_service, "portfolio_service", service)
     monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+    monkeypatch.setattr(packet_service, "build_external_driver_context", _unmapped_external_context)
 
     result = packet_service.build_single_stock_packet("600000", persist=False)
 
@@ -165,6 +182,7 @@ def test_portfolio_packet_keeps_primary_theme_unique_and_risk_tags_non_additive(
     monkeypatch.setattr(packet_service, "get_dragon_tiger_facts", lambda symbol: {"data_status": "unavailable", "evidence": []})
     monkeypatch.setattr(packet_service, "get_disclosure_facts", lambda symbol: {"data_status": "unavailable", "evidence": []})
     monkeypatch.setattr(packet_service, "get_etf_facts", lambda symbol: {"data_status": "unavailable", "evidence": []})
+    monkeypatch.setattr(packet_service, "build_external_driver_context", _unmapped_external_context)
     service = PortfolioService(root=tmp_path / "portfolio")
     service.save_snapshot(PortfolioSnapshotInput(
         cash_available=500,
@@ -232,6 +250,7 @@ def test_manual_evidence_include_update_controls_packet_export(tmp_path, monkeyp
     updated = service.update_manual_evidence_include(record.evidence_id, False)
     monkeypatch.setattr(packet_service, "portfolio_service", service)
     monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+    monkeypatch.setattr(packet_service, "build_external_driver_context", _unmapped_external_context)
 
     result = packet_service.build_single_stock_packet("600000", persist=False)
 
@@ -245,6 +264,7 @@ def test_etf_unavailable_status_enters_single_packet_when_no_token(tmp_path, mon
     service.save_snapshot(PortfolioSnapshotInput(cash_available=1000, positions=[]))
     monkeypatch.setattr(packet_service, "portfolio_service", service)
     monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+    monkeypatch.setattr(packet_service, "build_external_driver_context", _unmapped_external_context)
     monkeypatch.setattr(packet_service, "get_etf_facts", lambda symbol: {
         "success": False,
         "symbol": symbol,
@@ -267,7 +287,90 @@ def test_packet_markdown_has_no_mojibake_markers(tmp_path, monkeypatch):
     service.save_snapshot(PortfolioSnapshotInput(cash_available=1000, positions=[]))
     monkeypatch.setattr(packet_service, "portfolio_service", service)
     monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+    monkeypatch.setattr(packet_service, "build_external_driver_context", _unmapped_external_context)
 
     result = packet_service.build_single_stock_packet("600000", persist=False)
 
     assert not packet_service.has_mojibake(result["markdown"])
+
+
+def test_unmapped_symbol_gets_explicit_external_driver_default(tmp_path, monkeypatch):
+    service = PortfolioService(root=tmp_path / "portfolio")
+    service.save_snapshot(PortfolioSnapshotInput(cash_available=1000, positions=[]))
+    monkeypatch.setattr(packet_service, "portfolio_service", service)
+    monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+
+    result = packet_service.build_single_stock_packet("600000", persist=False)
+
+    mapping = result["packet"]["external_driver_mapping"]
+    assert mapping["mapping_status"] == "not_configured"
+    assert mapping["profile_id"] == "DEFAULT_UNMAPPED_V1"
+    assert mapping["drivers"] == []
+    assert "不自动附加商品、汇率或板块驱动" in mapping["message"]
+    assert not [item for item in result["packet"]["auto_fact"] if item.get("evidence_type") == "external_driver_fact"]
+
+
+def test_configured_external_driver_enters_fact_and_signal_layers(tmp_path, monkeypatch):
+    fetched_at = datetime(2026, 5, 24, 11, 0, 0).isoformat()
+
+    def configured_context(symbol: str, primary_theme=None):
+        return SimpleNamespace(
+            mapping_status="configured",
+            profile_id="ZIJIN_RESOURCE_METALS_V1",
+            symbol="601899.SH",
+            message="configured",
+            future_extension="extend later",
+            drivers=[{"factor_id": "copper_futures", "factor_type": "commodity"}],
+            boundary="Mapping selects observation variables only.",
+            evidence=[
+                {
+                    "evidence_id": "ev_ext_fact",
+                    "symbol": "601899.SH",
+                    "evidence_type": "external_driver_fact",
+                    "category": "auto_fact",
+                    "title": "External driver fact: Copper futures daily price",
+                    "payload": {"factor_id": "copper_futures", "close": 80000, "returns_pct": {"1d": 1.2}},
+                    "source": "tushare.fut_daily",
+                    "source_endpoint": "fut_daily",
+                    "as_of_date": "2026-05-22",
+                    "fetched_at": fetched_at,
+                    "reliability": "B",
+                    "llm_usage": "fact_with_limit",
+                    "interpretation_limit": "background only",
+                    "freshness_days": 2,
+                    "data_status": "available",
+                },
+                {
+                    "evidence_id": "ev_ext_signal",
+                    "symbol": "601899.SH",
+                    "evidence_type": "external_driver_signal",
+                    "category": "auto_signal",
+                    "title": "External driver derived changes: Copper futures daily price",
+                    "payload": {"factor_id": "copper_futures", "returns_pct": {"1d": 1.2}},
+                    "source": "tushare.fut_daily",
+                    "source_endpoint": "fut_daily",
+                    "as_of_date": "2026-05-22",
+                    "fetched_at": fetched_at,
+                    "reliability": "C",
+                    "llm_usage": "weak_signal_only",
+                    "interpretation_limit": "weak context only",
+                    "freshness_days": 2,
+                    "data_status": "available",
+                },
+            ],
+            missing_data=[],
+        )
+
+    service = PortfolioService(root=tmp_path / "portfolio")
+    service.save_snapshot(PortfolioSnapshotInput(cash_available=1000, positions=[]))
+    monkeypatch.setattr(packet_service, "portfolio_service", service)
+    monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+    monkeypatch.setattr(packet_service, "build_external_driver_context", configured_context)
+
+    result = packet_service.build_single_stock_packet("601899", persist=False)
+
+    assert result["packet"]["external_driver_mapping"]["profile_id"] == "ZIJIN_RESOURCE_METALS_V1"
+    assert any(item.get("evidence_type") == "external_driver_fact" for item in result["packet"]["auto_fact"])
+    signals = [item for item in result["packet"]["auto_signal"] if item.get("evidence_type") == "external_driver_signal"]
+    assert signals
+    assert signals[0]["llm_usage"] == "weak_signal_only"

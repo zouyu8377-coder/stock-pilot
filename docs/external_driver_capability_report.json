@@ -1,0 +1,111 @@
+{
+  "report_version": "external_driver_capability.v1",
+  "generated_at": "2026-05-25",
+  "environment": {
+    "tushare_token_configured": false,
+    "note": "Token not configured in this environment; structure verified via unit tests and code paths."
+  },
+  "factors": [
+    {
+      "factor_id": "copper_futures",
+      "endpoint": "fut_daily",
+      "provider_code": "CU.SHF",
+      "status": "UNAVAILABLE",
+      "packet_verified": true,
+      "verification_method": "unit_test_with_mock",
+      "limitation": "Token not configured; structure verified via unit test"
+    },
+    {
+      "factor_id": "gold_futures",
+      "endpoint": "fut_daily",
+      "provider_code": null,
+      "status": "PENDING_PROBE",
+      "packet_verified": false,
+      "verification_method": "none",
+      "limitation": "Provider code for gold futures not yet verified"
+    },
+    {
+      "factor_id": "usd_cnh",
+      "endpoint": "fx_daily",
+      "provider_code": "USDCNH.FXCM",
+      "status": "UNAVAILABLE",
+      "packet_verified": true,
+      "verification_method": "unit_test_with_mock",
+      "limitation": "Token not configured; structure verified via unit test"
+    },
+    {
+      "factor_id": "ai_theme_etf_159382",
+      "endpoint": "etf_share_size,fund_nav,fund_daily",
+      "provider_code": "159382.SZ",
+      "status": "UNAVAILABLE",
+      "packet_verified": true,
+      "verification_method": "unit_test_with_mock",
+      "limitation": "Token not configured; structure verified via unit test"
+    },
+    {
+      "factor_id": "gold_etf_159934",
+      "endpoint": "etf_share_size,fund_nav,fund_daily",
+      "provider_code": "159934.SZ",
+      "status": "UNAVAILABLE",
+      "packet_verified": true,
+      "verification_method": "unit_test_with_mock",
+      "limitation": "Token not configured; structure verified via unit test"
+    },
+    {
+      "factor_id": "pcb_sector_index_placeholder",
+      "endpoint": "not_configured",
+      "provider_code": null,
+      "status": "UNSUPPORTED_PLACEHOLDER",
+      "packet_verified": false,
+      "verification_method": "none",
+      "limitation": "No verified sector-index provider code configured"
+    },
+    {
+      "factor_id": "tungsten_price_placeholder",
+      "endpoint": "not_configured",
+      "provider_code": null,
+      "status": "UNSUPPORTED_PLACEHOLDER",
+      "packet_verified": false,
+      "verification_method": "none",
+      "limitation": "No verified tungsten price provider code configured"
+    },
+    {
+      "factor_id": "tin_price_placeholder",
+      "endpoint": "not_configured",
+      "provider_code": null,
+      "status": "UNSUPPORTED_PLACEHOLDER",
+      "packet_verified": false,
+      "verification_method": "none",
+      "limitation": "No verified tin price provider code configured"
+    },
+    {
+      "factor_id": "cobalt_moly_price_placeholder",
+      "endpoint": "not_configured",
+      "provider_code": null,
+      "status": "UNSUPPORTED_PLACEHOLDER",
+      "packet_verified": false,
+      "verification_method": "none",
+      "limitation": "No verified cobalt/molybdenum provider code configured"
+    },
+    {
+      "factor_id": "resource_sector_index_placeholder",
+      "endpoint": "not_configured",
+      "provider_code": null,
+      "status": "UNSUPPORTED_PLACEHOLDER",
+      "packet_verified": false,
+      "verification_method": "none",
+      "limitation": "No verified resource sector index provider code configured"
+    }
+  ],
+  "profile_coverage": [
+    {"symbol": "601899.SH", "profile_id": "ZIJIN_RESOURCE_METALS_V1", "configured": ["copper_futures", "usd_cnh", "gold_etf_159934"], "pending": ["gold_futures"]},
+    {"symbol": "603993.SH", "profile_id": "LUOMO_RESOURCE_METALS_V1", "configured": ["copper_futures", "usd_cnh"], "pending": ["cobalt_moly_price_placeholder", "resource_sector_index_placeholder"]},
+    {"symbol": "000960.SZ", "profile_id": "XIYAN_TIN_RESOURCE_V1", "configured": ["usd_cnh"], "pending": ["tin_price_placeholder", "resource_sector_index_placeholder"]},
+    {"symbol": "159934.SZ", "profile_id": "GOLD_ETF_SELF_V1", "configured": ["gold_etf_159934"], "pending": []},
+    {"symbol": "002463.SZ", "profile_id": "AI_PCB_HARDWARE_V1", "configured": ["ai_theme_etf_159382"], "pending": ["pcb_sector_index_placeholder"]},
+    {"symbol": "002916.SZ", "profile_id": "AI_PCB_HARDWARE_V1", "configured": ["ai_theme_etf_159382"], "pending": ["pcb_sector_index_placeholder"]},
+    {"symbol": "159382.SZ", "profile_id": "AI_THEME_ETF_SELF_V1", "configured": ["ai_theme_etf_159382"], "pending": []},
+    {"symbol": "000657.SZ", "profile_id": "ZHONGWU_RESOURCE_AI_PCB_V1", "configured": ["copper_futures", "ai_theme_etf_159382"], "pending": ["tungsten_price_placeholder", "pcb_sector_index_placeholder"]},
+    {"symbol": "600000.SH", "profile_id": "DEFAULT_UNMAPPED_V1", "configured": [], "pending": []}
+  ]
+}

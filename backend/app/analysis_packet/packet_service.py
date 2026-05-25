@@ -10,6 +10,7 @@ from app.analysis_packet.snapshot_builder import build_basic_stock_snapshot
 from app.core.config import settings
 from app.evidence.schemas import AnalysisSnapshot, EvidenceCategory, EvidenceItem
 from app.evidence.schemas import AnalysisScope, DataStatus, EvidenceReliability, EvidenceType, LlmUsage
+from app.external_drivers import build_external_driver_context
 from app.facts.common import to_ts_code
 from app.facts.disclosure_service import get_disclosure_facts
 from app.facts.dragon_tiger_service import get_dragon_tiger_facts
@@ -31,7 +32,8 @@ GLOBAL_BOUNDARIES = [
     "Automatic unlock event data is not available in this stage.",
     "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
     "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
-    "Moneyflow, margin financing, sector baskets, FX, futures, backtesting, and broker sync are not included in this stage.",
+    "Moneyflow, margin financing, backtesting, and broker sync are not included in this stage.",
+    "External commodity, FX, ETF, or sector drivers are attached only when a reviewed symbol mapping exists; unmapped symbols do not receive generic macro factors.",
     "Manual account data uses the user's local snapshot time and may be stale.",
     "Realtime quote data and low-frequency facts may have different timestamps.",
     "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
@@ -102,6 +104,87 @@ def _evidence_dict(item: EvidenceItem) -> dict[str, Any]:
 
 def _filter_evidence(snapshot: AnalysisSnapshot, category: EvidenceCategory) -> list[dict[str, Any]]:
     return [_evidence_dict(item) for item in snapshot.evidence_items if item.category == category]
+
+
+def _external_driver_sections(symbol: str, holding: dict[str, Any] | None = None) -> dict[str, Any]:
+    context = build_external_driver_context(symbol, primary_theme=(holding or {}).get("primary_theme"))
+    evidence = [_clean_text(item) for item in context.evidence]
+    return {
+        "mapping": {
+            "mapping_status": context.mapping_status,
+            "profile_id": context.profile_id,
+            "symbol": context.symbol,
+            "message": context.message,
+            "future_extension": context.future_extension,
+            "drivers": context.drivers,
+            "boundary": context.boundary,
+            "llm_usage": "context_only",
+            "interpretation_limit": "This mapping selects observation variables only and is not market evidence by itself.",
+        },
+        "auto_fact": [item for item in evidence if item.get("category") == "auto_fact"],
+        "auto_signal": [item for item in evidence if item.get("category") == "auto_signal"],
+        "missing_data": context.missing_data,
+        "boundary": context.boundary,
+    }
+
+
+def _portfolio_external_driver_summary(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    symbol_sections: dict[str, dict[str, Any]] = {}
+    for position in positions:
+        symbol = position.get("symbol", "")
+        symbol_sections[symbol] = _external_driver_sections(symbol, position)
+
+    # Deduplicate by factor_id and aggregate associated_symbols
+    driver_map: dict[str, dict[str, Any]] = {}
+    for symbol, sections in symbol_sections.items():
+        for ev in sections.get("auto_fact") or []:
+            payload = ev.get("payload") or {}
+            factor_id = payload.get("factor_id")
+            if not factor_id:
+                continue
+            if factor_id not in driver_map:
+                driver_map[factor_id] = {
+                    "factor_id": factor_id,
+                    "display_name": payload.get("display_name", factor_id),
+                    "factor_type": payload.get("factor_type", "unknown"),
+                    "associated_symbols": [],
+                    "evidence": ev,
+                }
+            if symbol not in driver_map[factor_id]["associated_symbols"]:
+                driver_map[factor_id]["associated_symbols"].append(symbol)
+
+    result: list[dict[str, Any]] = []
+    # Shared driver view (deduplicated)
+    for driver in driver_map.values():
+        result.append({
+            "type": "shared_driver",
+            "factor_id": driver["factor_id"],
+            "display_name": driver["display_name"],
+            "factor_type": driver["factor_type"],
+            "associated_symbols": driver["associated_symbols"],
+            "evidence": driver["evidence"],
+        })
+
+    # Per-symbol mapping view
+    for position in positions:
+        symbol = position.get("symbol", "")
+        sections = symbol_sections.get(symbol, {})
+        mapping = sections.get("mapping") or {}
+        auto_fact = sections.get("auto_fact") or []
+        result.append({
+            "type": "symbol_mapping",
+            "symbol": symbol,
+            "primary_theme": position.get("primary_theme"),
+            "mapping": mapping,
+            "data_status": "available" if auto_fact else (
+                "not_configured" if mapping.get("mapping_status") == "not_configured" else "unavailable"
+            ),
+            "evidence": auto_fact,
+            "derived_observations": sections.get("auto_signal") or [],
+            "missing_data": sections.get("missing_data") or [],
+        })
+
+    return result
 
 
 def _unavailable_fact(symbol: str, coverage: str, reason: str, endpoint: str | None = None) -> dict[str, Any]:
@@ -372,8 +455,15 @@ def build_single_stock_packet(symbol: str, user_question: str | None = None, per
     generated_at = _now()
     auto_fact = _filter_evidence(snapshot, EvidenceCategory.AUTO_FACT)
     auto_fact.extend(_stage1_coverage_items(symbol, auto_fact))
+    auto_signal = _filter_evidence(snapshot, EvidenceCategory.AUTO_SIGNAL)
+    external_driver = _external_driver_sections(symbol, holding)
+    auto_fact.extend(external_driver["auto_fact"])
+    auto_signal.extend(external_driver["auto_signal"])
     missing_data = _clean_text([_jsonable(item) for item in snapshot.missing_data])
+    missing_data.extend(_clean_text(external_driver["missing_data"]))
     interpretation_boundaries = GLOBAL_BOUNDARIES.copy()
+    if external_driver["boundary"] not in interpretation_boundaries:
+        interpretation_boundaries.append(external_driver["boundary"])
     packet = {
         "meta": {
             "packet_id": f"packet_{uuid4().hex}",
@@ -396,8 +486,9 @@ def build_single_stock_packet(symbol: str, user_question: str | None = None, per
             "profile": _company_profile(snapshot),
             "holding": holding,
         },
+        "external_driver_mapping": external_driver["mapping"],
         "auto_fact": auto_fact,
-        "auto_signal": _filter_evidence(snapshot, EvidenceCategory.AUTO_SIGNAL),
+        "auto_signal": auto_signal,
         "manual_account": _manual_account_section(holding),
         "manual_evidence": _manual_evidence_for_symbol(symbol),
         "system_hypothesis": _single_hypotheses(snapshot, holding),
@@ -461,6 +552,12 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         {"key": "repo_cash_equivalent_policy", "reason": REPO_BOUNDARY},
     ])
     interpretation_boundaries = GLOBAL_BOUNDARIES.copy()
+    external_driver_summary = _portfolio_external_driver_summary(positions)
+    if any(
+        item.get("type") == "symbol_mapping" and item.get("mapping", {}).get("mapping_status") == "configured"
+        for item in external_driver_summary
+    ):
+        interpretation_boundaries.append("Portfolio external-driver sections are symbol-level context only and must not be aggregated into macro conclusions.")
     packet = {
         "meta": {
             "packet_id": f"packet_{uuid4().hex}",
@@ -511,6 +608,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         "rule_reminders": rule_reminders,
         "manual_evidence": _manual_evidence_for_symbol(None),
         "auto_fact_summary": _portfolio_auto_fact_summary([p.symbol for p in state.snapshot.positions]),
+        "external_driver_summary": external_driver_summary,
         "missing_data": missing_data,
         "interpretation_boundaries": interpretation_boundaries,
         "missing_data_and_boundaries": [*interpretation_boundaries, *missing_data],
@@ -584,6 +682,8 @@ def render_packet_markdown(packet: dict[str, Any]) -> str:
             "",
             "## Manual Evidence",
             _evidence_markdown(packet["manual_evidence"]),
+            "## External Driver Mapping",
+            f"```json\n{json.dumps(packet['external_driver_mapping'], ensure_ascii=False, indent=2, default=str)}\n```",
             "## System Hypothesis and Risk Reminders",
             "System-generated, must be questioned and manually verified.",
             _evidence_markdown(packet["system_hypothesis"]),
@@ -612,6 +712,10 @@ def render_packet_markdown(packet: dict[str, Any]) -> str:
             _evidence_markdown(packet["manual_evidence"]),
             "## Auto Fact Summary",
             f"```json\n{json.dumps(packet['auto_fact_summary'], ensure_ascii=False, indent=2, default=str)}\n```",
+            "",
+            "## External Driver Summary",
+            "Symbol-level external-driver observations only; not macro scoring or trading advice.",
+            f"```json\n{json.dumps(packet['external_driver_summary'], ensure_ascii=False, indent=2, default=str)}\n```",
         ])
 
     lines.extend([

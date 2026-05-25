@@ -194,8 +194,8 @@ def build_basic_stock_snapshot(
             source_endpoint="build_company_profile",
             fetched_at=fetched_at,
             reliability=EvidenceReliability.B,
-            llm_usage=LlmUsage.FACT_WITH_LIMIT,
-            interpretation_limit="Rule-inferred profile fields should be treated as bounded context, not formal disclosure.",
+            llm_usage=LlmUsage.CONTEXT_ONLY,
+            interpretation_limit="Company profile may mix Tushare fields and rule-inferred fields; treat it as bounded context, not formal disclosure or a hard fact.",
         ),
         EvidenceItem(
             symbol=symbol,
