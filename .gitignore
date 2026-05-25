@@ -56,9 +56,24 @@ backend/data/cache/
 backend/data/history/
 backend/data/indicators/
 backend/data/deep_analysis/
+backend/data/analysis_snapshots/
+backend/data/portfolio/
+backend/data/tushare/
 backend/data/metadata/
 backend/data/*.lock
 *.parquet
+
+# Sensitive exports and attachments
+backend/data/account_exports/
+backend/data/exports/
+backend/data/attachments/
+backend/data/uploads/
+backend/data/screenshots/
+account_exports/
+exports/
+attachments/
+uploads/
+screenshots/
 
 # Logs
 *.log

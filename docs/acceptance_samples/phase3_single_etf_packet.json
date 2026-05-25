@@ -1,0 +1,139 @@
+{
+  "meta": {
+    "packet_id": "packet_33163edac62240a7b4f19db98da629f1",
+    "packet_version": "analysis_packet.v1",
+    "generated_at": "2026-05-24T21:56:04.005806",
+    "analysis_scope": "single_stock",
+    "target_symbol": "159382.SZ",
+    "target_name": "",
+    "user_question": null,
+    "market_data_as_of": null,
+    "daily_k_as_of": null,
+    "portfolio_as_of": null,
+    "source_snapshot_id": "snap_b9b67cc2e8c54df09e9ed8342b4d11bd"
+  },
+  "privacy_notice": "This packet is generated locally and may contain personal account information, holdings, costs, cash, repo, trade plans, and manually entered evidence. Stock-Pilot does not send it to any external LLM, does not call deep analysis, and does not upload attachments automatically. External sharing happens only if the user actively copies, downloads, or submits the content elsewhere.",
+  "basic_information": {
+    "symbol": "159382.SZ",
+    "name": "",
+    "industry": null,
+    "area": null,
+    "listing_information": {
+      "list_date": null,
+      "exchange": null
+    },
+    "company_profile": {},
+    "current_holding": {
+      "has_holding": false,
+      "message": "No local holding for this symbol in the current portfolio snapshot."
+    },
+    "data_status": "unavailable"
+  },
+  "stock_profile": {
+    "symbol": "159382.SZ",
+    "name": "",
+    "profile": {},
+    "holding": null
+  },
+  "auto_fact": [
+    {
+      "evidence_id": "ev_443c50f9333543adbca0049f9168bb96",
+      "symbol": "159382.SZ",
+      "evidence_type": "data_coverage",
+      "category": "auto_fact",
+      "title": "Base market snapshot unavailable",
+      "value": null,
+      "payload": {
+        "reason": "Unknown symbol prefix: 159382.SZ"
+      },
+      "source": "Stock-Pilot snapshot builder",
+      "source_endpoint": "build_basic_stock_snapshot",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-24T21:56:04.005806",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Base quote/history snapshot is unavailable; use this as a data boundary only.",
+      "freshness_days": null,
+      "data_status": "unavailable",
+      "notes": null
+    },
+    {
+      "evidence_id": "unavailable_etf_share_change_159382.SZ",
+      "symbol": "159382.SZ",
+      "evidence_type": "etf_share_change",
+      "category": "auto_fact",
+      "title": "etf_share_change unavailable",
+      "payload": {
+        "coverage": "etf_share_change",
+        "reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+      },
+      "source": "Stock-Pilot fact service",
+      "source_endpoint": "etf_share_size,fund_nav,fund_daily",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-24T21:56:04.006807",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "ETF share/NAV/price facts are unavailable. When available, share changes still do not imply future price direction.",
+      "freshness_days": null,
+      "data_status": "unavailable",
+      "notes": null
+    }
+  ],
+  "auto_signal": [],
+  "manual_account": {
+    "has_holding": false,
+    "message": "No local holding for this symbol in the current portfolio snapshot."
+  },
+  "manual_evidence": [],
+  "system_hypothesis": [],
+  "missing_data": [
+    {
+      "key": "base_market_snapshot",
+      "reason": "Unknown symbol prefix: 159382.SZ"
+    }
+  ],
+  "interpretation_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, sector baskets, FX, futures, backtesting, and broker sync are not included in this stage.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention."
+  ],
+  "missing_data_and_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, sector baskets, FX, futures, backtesting, and broker sync are not included in this stage.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",
+    {
+      "key": "base_market_snapshot",
+      "reason": "Unknown symbol prefix: 159382.SZ"
+    }
+  ],
+  "suggested_questions_for_external_llm": [
+    "Which items in this packet are hard facts, and which are weak auxiliary signals?",
+    "Does the current holding, if any, create excessive theme exposure inside the portfolio?",
+    "Which missing information would most materially change the analysis?",
+    "Is the user's invalid condition specific enough to falsify the trade plan?",
+    "What are the main risks under bullish, neutral, and adverse market scenarios?"
+  ],
+  "llm_questions": [
+    "Which items in this packet are hard facts, and which are weak auxiliary signals?",
+    "Does the current holding, if any, create excessive theme exposure inside the portfolio?",
+    "Which missing information would most materially change the analysis?",
+    "Is the user's invalid condition specific enough to falsify the trade plan?",
+    "What are the main risks under bullish, neutral, and adverse market scenarios?"
+  ]
+}

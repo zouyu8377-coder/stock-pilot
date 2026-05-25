@@ -1,0 +1,1945 @@
+{
+  "probe_time": "2026-05-24T19:54:41",
+  "token_loaded": true,
+  "token_source_type": "existing_code",
+  "business_code_modified": false,
+  "python_version": "3.12.9",
+  "interfaces": [
+    {
+      "topic": "calendar",
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "date_anchor"
+      ],
+      "endpoint": "trade_cal",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "exchange",
+        "start_date",
+        "end_date",
+        "is_open"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(trade_cal)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+    },
+    {
+      "endpoint": "stk_holdernumber",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(stk_holdernumber)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "shareholder_count",
+      "tested_symbols": [
+        "601899.SH"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "single_stock_evidence",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "stk_holdernumber",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(stk_holdernumber)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "shareholder_count",
+      "tested_symbols": [
+        "002463.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "single_stock_evidence",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "stk_holdernumber",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(stk_holdernumber)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "shareholder_count",
+      "tested_symbols": [
+        "002916.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "single_stock_evidence",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "stk_holdernumber",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(stk_holdernumber)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "shareholder_count",
+      "tested_symbols": [
+        "000657.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "single_stock_evidence",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "top_list",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "trade_date"
+      ],
+      "row_count": 74,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "name",
+        "close",
+        "pct_change",
+        "turnover_rate",
+        "amount",
+        "l_sell",
+        "l_buy",
+        "l_amount",
+        "net_amount",
+        "net_rate",
+        "amount_rate",
+        "float_values",
+        "reason"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260521",
+          "ts_code": "000039.SZ",
+          "name": "中集集团",
+          "close": 10.19,
+          "pct_change": -9.9823,
+          "turnover_rate": 7.03,
+          "amount": 1676085953.0,
+          "l_sell": 473095056.29,
+          "l_buy": 350974825.99,
+          "l_amount": 824069882.28,
+          "net_amount": -122120230.3,
+          "net_rate": -7.29,
+          "amount_rate": 49.17,
+          "float_values": 23451338766.79,
+          "reason": "日跌幅偏离值达到7%的前5只证券"
+        },
+        {
+          "trade_date": "20260521",
+          "ts_code": "000417.SZ",
+          "name": "合百集团",
+          "close": 9.31,
+          "pct_change": -2.3085,
+          "turnover_rate": 30.28,
+          "amount": 2356617799.0,
+          "l_sell": 287106423.43,
+          "l_buy": 230023797.94,
+          "l_amount": 517130221.37,
+          "net_amount": -57082625.49,
+          "net_rate": -2.42,
+          "amount_rate": 21.94,
+          "float_values": 7252745568.81,
+          "reason": "日换手率达到20%的前5只证券"
+        }
+      ],
+      "topic": "dragon_tiger_list",
+      "tested_param_sets": [
+        {
+          "trade_date": "20260521"
+        }
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "event_card",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "top_inst",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "trade_date"
+      ],
+      "row_count": 798,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "exalter",
+        "buy",
+        "buy_rate",
+        "sell",
+        "sell_rate",
+        "net_buy",
+        "side",
+        "reason"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260521",
+          "ts_code": "000039.SZ",
+          "exalter": "深股通专用",
+          "buy": 125562590.66,
+          "buy_rate": 7.49,
+          "sell": 103818122.5,
+          "sell_rate": 6.19,
+          "net_buy": 21744468.16,
+          "side": "0",
+          "reason": "日跌幅偏离值达到7%的前5只证券"
+        },
+        {
+          "trade_date": "20260521",
+          "ts_code": "000039.SZ",
+          "exalter": "机构专用",
+          "buy": 73740433.33,
+          "buy_rate": 4.4,
+          "sell": 0.0,
+          "sell_rate": 0.0,
+          "net_buy": 73740433.33,
+          "side": "0",
+          "reason": "日跌幅偏离值达到7%的前5只证券"
+        }
+      ],
+      "topic": "dragon_tiger_seats",
+      "tested_param_sets": [
+        {
+          "trade_date": "20260521"
+        }
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "event_card",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "fund_basic",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "market"
+      ],
+      "row_count": 2624,
+      "fields": [
+        "ts_code",
+        "name",
+        "management",
+        "custodian",
+        "fund_type",
+        "found_date",
+        "due_date",
+        "list_date",
+        "issue_date",
+        "delist_date",
+        "issue_amount",
+        "m_fee",
+        "c_fee",
+        "duration_year",
+        "p_value",
+        "min_amount",
+        "exp_return",
+        "benchmark",
+        "status",
+        "invest_type",
+        "type",
+        "trustee",
+        "purc_startdate",
+        "redm_startdate",
+        "market"
+      ],
+      "sample": [
+        {
+          "ts_code": "589280.SH",
+          "name": "科创增强ETF华宝",
+          "management": "华宝基金",
+          "custodian": "平安银行",
+          "fund_type": "股票型",
+          "found_date": "20260508",
+          "due_date": null,
+          "list_date": "20260520",
+          "issue_date": "20260420",
+          "delist_date": null,
+          "issue_amount": 2.3907,
+          "m_fee": 0.5,
+          "c_fee": 0.1,
+          "duration_year": null,
+          "p_value": 1.0,
+          "min_amount": 0.1,
+          "exp_return": null,
+          "benchmark": "上证科创板综合指数收益率",
+          "status": "I",
+          "invest_type": "增强指数型",
+          "type": "契约型开放式",
+          "trustee": null,
+          "purc_startdate": "20260520",
+          "redm_startdate": "20260520",
+          "market": "E"
+        },
+        {
+          "ts_code": "508093.SH",
+          "name": "易方达广西北投高速REIT",
+          "management": "易方达基金",
+          "custodian": "交通银行",
+          "fund_type": "REITs",
+          "found_date": "20260507",
+          "due_date": null,
+          "list_date": null,
+          "issue_date": "20260427",
+          "delist_date": null,
+          "issue_amount": 3.0,
+          "m_fee": 0.2,
+          "c_fee": 0.01,
+          "duration_year": 18.0,
+          "p_value": 1.0,
+          "min_amount": 0.1,
+          "exp_return": null,
+          "benchmark": null,
+          "status": "I",
+          "invest_type": null,
+          "type": "契约型封闭式",
+          "trustee": null,
+          "purc_startdate": null,
+          "redm_startdate": null,
+          "market": "E"
+        }
+      ],
+      "topic": "fund_mapping",
+      "tested_symbols": [
+        "159382.SZ",
+        "159934.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "symbol_mapping"
+      ]
+    },
+    {
+      "endpoint": "fund_share",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "fd_share",
+        "fund_type",
+        "market"
+      ],
+      "sample": [
+        {
+          "ts_code": "159382.SZ",
+          "trade_date": "20260522",
+          "fd_share": 85005.5714,
+          "fund_type": "ETF",
+          "market": "SZ"
+        },
+        {
+          "ts_code": "159382.SZ",
+          "trade_date": "20260521",
+          "fd_share": 85205.5714,
+          "fund_type": "ETF",
+          "market": "SZ"
+        }
+      ],
+      "topic": "etf_share_size",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "etf_flow",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "fund_share",
+      "status": "REQUEST_FAILED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您访问接口(fund_share)频率超限(1次/分钟)，具体频次详情：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "etf_share_size",
+      "tested_symbols": [
+        "159934.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "etf_flow",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "etf_share_size",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "etf_name",
+        "total_share",
+        "total_size",
+        "exchange"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260522",
+          "ts_code": "159382.SZ",
+          "etf_name": "创业板人工智能ETF南方",
+          "total_share": 84405.5714,
+          "total_size": 244075.5908,
+          "exchange": "SZSE"
+        },
+        {
+          "trade_date": "20260521",
+          "ts_code": "159382.SZ",
+          "etf_name": "创业板人工智能ETF南方",
+          "total_share": 85005.5714,
+          "total_size": 235856.4584,
+          "exchange": "SZSE"
+        }
+      ],
+      "topic": "etf_share_size",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "etf_flow",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "etf_share_size",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "etf_name",
+        "total_share",
+        "total_size",
+        "exchange"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260522",
+          "ts_code": "159934.SZ",
+          "etf_name": "黄金ETF易方达",
+          "total_share": 407820.8998,
+          "total_size": 4028699.5408,
+          "exchange": "SZSE"
+        },
+        {
+          "trade_date": "20260521",
+          "ts_code": "159934.SZ",
+          "etf_name": "黄金ETF易方达",
+          "total_share": 408890.8998,
+          "total_size": 4036489.1846,
+          "exchange": "SZSE"
+        }
+      ],
+      "topic": "etf_share_size",
+      "tested_symbols": [
+        "159934.SZ"
+      ],
+      "recommended_priority": "P0",
+      "recommended_usage": [
+        "etf_flow",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "etf_basic",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 1,
+      "fields": [
+        "ts_code",
+        "csname",
+        "extname",
+        "cname",
+        "index_code",
+        "index_name",
+        "setup_date",
+        "list_date",
+        "list_status",
+        "exchange",
+        "mgr_name",
+        "custod_name",
+        "mgt_fee",
+        "etf_type"
+      ],
+      "sample": [
+        {
+          "ts_code": "159382.SZ",
+          "csname": "南方创业板人工智能ETF",
+          "extname": "创业板人工智能ETF南方",
+          "cname": "南方创业板人工智能交易型开放式指数证券投资基金",
+          "index_code": "970070.SZ",
+          "index_name": "创业板人工智能指数",
+          "setup_date": "20250423",
+          "list_date": "20250509",
+          "list_status": "L",
+          "exchange": "SZ",
+          "mgr_name": "南方基金",
+          "custod_name": "中国建设银行股份有限公司",
+          "mgt_fee": 0.5,
+          "etf_type": "纯境内"
+        }
+      ],
+      "topic": "etf_extended",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "etf_research"
+      ]
+    },
+    {
+      "endpoint": "etf_index",
+      "status": "AVAILABLE_NO_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [
+        "ts_code",
+        "indx_name",
+        "indx_csname",
+        "pub_party_name",
+        "pub_date",
+        "base_date",
+        "bp",
+        "adj_circle"
+      ],
+      "sample": [],
+      "topic": "etf_extended",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "etf_research"
+      ]
+    },
+    {
+      "endpoint": "etf_cash",
+      "status": "INVALID_ENDPOINT_OR_DEPRECATED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "请指定正确的接口名",
+      "topic": "etf_extended",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "etf_research"
+      ]
+    },
+    {
+      "endpoint": "etf_substitute",
+      "status": "INVALID_ENDPOINT_OR_DEPRECATED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "请指定正确的接口名",
+      "topic": "etf_extended",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "etf_research"
+      ]
+    },
+    {
+      "endpoint": "fund_nav",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 76,
+      "fields": [
+        "ts_code",
+        "ann_date",
+        "nav_date",
+        "unit_nav",
+        "accum_nav",
+        "accum_div",
+        "net_asset",
+        "total_netasset",
+        "adj_nav",
+        "update_flag"
+      ],
+      "sample": [
+        {
+          "ts_code": "159382.SZ",
+          "ann_date": "20260523",
+          "nav_date": "20260522",
+          "unit_nav": 2.8917,
+          "accum_nav": 2.8917,
+          "accum_div": null,
+          "net_asset": null,
+          "total_netasset": null,
+          "adj_nav": 2.8917,
+          "update_flag": "0"
+        },
+        {
+          "ts_code": "159382.SZ",
+          "ann_date": "20260522",
+          "nav_date": "20260521",
+          "unit_nav": 2.7746,
+          "accum_nav": 2.7746,
+          "accum_div": null,
+          "net_asset": null,
+          "total_netasset": null,
+          "adj_nav": 2.7746,
+          "update_flag": "0"
+        }
+      ],
+      "topic": "etf_extended",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "etf_research"
+      ]
+    },
+    {
+      "endpoint": "fund_daily",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "pre_close",
+        "open",
+        "high",
+        "low",
+        "close",
+        "change",
+        "pct_chg",
+        "vol",
+        "amount"
+      ],
+      "sample": [
+        {
+          "ts_code": "159382.SZ",
+          "trade_date": "20260522",
+          "pre_close": 2.779,
+          "open": 2.791,
+          "high": 2.904,
+          "low": 2.791,
+          "close": 2.891,
+          "change": 0.112,
+          "pct_chg": 4.0302,
+          "vol": 654195.0,
+          "amount": 185867.437
+        },
+        {
+          "ts_code": "159382.SZ",
+          "trade_date": "20260521",
+          "pre_close": 2.906,
+          "open": 2.935,
+          "high": 2.953,
+          "low": 2.771,
+          "close": 2.779,
+          "change": -0.127,
+          "pct_chg": -4.3703,
+          "vol": 758569.0,
+          "amount": 219245.15
+        }
+      ],
+      "topic": "etf_extended",
+      "tested_symbols": [
+        "159382.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "etf_research"
+      ]
+    },
+    {
+      "endpoint": "margin_detail",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 74,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "rzye",
+        "rqye",
+        "rzmre",
+        "rqyl",
+        "rzche",
+        "rqchl",
+        "rqmcl",
+        "rzrqye"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260521",
+          "ts_code": "002463.SZ",
+          "rzye": 4150572703.0,
+          "rqye": 19194870.0,
+          "rzmre": 892578806.0,
+          "rqyl": 185100.0,
+          "rzche": 771957841.0,
+          "rqchl": 44900.0,
+          "rqmcl": 18100.0,
+          "rzrqye": 4169767573.0
+        },
+        {
+          "trade_date": "20260520",
+          "ts_code": "002463.SZ",
+          "rzye": 4029951738.0,
+          "rqye": 21948602.0,
+          "rzmre": 405962655.0,
+          "rqyl": 211900.0,
+          "rzche": 472886544.0,
+          "rqchl": 5200.0,
+          "rqmcl": 14100.0,
+          "rzrqye": 4051900340.0
+        }
+      ],
+      "topic": "margin_financing",
+      "tested_symbols": [
+        "002463.SZ"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "risk_event_card",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "margin_detail",
+      "status": "REQUEST_FAILED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您访问接口(margin_detail)频率超限(1次/分钟)，具体频次详情：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "margin_financing",
+      "tested_symbols": [
+        "002916.SZ"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "risk_event_card",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "margin_detail",
+      "status": "REQUEST_FAILED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您访问接口(margin_detail)频率超限(1次/分钟)，具体频次详情：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "margin_financing",
+      "tested_symbols": [
+        "601899.SH"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "risk_event_card",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "moneyflow_ths",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "name",
+        "pct_change",
+        "latest",
+        "net_amount",
+        "net_d5_amount",
+        "buy_lg_amount",
+        "buy_lg_amount_rate",
+        "buy_md_amount",
+        "buy_md_amount_rate",
+        "buy_sm_amount",
+        "buy_sm_amount_rate"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260522",
+          "ts_code": "601899.SH",
+          "name": "紫金矿业",
+          "pct_change": 3.23,
+          "latest": 30.96,
+          "net_amount": 61573.08,
+          "net_d5_amount": -312189.99,
+          "buy_lg_amount": 44253.57,
+          "buy_lg_amount_rate": 5.39,
+          "buy_md_amount": 5541.61,
+          "buy_md_amount_rate": 0.68,
+          "buy_sm_amount": 11777.9,
+          "buy_sm_amount_rate": 1.43
+        },
+        {
+          "trade_date": "20260521",
+          "ts_code": "601899.SH",
+          "name": "紫金矿业",
+          "pct_change": -1.32,
+          "latest": 29.99,
+          "net_amount": -151641.69,
+          "net_d5_amount": -461000.94,
+          "buy_lg_amount": -152754.71,
+          "buy_lg_amount_rate": -16.82,
+          "buy_md_amount": -19627.47,
+          "buy_md_amount_rate": -2.16,
+          "buy_sm_amount": 20740.49,
+          "buy_sm_amount_rate": 2.28
+        }
+      ],
+      "topic": "moneyflow",
+      "tested_symbols": [
+        "601899.SH"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "auxiliary_signal"
+      ]
+    },
+    {
+      "endpoint": "moneyflow_ths",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "name",
+        "pct_change",
+        "latest",
+        "net_amount",
+        "net_d5_amount",
+        "buy_lg_amount",
+        "buy_lg_amount_rate",
+        "buy_md_amount",
+        "buy_md_amount_rate",
+        "buy_sm_amount",
+        "buy_sm_amount_rate"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260522",
+          "ts_code": "002463.SZ",
+          "name": "沪电股份",
+          "pct_change": 10.0,
+          "latest": 114.07,
+          "net_amount": 201368.29,
+          "net_d5_amount": 205985.9,
+          "buy_lg_amount": 221811.35,
+          "buy_lg_amount_rate": 19.46,
+          "buy_md_amount": -13480.74,
+          "buy_md_amount_rate": -1.18,
+          "buy_sm_amount": -6962.32,
+          "buy_sm_amount_rate": -0.61
+        },
+        {
+          "trade_date": "20260521",
+          "ts_code": "002463.SZ",
+          "name": "沪电股份",
+          "pct_change": 0.12,
+          "latest": 103.7,
+          "net_amount": 43992.43,
+          "net_d5_amount": -7996.69,
+          "buy_lg_amount": 33916.99,
+          "buy_lg_amount_rate": 4.11,
+          "buy_md_amount": 9231.53,
+          "buy_md_amount_rate": 1.12,
+          "buy_sm_amount": 843.91,
+          "buy_sm_amount_rate": 0.1
+        }
+      ],
+      "topic": "moneyflow",
+      "tested_symbols": [
+        "002463.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "auxiliary_signal"
+      ]
+    },
+    {
+      "endpoint": "moneyflow_ths",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "trade_date",
+        "ts_code",
+        "name",
+        "pct_change",
+        "latest",
+        "net_amount",
+        "net_d5_amount",
+        "buy_lg_amount",
+        "buy_lg_amount_rate",
+        "buy_md_amount",
+        "buy_md_amount_rate",
+        "buy_sm_amount",
+        "buy_sm_amount_rate"
+      ],
+      "sample": [
+        {
+          "trade_date": "20260522",
+          "ts_code": "002916.SZ",
+          "name": "深南电路",
+          "pct_change": 10.0,
+          "latest": 378.27,
+          "net_amount": 10067.61,
+          "net_d5_amount": 60519.65,
+          "buy_lg_amount": 33594.34,
+          "buy_lg_amount_rate": 6.01,
+          "buy_md_amount": -4965.17,
+          "buy_md_amount_rate": -0.89,
+          "buy_sm_amount": -18561.56,
+          "buy_sm_amount_rate": -3.32
+        },
+        {
+          "trade_date": "20260521",
+          "ts_code": "002916.SZ",
+          "name": "深南电路",
+          "pct_change": 3.0,
+          "latest": 343.88,
+          "net_amount": -1644.65,
+          "net_d5_amount": 31986.54,
+          "buy_lg_amount": 17838.58,
+          "buy_lg_amount_rate": 3.51,
+          "buy_md_amount": -15420.49,
+          "buy_md_amount_rate": -3.04,
+          "buy_sm_amount": -4062.74,
+          "buy_sm_amount_rate": -0.8
+        }
+      ],
+      "topic": "moneyflow",
+      "tested_symbols": [
+        "002916.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "auxiliary_signal"
+      ]
+    },
+    {
+      "endpoint": "moneyflow",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "buy_sm_vol",
+        "buy_sm_amount",
+        "sell_sm_vol",
+        "sell_sm_amount",
+        "buy_md_vol",
+        "buy_md_amount",
+        "sell_md_vol",
+        "sell_md_amount",
+        "buy_lg_vol",
+        "buy_lg_amount",
+        "sell_lg_vol",
+        "sell_lg_amount",
+        "buy_elg_vol",
+        "buy_elg_amount",
+        "sell_elg_vol",
+        "sell_elg_amount",
+        "net_mf_vol",
+        "net_mf_amount"
+      ],
+      "sample": [
+        {
+          "ts_code": "601899.SH",
+          "trade_date": "20260522",
+          "buy_sm_vol": 937295,
+          "buy_sm_amount": 287195.36,
+          "sell_sm_vol": 899687,
+          "sell_sm_amount": 275582.33,
+          "buy_md_vol": 814664,
+          "buy_md_amount": 249482.79,
+          "sell_md_vol": 835864,
+          "sell_md_amount": 255955.66,
+          "buy_lg_vol": 647856,
+          "buy_lg_amount": 198260.56,
+          "sell_lg_vol": 647819,
+          "sell_lg_amount": 198256.16,
+          "buy_elg_vol": 281224,
+          "buy_elg_amount": 85908.98,
+          "sell_elg_vol": 297668,
+          "sell_elg_amount": 91053.54,
+          "net_mf_vol": 200651,
+          "net_mf_amount": 61573.17
+        },
+        {
+          "ts_code": "601899.SH",
+          "trade_date": "20260521",
+          "buy_sm_vol": 1025848,
+          "buy_sm_amount": 314812.64,
+          "sell_sm_vol": 946903,
+          "sell_sm_amount": 290730.29,
+          "buy_md_vol": 859192,
+          "buy_md_amount": 264147.14,
+          "sell_md_vol": 856325,
+          "sell_md_amount": 263409.82,
+          "buy_lg_vol": 689269,
+          "buy_lg_amount": 212027.7,
+          "sell_lg_vol": 708512,
+          "sell_lg_amount": 217759.94,
+          "buy_elg_vol": 381847,
+          "buy_elg_amount": 117334.8,
+          "sell_elg_vol": 444415,
+          "sell_elg_amount": 136422.24,
+          "net_mf_vol": -499749,
+          "net_mf_amount": -151642.4
+        }
+      ],
+      "topic": "moneyflow",
+      "tested_symbols": [
+        "601899.SH"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "auxiliary_signal"
+      ]
+    },
+    {
+      "endpoint": "moneyflow",
+      "status": "REQUEST_FAILED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您访问接口(moneyflow)频率超限(1次/分钟)，具体频次详情：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "moneyflow",
+      "tested_symbols": [
+        "002463.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "auxiliary_signal"
+      ]
+    },
+    {
+      "endpoint": "moneyflow",
+      "status": "REQUEST_FAILED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您访问接口(moneyflow)频率超限(1次/分钟)，具体频次详情：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "moneyflow",
+      "tested_symbols": [
+        "002916.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "auxiliary_signal"
+      ]
+    },
+    {
+      "endpoint": "stk_holdertrade",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 2,
+      "fields": [
+        "ts_code",
+        "ann_date",
+        "holder_name",
+        "holder_type",
+        "in_de",
+        "change_vol",
+        "change_ratio",
+        "after_share",
+        "after_ratio",
+        "avg_price",
+        "total_share"
+      ],
+      "sample": [
+        {
+          "ts_code": "002463.SZ",
+          "ann_date": "20251223",
+          "holder_name": "李明贵",
+          "holder_type": "G",
+          "in_de": "DE",
+          "change_vol": 55000.0,
+          "change_ratio": 0.0029,
+          "after_share": 105426.0,
+          "after_ratio": 0.0055,
+          "avg_price": 71.62,
+          "total_share": 586703.0
+        },
+        {
+          "ts_code": "002463.SZ",
+          "ann_date": "20250716",
+          "holder_name": "WUS GROUP HOLDINGS CO., LTD.",
+          "holder_type": "C",
+          "in_de": "DE",
+          "change_vol": 12000000.0,
+          "change_ratio": 0.6242,
+          "after_share": 216711023.0,
+          "after_ratio": 11.2725,
+          "avg_price": 44.005,
+          "total_share": 216711023.0
+        }
+      ],
+      "topic": "holder_trade",
+      "tested_symbols": [
+        "002463.SZ",
+        "601899.SH"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "risk_event_card",
+        "portfolio_warning",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "repurchase",
+      "status": "AVAILABLE_NO_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [
+        "ts_code",
+        "ann_date",
+        "end_date",
+        "proc",
+        "exp_date",
+        "vol",
+        "amount",
+        "high_limit",
+        "low_limit"
+      ],
+      "sample": [],
+      "topic": "repurchase",
+      "tested_symbols": [
+        "002463.SZ",
+        "601899.SH"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "risk_event_card",
+        "portfolio_warning",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "share_float",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(share_float)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "share_unlock",
+      "tested_symbols": [
+        "002463.SZ",
+        "601899.SH"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "risk_event_card",
+        "portfolio_warning",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "block_trade",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 6,
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "price",
+        "vol",
+        "amount",
+        "buyer",
+        "seller"
+      ],
+      "sample": [
+        {
+          "ts_code": "002463.SZ",
+          "trade_date": "20260511",
+          "price": 98.88,
+          "vol": 3.0,
+          "amount": 296.64,
+          "buyer": "华泰证券股份有限公司深圳益田路证券营业部",
+          "seller": "华泰证券股份有限公司深圳益田路证券营业部"
+        },
+        {
+          "ts_code": "002463.SZ",
+          "trade_date": "20260410",
+          "price": 88.32,
+          "vol": 11.5,
+          "amount": 1015.68,
+          "buyer": "中信证券股份有限公司上海分公司",
+          "seller": "机构专用"
+        }
+      ],
+      "topic": "block_trade",
+      "tested_symbols": [
+        "002463.SZ",
+        "601899.SH"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "risk_event_card",
+        "portfolio_warning",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "pledge_detail",
+      "status": "AVAILABLE_NO_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [
+        "ts_code",
+        "ann_date",
+        "holder_name",
+        "pledge_amount",
+        "start_date",
+        "end_date",
+        "is_release",
+        "release_date",
+        "pledgor",
+        "holding_amount",
+        "pledged_amount",
+        "p_total_ratio",
+        "h_total_ratio",
+        "is_buyback"
+      ],
+      "sample": [],
+      "topic": "pledge_detail",
+      "tested_symbols": [
+        "002463.SZ",
+        "601899.SH"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "risk_event_card",
+        "portfolio_warning",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "pledge_stat",
+      "status": "AVAILABLE_NO_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [
+        "ts_code",
+        "end_date",
+        "pledge_count",
+        "unrest_pledge",
+        "rest_pledge",
+        "total_share",
+        "pledge_ratio"
+      ],
+      "sample": [],
+      "topic": "pledge_stat",
+      "tested_symbols": [
+        "002463.SZ",
+        "601899.SH"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "risk_event_card",
+        "portfolio_warning",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "anns_d",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 109,
+      "fields": [
+        "ann_date",
+        "ts_code",
+        "name",
+        "title",
+        "url"
+      ],
+      "sample": [
+        {
+          "ann_date": "20260521",
+          "ts_code": "002463.SZ",
+          "name": "沪电股份",
+          "title": "关于独立董事取得独立董事资格证书的公告",
+          "url": "http://www.cninfo.com.cn/new/disclosure/detail?stockCode=002463&announcementId=1225319143&orgId=9900013929&announcementTime=2026-05-21"
+        },
+        {
+          "ann_date": "20260520",
+          "ts_code": "002463.SZ",
+          "name": "沪电股份",
+          "title": "2026年5月20日投资者关系活动记录表",
+          "url": "http://www.cninfo.com.cn/new/disclosure/detail?stockCode=002463&announcementId=1225319136&orgId=9900013929&announcementTime=2026-05-20"
+        }
+      ],
+      "topic": "announcements",
+      "tested_symbols": [
+        "002463.SZ",
+        "000657.SZ"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "fact_layer",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "stk_surv",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 146,
+      "fields": [
+        "ts_code",
+        "name",
+        "surv_date",
+        "fund_visitors",
+        "rece_place",
+        "rece_mode",
+        "rece_org",
+        "org_type",
+        "comp_rece"
+      ],
+      "sample": [
+        {
+          "ts_code": "002463.SZ",
+          "name": "沪电股份",
+          "surv_date": "20260520",
+          "fund_visitors": "--",
+          "rece_place": "公司会议室",
+          "rece_mode": "特定对象调研,实地调研",
+          "rece_org": "韩国投资",
+          "org_type": "投资公司",
+          "comp_rece": "李明贵,张进,钱元君"
+        },
+        {
+          "ts_code": "002463.SZ",
+          "name": "沪电股份",
+          "surv_date": "20260520",
+          "fund_visitors": "--",
+          "rece_place": "公司会议室",
+          "rece_mode": "特定对象调研,实地调研",
+          "rece_org": "长城基金",
+          "org_type": "基金管理公司",
+          "comp_rece": "李明贵,张进,钱元君"
+        }
+      ],
+      "topic": "institution_survey",
+      "tested_symbols": [
+        "002463.SZ",
+        "000657.SZ"
+      ],
+      "recommended_priority": "P1",
+      "recommended_usage": [
+        "fact_layer",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "index_daily",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(index_daily)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "index_relative_strength",
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "relative_strength",
+        "macro_context",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "ths_index",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "exchange",
+        "type"
+      ],
+      "row_count": 409,
+      "fields": [
+        "ts_code",
+        "name",
+        "count",
+        "exchange",
+        "list_date",
+        "type"
+      ],
+      "sample": [
+        {
+          "ts_code": "883300.TI",
+          "name": "沪深300样本股",
+          "count": 300.0,
+          "exchange": "A",
+          "list_date": "20100413",
+          "type": "N"
+        },
+        {
+          "ts_code": "883301.TI",
+          "name": "上证50样本股",
+          "count": 50.0,
+          "exchange": "A",
+          "list_date": "20150922",
+          "type": "N"
+        }
+      ],
+      "topic": "industry_index",
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "relative_strength",
+        "macro_context",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "ths_daily",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+        "avg_price",
+        "change",
+        "pct_change",
+        "vol",
+        "turnover_rate"
+      ],
+      "sample": [
+        {
+          "ts_code": "885800.TI",
+          "trade_date": "20260522",
+          "open": 3485.185,
+          "high": 3587.914,
+          "low": 3470.437,
+          "close": 3577.871,
+          "pre_close": 3456.341,
+          "avg_price": 32.0437,
+          "change": 121.53,
+          "pct_change": 3.5161,
+          "vol": 170876360.0,
+          "turnover_rate": 5.377189
+        },
+        {
+          "ts_code": "885800.TI",
+          "trade_date": "20260521",
+          "open": 3606.653,
+          "high": 3638.449,
+          "low": 3451.265,
+          "close": 3456.341,
+          "pre_close": 3570.697,
+          "avg_price": 32.7309,
+          "change": -114.356,
+          "pct_change": -3.2026,
+          "vol": 200534390.0,
+          "turnover_rate": 6.315925
+        }
+      ],
+      "topic": "industry_index_daily",
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "relative_strength",
+        "macro_context",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "daily",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(daily)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "stock_daily_tushare",
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "relative_strength",
+        "macro_context",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "fut_daily",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 75,
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "pre_close",
+        "pre_settle",
+        "open",
+        "high",
+        "low",
+        "close",
+        "settle",
+        "change1",
+        "change2",
+        "vol",
+        "amount",
+        "oi",
+        "oi_chg"
+      ],
+      "sample": [
+        {
+          "ts_code": "CU.SHF",
+          "trade_date": "20260522",
+          "pre_close": 104040.0,
+          "pre_settle": 104790.0,
+          "open": 104000.0,
+          "high": 105300.0,
+          "low": 103620.0,
+          "close": 104870.0,
+          "settle": 104480.0,
+          "change1": 80.0,
+          "change2": -310.0,
+          "vol": 96264.0,
+          "amount": 5029214.425,
+          "oi": 171627.0,
+          "oi_chg": 11262.0
+        },
+        {
+          "ts_code": "CU.SHF",
+          "trade_date": "20260521",
+          "pre_close": 103950.0,
+          "pre_settle": 103550.0,
+          "open": 103950.0,
+          "high": 105590.0,
+          "low": 103780.0,
+          "close": 103940.0,
+          "settle": 104730.0,
+          "change1": 390.0,
+          "change2": 1180.0,
+          "vol": 88620.0,
+          "amount": 4640860.84,
+          "oi": 126493.0,
+          "oi_chg": -9998.0
+        }
+      ],
+      "topic": "commodity_future",
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "relative_strength",
+        "macro_context",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "fx_daily",
+      "status": "AVAILABLE_WITH_DATA",
+      "params_used": [
+        "ts_code",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 101,
+      "fields": [
+        "ts_code",
+        "trade_date",
+        "bid_open",
+        "bid_close",
+        "bid_high",
+        "bid_low",
+        "ask_open",
+        "ask_close",
+        "ask_high",
+        "ask_low",
+        "tick_qty"
+      ],
+      "sample": [
+        {
+          "ts_code": "USDCNH.FXCM",
+          "trade_date": "20260521",
+          "bid_open": 6.79961,
+          "bid_close": 6.79928,
+          "bid_high": 6.79994,
+          "bid_low": 6.79574,
+          "ask_open": 6.80063,
+          "ask_close": 6.80002,
+          "ask_high": 6.80411,
+          "ask_low": 6.7983,
+          "tick_qty": 9313
+        },
+        {
+          "ts_code": "USDCNH.FXCM",
+          "trade_date": "20260520",
+          "bid_open": 6.80154,
+          "bid_close": 6.79961,
+          "bid_high": 6.80795,
+          "bid_low": 6.79603,
+          "ask_open": 6.80281,
+          "ask_close": 6.80063,
+          "ask_high": 6.80852,
+          "ask_low": 6.79664,
+          "tick_qty": 172652
+        }
+      ],
+      "topic": "macro_fx",
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "relative_strength",
+        "macro_context",
+        "analysis_packet"
+      ]
+    },
+    {
+      "endpoint": "stk_mins",
+      "status": "PERMISSION_DENIED",
+      "params_used": [
+        "ts_code",
+        "freq",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "抱歉，您没有接口(stk_mins)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "topic": "minute_bars",
+      "tested_symbols": [
+        "002463.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "intraday",
+        "minute_backtest"
+      ]
+    },
+    {
+      "endpoint": "stk_mins_weekly",
+      "status": "INVALID_ENDPOINT_OR_DEPRECATED",
+      "params_used": [
+        "ts_code",
+        "freq",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "请指定正确的接口名",
+      "topic": "minute_bars",
+      "tested_symbols": [
+        "002463.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "intraday",
+        "minute_backtest"
+      ]
+    },
+    {
+      "endpoint": "stk_mins_monthly",
+      "status": "INVALID_ENDPOINT_OR_DEPRECATED",
+      "params_used": [
+        "ts_code",
+        "freq",
+        "start_date",
+        "end_date"
+      ],
+      "row_count": 0,
+      "fields": [],
+      "sample": [],
+      "error_summary": "请指定正确的接口名",
+      "topic": "minute_bars",
+      "tested_symbols": [
+        "002463.SZ"
+      ],
+      "recommended_priority": "P2",
+      "recommended_usage": [
+        "intraday",
+        "minute_backtest"
+      ]
+    }
+  ],
+  "local_data": {
+    "stock_meta": {
+      "exists": true,
+      "row_count": 5513,
+      "fields": [
+        "ts_code",
+        "symbol",
+        "name",
+        "area",
+        "industry",
+        "list_date"
+      ],
+      "sample_fields_only": true
+    },
+    "base_market": {
+      "exists": true,
+      "file_count": 6226,
+      "samples": {
+        "601899.SH": {
+          "exists": true,
+          "row_count": 4390,
+          "fields": [
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "turn",
+            "pctChg"
+          ],
+          "start": "2008-04-25",
+          "end": "2026-05-22"
+        },
+        "603993.SH": {
+          "exists": true,
+          "row_count": 3307,
+          "fields": [
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "turn",
+            "pctChg"
+          ],
+          "start": "2012-10-09",
+          "end": "2026-05-22"
+        },
+        "002463.SZ": {
+          "exists": true,
+          "row_count": 3824,
+          "fields": [
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "turn",
+            "pctChg"
+          ],
+          "start": "2010-08-18",
+          "end": "2026-05-22"
+        },
+        "002916.SZ": {
+          "exists": true,
+          "row_count": 2045,
+          "fields": [
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "turn",
+            "pctChg"
+          ],
+          "start": "2017-12-13",
+          "end": "2026-05-22"
+        },
+        "000657.SZ": {
+          "exists": true,
+          "row_count": 7138,
+          "fields": [
+            "date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "amount",
+            "turn",
+            "pctChg"
+          ],
+          "start": "1996-12-05",
+          "end": "2026-05-22"
+        }
+      }
+    }
+  },
+  "tushare_version": "1.4.29",
+  "recent_trade_date": "20260521"
+}

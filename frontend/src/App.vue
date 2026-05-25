@@ -5,6 +5,9 @@ import StockCard from './components/StockCard.vue'
 import DeepAnalysisPanel from './components/DeepAnalysisPanel.vue'
 import KLineChart from './components/KLineChart.vue'
 import AnalysisPromptPanel from './components/AnalysisPromptPanel.vue'
+import AutoFactsPanel from './components/AutoFactsPanel.vue'
+import AnalysisPacketPanel from './components/AnalysisPacketPanel.vue'
+import PortfolioPanel from './components/PortfolioPanel.vue'
 import { getSearchHistory, updateSearchHistory, type SearchHistoryItem } from './utils/searchHistory'
 
 const symbol = ref('600519')
@@ -296,6 +299,7 @@ const handleAnalyze = async () => {
     </header>
 
     <main class="mx-auto max-w-[1600px] px-6 py-4">
+      <PortfolioPanel />
       <!-- Search Section -->
       <div class="mb-6">
         <div class="flex items-center gap-3">
@@ -371,6 +375,8 @@ const handleAnalyze = async () => {
             :symbol="result.stocks[0].symbol"
             :indicators="result.stocks[0].indicators"
           />
+          <AutoFactsPanel :symbol="result.stocks[0].symbol" />
+          <AnalysisPacketPanel :symbol="result.stocks[0].symbol" />
           <AnalysisPromptPanel :symbol="result.stocks[0].symbol" />
         </div>
 

@@ -1,0 +1,496 @@
+{
+  "meta": {
+    "packet_id": "packet_256ff147c33b4270ab7bd428eaef6fb4",
+    "packet_version": "analysis_packet.v1",
+    "generated_at": "2026-05-24T21:56:04.050746",
+    "analysis_scope": "portfolio",
+    "portfolio_id": "phase3_demo",
+    "portfolio_as_of": "2026-05-25T09:30:00",
+    "source_snapshot_id": "snap_e46b5dfb713943cc9c6f55b5354e4ca2",
+    "user_question": null
+  },
+  "privacy_notice": "This packet is generated locally and may contain personal account information, holdings, costs, cash, repo, trade plans, and manually entered evidence. Stock-Pilot does not send it to any external LLM, does not call deep analysis, and does not upload attachments automatically. External sharing happens only if the user actively copies, downloads, or submits the content elsewhere.",
+  "account_overview": {
+    "total_assets": 100000.0,
+    "total_market_value": 50000.0,
+    "cash_available": 30000.0,
+    "repo_amount": 20000.0,
+    "repo_available_date": "2026-05-26",
+    "total_position_weight": 50.0,
+    "cash_weight": 30.0,
+    "repo_weight": 20.0,
+    "invested_ratio_pct": 50.0,
+    "cash_ratio_pct": 30.0,
+    "repo_ratio_pct": 20.0,
+    "repo_policy": {
+      "cash_equivalent_treatment": "unconfirmed",
+      "boundary": "Repo amount is displayed separately from cash; cash-equivalent treatment is unconfirmed."
+    },
+    "notes": "Phase 3.5 demo portfolio. Uses non-sensitive synthetic quantities and costs."
+  },
+  "holdings": [
+    {
+      "symbol": "300001",
+      "name": "Demo AI PCB",
+      "quantity": 1000.0,
+      "available_quantity": 1000.0,
+      "avg_cost": 18.0,
+      "position_role": "observation",
+      "theme_tags": [
+        "AI_PCB"
+      ],
+      "primary_theme": "AI_PCB",
+      "user_plan": "Demo plan: observe whether thesis evidence improves.",
+      "invalid_condition": "Demo invalid condition: evidence package remains incomplete.",
+      "target_max_weight": 25.0,
+      "notes": null,
+      "market_price": 20.0,
+      "market_value": 20000.0,
+      "unrealized_pnl": 2000.0,
+      "unrealized_pnl_pct": 11.11,
+      "price_source": "easyquotation",
+      "data_status": "available",
+      "missing_data": [],
+      "portfolio_weight_pct": 20.0,
+      "weight_pct": 20.0,
+      "market_price_as_of": null,
+      "market_price_time_status": "unavailable",
+      "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    },
+    {
+      "symbol": "000960",
+      "name": "Demo Metal Resource",
+      "quantity": 1000.0,
+      "available_quantity": 1000.0,
+      "avg_cost": 19.0,
+      "position_role": "trend",
+      "theme_tags": [
+        "METAL_RESOURCE"
+      ],
+      "primary_theme": "METAL_RESOURCE",
+      "user_plan": "Demo plan: track resource exposure only.",
+      "invalid_condition": "Demo invalid condition: thesis not verified.",
+      "target_max_weight": 25.0,
+      "notes": null,
+      "market_price": 20.0,
+      "market_value": 20000.0,
+      "unrealized_pnl": 1000.0,
+      "unrealized_pnl_pct": 5.26,
+      "price_source": "easyquotation",
+      "data_status": "available",
+      "missing_data": [],
+      "portfolio_weight_pct": 20.0,
+      "weight_pct": 20.0,
+      "market_price_as_of": null,
+      "market_price_time_status": "unavailable",
+      "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    },
+    {
+      "symbol": "000657",
+      "name": "Demo Composite Resource",
+      "quantity": 1000.0,
+      "available_quantity": 800.0,
+      "avg_cost": 9.0,
+      "position_role": "short_term",
+      "theme_tags": [
+        "METAL_RESOURCE",
+        "TUNGSTEN",
+        "HIGH_VOLATILITY",
+        "COMPOSITE_EXPOSURE"
+      ],
+      "primary_theme": "METAL_RESOURCE",
+      "user_plan": "Demo plan: composite exposure should be reviewed separately.",
+      "invalid_condition": "Demo invalid condition: composite risk becomes unclear.",
+      "target_max_weight": 15.0,
+      "notes": null,
+      "market_price": 10.0,
+      "market_value": 10000.0,
+      "unrealized_pnl": 1000.0,
+      "unrealized_pnl_pct": 11.11,
+      "price_source": "easyquotation",
+      "data_status": "available",
+      "missing_data": [],
+      "portfolio_weight_pct": 10.0,
+      "weight_pct": 10.0,
+      "market_price_as_of": null,
+      "market_price_time_status": "unavailable",
+      "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    }
+  ],
+  "positions": [
+    {
+      "symbol": "300001",
+      "name": "Demo AI PCB",
+      "quantity": 1000.0,
+      "available_quantity": 1000.0,
+      "avg_cost": 18.0,
+      "position_role": "observation",
+      "theme_tags": [
+        "AI_PCB"
+      ],
+      "primary_theme": "AI_PCB",
+      "user_plan": "Demo plan: observe whether thesis evidence improves.",
+      "invalid_condition": "Demo invalid condition: evidence package remains incomplete.",
+      "target_max_weight": 25.0,
+      "notes": null,
+      "market_price": 20.0,
+      "market_value": 20000.0,
+      "unrealized_pnl": 2000.0,
+      "unrealized_pnl_pct": 11.11,
+      "price_source": "easyquotation",
+      "data_status": "available",
+      "missing_data": [],
+      "portfolio_weight_pct": 20.0,
+      "weight_pct": 20.0,
+      "market_price_as_of": null,
+      "market_price_time_status": "unavailable",
+      "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    },
+    {
+      "symbol": "000960",
+      "name": "Demo Metal Resource",
+      "quantity": 1000.0,
+      "available_quantity": 1000.0,
+      "avg_cost": 19.0,
+      "position_role": "trend",
+      "theme_tags": [
+        "METAL_RESOURCE"
+      ],
+      "primary_theme": "METAL_RESOURCE",
+      "user_plan": "Demo plan: track resource exposure only.",
+      "invalid_condition": "Demo invalid condition: thesis not verified.",
+      "target_max_weight": 25.0,
+      "notes": null,
+      "market_price": 20.0,
+      "market_value": 20000.0,
+      "unrealized_pnl": 1000.0,
+      "unrealized_pnl_pct": 5.26,
+      "price_source": "easyquotation",
+      "data_status": "available",
+      "missing_data": [],
+      "portfolio_weight_pct": 20.0,
+      "weight_pct": 20.0,
+      "market_price_as_of": null,
+      "market_price_time_status": "unavailable",
+      "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    },
+    {
+      "symbol": "000657",
+      "name": "Demo Composite Resource",
+      "quantity": 1000.0,
+      "available_quantity": 800.0,
+      "avg_cost": 9.0,
+      "position_role": "short_term",
+      "theme_tags": [
+        "METAL_RESOURCE",
+        "TUNGSTEN",
+        "HIGH_VOLATILITY",
+        "COMPOSITE_EXPOSURE"
+      ],
+      "primary_theme": "METAL_RESOURCE",
+      "user_plan": "Demo plan: composite exposure should be reviewed separately.",
+      "invalid_condition": "Demo invalid condition: composite risk becomes unclear.",
+      "target_max_weight": 15.0,
+      "notes": null,
+      "market_price": 10.0,
+      "market_value": 10000.0,
+      "unrealized_pnl": 1000.0,
+      "unrealized_pnl_pct": 11.11,
+      "price_source": "easyquotation",
+      "data_status": "available",
+      "missing_data": [],
+      "portfolio_weight_pct": 10.0,
+      "weight_pct": 10.0,
+      "market_price_as_of": null,
+      "market_price_time_status": "unavailable",
+      "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    }
+  ],
+  "primary_theme_exposure": [
+    {
+      "theme": "METAL_RESOURCE",
+      "market_value": 30000.0,
+      "weight_pct": 30.0,
+      "symbols": [
+        "000960",
+        "000657"
+      ]
+    },
+    {
+      "theme": "AI_PCB",
+      "market_value": 20000.0,
+      "weight_pct": 20.0,
+      "symbols": [
+        "300001"
+      ]
+    }
+  ],
+  "related_risk_observations": {
+    "risk_tag_exposure": [
+      {
+        "theme": "METAL_RESOURCE",
+        "market_value": 30000.0,
+        "weight_pct": 30.0,
+        "symbols": [
+          "000657",
+          "000960"
+        ]
+      },
+      {
+        "theme": "AI_PCB",
+        "market_value": 20000.0,
+        "weight_pct": 20.0,
+        "symbols": [
+          "300001"
+        ]
+      },
+      {
+        "theme": "HIGH_VOLATILITY",
+        "market_value": 10000.0,
+        "weight_pct": 10.0,
+        "symbols": [
+          "000657"
+        ]
+      }
+    ],
+    "composite_exposure_notes": [
+      {
+        "symbol": "000657",
+        "theme_tags": [
+          "METAL_RESOURCE",
+          "TUNGSTEN",
+          "HIGH_VOLATILITY",
+          "COMPOSITE_EXPOSURE"
+        ],
+        "message": "Composite exposure: this holding has multiple risk tags. It is counted once in primary_theme exposure and must not be double counted through tags."
+      }
+    ],
+    "boundary": "Primary theme exposure is unique attribution. Theme tag observations are non-additive and must not be summed as asset weights."
+  },
+  "system_hypothesis": [
+    {
+      "category": "system_hypothesis",
+      "title": "High volatility asset exposure reminder",
+      "source": "Stock-Pilot portfolio rules",
+      "source_endpoint": "portfolio.compute_metrics",
+      "as_of_time": "2026-05-25T09:30:00",
+      "fetched_at": "2026-05-24T21:56:04.050746",
+      "reliability": "H",
+      "llm_usage": "hypothesis_only",
+      "data_status": "available",
+      "payload": {
+        "theme": "HIGH_VOLATILITY",
+        "market_value": 10000.0,
+        "weight_pct": 10.0,
+        "symbols": [
+          "000657"
+        ]
+      },
+      "risk_parameter_source": "system_default_placeholder",
+      "unconfirmed_by_user": true,
+      "interpretation_limit": "System-generated risk reminder based on user tags only; verify whether the tag is appropriate before using it. Concentration or cash reminders may depend on system default placeholder parameters and are unconfirmed by the user."
+    }
+  ],
+  "rule_reminders": [
+    {
+      "category": "system_hypothesis",
+      "title": "High volatility asset exposure reminder",
+      "source": "Stock-Pilot portfolio rules",
+      "source_endpoint": "portfolio.compute_metrics",
+      "as_of_time": "2026-05-25T09:30:00",
+      "fetched_at": "2026-05-24T21:56:04.050746",
+      "reliability": "H",
+      "llm_usage": "hypothesis_only",
+      "data_status": "available",
+      "payload": {
+        "theme": "HIGH_VOLATILITY",
+        "market_value": 10000.0,
+        "weight_pct": 10.0,
+        "symbols": [
+          "000657"
+        ]
+      },
+      "risk_parameter_source": "system_default_placeholder",
+      "unconfirmed_by_user": true,
+      "interpretation_limit": "System-generated risk reminder based on user tags only; verify whether the tag is appropriate before using it. Concentration or cash reminders may depend on system default placeholder parameters and are unconfirmed by the user."
+    }
+  ],
+  "manual_evidence": [
+    {
+      "evidence_id": "manual_1713ca701f11410881da246e831e5cca",
+      "symbol": "000657",
+      "evidence_type": "shareholder_count_manual",
+      "category": "manual_evidence",
+      "title": "Demo included shareholder-count note",
+      "value": null,
+      "payload": {
+        "symbol": "000657",
+        "evidence_type": "shareholder_count_manual",
+        "title": "Demo included shareholder-count note",
+        "value": null,
+        "text": "Non-sensitive demo evidence: shareholder count manually entered for packet inclusion test.",
+        "as_of_time": null,
+        "as_of_date": "2026-05-20",
+        "source": "phase3_acceptance_demo",
+        "reliability": "B_manual_structured",
+        "llm_usage": "fact_with_limit",
+        "attachment_path": null,
+        "image_reference": null,
+        "notes": null,
+        "include_in_analysis_packet": true,
+        "holder_num": 12345,
+        "end_date": null,
+        "announcement_date": null,
+        "change_from_previous": null,
+        "screenshot": null,
+        "evidence_id": "manual_1713ca701f11410881da246e831e5cca",
+        "recorded_at": "2026-05-24T21:56:03.983841"
+      },
+      "source": "phase3_acceptance_demo",
+      "source_endpoint": null,
+      "as_of_time": null,
+      "as_of_date": "2026-05-20",
+      "fetched_at": "2026-05-24T21:56:03.983841",
+      "reliability": "B_manual_structured",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "手动录入证据，仅在用户选择纳入分析包时使用；需保留来源与日期边界。",
+      "freshness_days": 4,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "manual_e195015d0ec949a39c4738e3964d6170",
+      "symbol": "000657",
+      "evidence_type": "manual_market_observation",
+      "category": "manual_evidence",
+      "title": "Demo included observation",
+      "value": null,
+      "payload": {
+        "symbol": "000657",
+        "evidence_type": "manual_market_observation",
+        "title": "Demo included observation",
+        "value": null,
+        "text": "Non-sensitive demo observation used to verify manual evidence export.",
+        "as_of_time": null,
+        "as_of_date": "2026-05-21",
+        "source": "phase3_acceptance_demo",
+        "reliability": "B_manual_structured",
+        "llm_usage": "fact_with_limit",
+        "attachment_path": null,
+        "image_reference": null,
+        "notes": null,
+        "include_in_analysis_packet": true,
+        "holder_num": null,
+        "end_date": null,
+        "announcement_date": null,
+        "change_from_previous": null,
+        "screenshot": null,
+        "evidence_id": "manual_e195015d0ec949a39c4738e3964d6170",
+        "recorded_at": "2026-05-24T21:56:03.991681"
+      },
+      "source": "phase3_acceptance_demo",
+      "source_endpoint": null,
+      "as_of_time": null,
+      "as_of_date": "2026-05-21",
+      "fetched_at": "2026-05-24T21:56:03.991681",
+      "reliability": "B_manual_structured",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "手动录入证据，仅在用户选择纳入分析包时使用；需保留来源与日期边界。",
+      "freshness_days": 3,
+      "data_status": "available",
+      "notes": null
+    }
+  ],
+  "auto_fact_summary": [
+    {
+      "symbol": "300001",
+      "coverage": "dragon_tiger_and_disclosure_index",
+      "data_status": "unavailable",
+      "evidence": [],
+      "boundary": "Indexes and public event facts are bounded context only; no announcement body or long-term fund intent is inferred.",
+      "missing_reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+    },
+    {
+      "symbol": "000960",
+      "coverage": "dragon_tiger_and_disclosure_index",
+      "data_status": "unavailable",
+      "evidence": [],
+      "boundary": "Indexes and public event facts are bounded context only; no announcement body or long-term fund intent is inferred.",
+      "missing_reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+    },
+    {
+      "symbol": "000657",
+      "coverage": "dragon_tiger_and_disclosure_index",
+      "data_status": "unavailable",
+      "evidence": [],
+      "boundary": "Indexes and public event facts are bounded context only; no announcement body or long-term fund intent is inferred.",
+      "missing_reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+    }
+  ],
+  "missing_data": [
+    {
+      "key": "broker_sync",
+      "reason": "Broker account sync is not implemented."
+    },
+    {
+      "key": "quote_time",
+      "reason": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    },
+    {
+      "key": "repo_cash_equivalent_policy",
+      "reason": "Repo amount is displayed separately from cash; cash-equivalent treatment is unconfirmed."
+    }
+  ],
+  "interpretation_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, sector baskets, FX, futures, backtesting, and broker sync are not included in this stage.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention."
+  ],
+  "missing_data_and_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, sector baskets, FX, futures, backtesting, and broker sync are not included in this stage.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",
+    {
+      "key": "broker_sync",
+      "reason": "Broker account sync is not implemented."
+    },
+    {
+      "key": "quote_time",
+      "reason": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+    },
+    {
+      "key": "repo_cash_equivalent_policy",
+      "reason": "Repo amount is displayed separately from cash; cash-equivalent treatment is unconfirmed."
+    }
+  ],
+  "suggested_questions_for_external_llm": [
+    "Is the portfolio overly concentrated by single position or primary theme?",
+    "Which theme tags indicate overlapping risk, and why should they not be added as asset weights?",
+    "Does the cash and repo structure preserve enough optionality?",
+    "Are the recorded plans and invalid conditions consistent with the actual portfolio structure?",
+    "If a proposed trade is executed, how would concentration, cash ratio, and theme overlap change?",
+    "What is the most important missing information before making a decision?"
+  ],
+  "llm_questions": [
+    "Is the portfolio overly concentrated by single position or primary theme?",
+    "Which theme tags indicate overlapping risk, and why should they not be added as asset weights?",
+    "Does the cash and repo structure preserve enough optionality?",
+    "Are the recorded plans and invalid conditions consistent with the actual portfolio structure?",
+    "If a proposed trade is executed, how would concentration, cash ratio, and theme overlap change?",
+    "What is the most important missing information before making a decision?"
+  ]
+}

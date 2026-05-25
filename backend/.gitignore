@@ -11,7 +11,17 @@ data/base_market/
 data/cache/
 data/history/
 data/indicators/
+data/analysis_snapshots/
+data/deep_analysis/
 data/metadata/
+data/portfolio/
+data/phase3_acceptance_demo/
+data/tushare/
+data/account_exports/
+data/exports/
+data/attachments/
+data/uploads/
+data/screenshots/
 *.parquet
 *.log
 data/update_status.json

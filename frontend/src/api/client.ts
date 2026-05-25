@@ -77,6 +77,174 @@ export interface StockSearchItem {
   area?: string
 }
 
+export interface FactEvidence {
+  evidence_type: string
+  category: string
+  title: string
+  source: string
+  as_of_date?: string | null
+  reliability: string
+  llm_usage: string
+  interpretation_limit?: string | null
+  data_status: string
+}
+
+export interface EtfFacts {
+  symbol: string
+  name: string
+  full_name?: string
+  index_name?: string
+  manager?: string
+  as_of_date?: string | null
+  latest_share?: number | null
+  latest_size?: number | null
+  nav?: number | null
+  close?: number | null
+  share_change: Record<string, number | null>
+  price_change: Record<string, number | null>
+  share_streak_days: number
+  quadrant_label: string
+  interpretation_limit: string
+}
+
+export interface DragonTigerEvent {
+  trade_date: string
+  reason: string
+  close?: number | null
+  pct_change?: number | null
+  amount?: number | null
+  total_buy?: number | null
+  total_sell?: number | null
+  net_buy?: number | null
+  net_buy_amount_rate?: number | null
+  top_buy_seats: Array<Record<string, any>>
+  top_sell_seats: Array<Record<string, any>>
+  has_institutional_seat: boolean
+  has_stock_connect_seat: boolean
+  interpretation_limit: string
+}
+
+export interface DisclosureFacts {
+  announcements: Array<{
+    ann_date: string
+    title: string
+    url: string
+    category_label: string
+    interpretation_limit: string
+  }>
+  surveys: Array<{
+    surv_date: string
+    rece_mode: string
+    rece_org: string
+    org_type: string
+    comp_rece: string
+    rece_place: string
+    interpretation_limit: string
+  }>
+  announcement_interpretation_limit: string
+  survey_interpretation_limit: string
+  empty_message: string
+}
+
+export interface FactResponse<T> {
+  success: boolean
+  symbol: string
+  message?: string
+  data_status: string
+  data: T
+  evidence: FactEvidence[]
+}
+
+export interface PortfolioPosition {
+  symbol: string
+  name: string
+  quantity: number
+  available_quantity?: number | null
+  avg_cost: number
+  market_price?: number | null
+  market_value?: number | null
+  unrealized_pnl?: number | null
+  unrealized_pnl_pct?: number | null
+  data_status?: string
+  missing_data?: string[]
+  position_role: string
+  theme_tags: string[]
+  primary_theme?: string | null
+  user_plan: string
+  invalid_condition?: string | null
+  target_max_weight?: number | null
+  notes?: string | null
+}
+
+export interface PortfolioState {
+  snapshot: {
+    portfolio_id: string
+    snapshot_time: string
+    total_assets?: number | null
+    cash_available: number
+    repo_amount: number
+    repo_available_date?: string | null
+    notes?: string | null
+    risk_limits: {
+      max_position_weight: number
+      max_theme_weight: number
+      min_cash_ratio: number
+    }
+    positions: PortfolioPosition[]
+  }
+  metrics: {
+    total_assets: number
+    total_market_value: number
+    cash_available: number
+    repo_amount: number
+    cash_ratio_pct: number
+    repo_ratio_pct: number
+    invested_ratio_pct: number
+    position_weights: Array<Record<string, any>>
+    pnl_contributors: Array<Record<string, any>>
+    primary_theme_exposures: Array<Record<string, any>>
+    risk_tag_exposures: Array<Record<string, any>>
+    warnings: string[]
+    composite_exposure_notes: string[]
+    missing_data: Array<Record<string, any>>
+  }
+  supported_theme_tags: string[]
+}
+
+export interface ManualEvidenceRecord {
+  evidence_id: string
+  symbol?: string | null
+  evidence_type: string
+  title: string
+  value?: any
+  text: string
+  as_of_time?: string | null
+  as_of_date?: string | null
+  recorded_at: string
+  source: string
+  reliability: string
+  llm_usage: string
+  attachment_path?: string | null
+  image_reference?: string | null
+  notes?: string | null
+  include_in_analysis_packet: boolean
+  holder_num?: number | null
+  end_date?: string | null
+  announcement_date?: string | null
+  change_from_previous?: number | null
+  screenshot?: string | null
+}
+
+export interface AnalysisPacketResponse {
+  success: boolean
+  packet: Record<string, any>
+  markdown: string
+  saved_paths?: {
+    json_path: string
+    markdown_path: string
+  }
+}
+
 export async function analyzeStock(symbol: string): Promise<AnalyzeResponse> {
   const response = await client.post<AnalyzeResponse>('/api/analyze', {
     symbols: [symbol],
@@ -97,4 +265,80 @@ export async function searchStocks(query: string, limit = 20): Promise<StockSear
     },
   })
   return response.data.items
+}
+
+export async function getEtfFacts(symbol: string): Promise<FactResponse<EtfFacts | null>> {
+  const response = await client.get<FactResponse<EtfFacts | null>>(`/api/facts/etf/${symbol}`)
+  return response.data
+}
+
+export async function getDragonTigerFacts(symbol: string): Promise<FactResponse<{
+  latest_event: DragonTigerEvent | null
+  events: DragonTigerEvent[]
+  empty_message: string
+  interpretation_limit: string
+}>> {
+  const response = await client.get<FactResponse<any>>(`/api/facts/dragon-tiger/${symbol}`)
+  return response.data
+}
+
+export async function getDisclosureFacts(symbol: string): Promise<FactResponse<DisclosureFacts>> {
+  const response = await client.get<FactResponse<DisclosureFacts>>(`/api/facts/disclosures/${symbol}`)
+  return response.data
+}
+
+export async function getPortfolio(): Promise<PortfolioState> {
+  const response = await client.get<{ success: boolean; data: PortfolioState }>('/api/portfolio')
+  return response.data.data
+}
+
+export async function savePortfolio(payload: any): Promise<PortfolioState> {
+  const response = await client.put<{ success: boolean; data: PortfolioState }>('/api/portfolio', payload)
+  return response.data.data
+}
+
+export async function listManualEvidence(): Promise<ManualEvidenceRecord[]> {
+  const response = await client.get<{ success: boolean; items: ManualEvidenceRecord[] }>('/api/portfolio/manual-evidence')
+  return response.data.items
+}
+
+export async function addManualEvidence(payload: any): Promise<ManualEvidenceRecord> {
+  const response = await client.post<{ success: boolean; data: ManualEvidenceRecord }>('/api/portfolio/manual-evidence', payload)
+  return response.data.data
+}
+
+export async function deleteManualEvidence(evidenceId: string): Promise<void> {
+  await client.delete(`/api/portfolio/manual-evidence/${evidenceId}`)
+}
+
+export async function updateManualEvidenceInclude(evidenceId: string, include: boolean): Promise<ManualEvidenceRecord> {
+  const response = await client.patch<{ success: boolean; data: ManualEvidenceRecord }>(
+    `/api/portfolio/manual-evidence/${evidenceId}/include`,
+    { include_in_analysis_packet: include },
+  )
+  return response.data.data
+}
+
+export async function simulateTrade(payload: any): Promise<any> {
+  const response = await client.post<{ success: boolean; data: any }>('/api/portfolio/simulate', payload)
+  return response.data.data
+}
+
+export async function getPortfolioSnapshot(): Promise<any> {
+  const response = await client.get<{ success: boolean; data: any }>('/api/portfolio/analysis-snapshot')
+  return response.data.data
+}
+
+export async function createSingleAnalysisPacket(symbol: string, userQuestion = ''): Promise<AnalysisPacketResponse> {
+  const response = await client.post<AnalysisPacketResponse>(`/api/analysis-packet/single/${symbol}`, null, {
+    params: userQuestion ? { user_question: userQuestion } : undefined,
+  })
+  return response.data
+}
+
+export async function createPortfolioAnalysisPacket(userQuestion = ''): Promise<AnalysisPacketResponse> {
+  const response = await client.post<AnalysisPacketResponse>('/api/analysis-packet/portfolio', null, {
+    params: userQuestion ? { user_question: userQuestion } : undefined,
+  })
+  return response.data
 }
