@@ -2,9 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   confirmPortfolioImportDraft,
-  getPortfolioImportParserProviders,
   createPortfolioAnalysisPacket,
   getPortfolio,
+  getPortfolioImportParserProviders,
   getPortfolioSnapshot,
   rejectPortfolioImportDraft,
   savePortfolio,
@@ -25,7 +25,6 @@ const selectedFile = ref<File | null>(null)
 const selectedPreview = ref('')
 const importError = ref('')
 const parserProvider = ref('local_noop')
-const cloudConsent = ref(false)
 const snapshotPreview = ref('')
 const snapshotNotice = ref('')
 const packetMarkdown = ref('')
@@ -63,6 +62,7 @@ const fmt = (v?: number | null, suffix = '') => {
 
 const positions = computed(() => state.value?.snapshot.positions || [])
 const metrics = computed(() => state.value?.metrics)
+const isCloudParser = computed(() => parserProvider.value === 'volcengine_ark_vision')
 const parseTags = (text: string) => text.split(',').map((x) => x.trim()).filter(Boolean)
 
 const load = async () => {
@@ -73,20 +73,12 @@ const load = async () => {
       const providers = await getPortfolioImportParserProviders()
       parserStatus.value = providers
       parserProvider.value = providers.default_provider || 'local_noop'
-    } catch (error) {
+    } catch {
       parserStatus.value = {
         default_provider: 'local_noop',
         providers: [
-          {
-            provider: 'local_noop',
-            display_name: '手工补录 / 本地不解析',
-            status: 'available',
-          },
-          {
-            provider: 'volcengine_ark_vision',
-            display_name: '火山方舟云端视觉解析',
-            status: 'backend_endpoint_unavailable',
-          },
+          { provider: 'local_noop', display_name: '手工补录', status: 'available' },
+          { provider: 'volcengine_ark_vision', display_name: '云端视觉解析', status: 'backend_endpoint_unavailable' },
         ],
       }
       parserProvider.value = 'local_noop'
@@ -185,20 +177,16 @@ const onFileChange = (event: Event) => {
 
 const uploadScreenshot = async () => {
   if (!selectedFile.value) return
-  if (parserProvider.value === 'volcengine_ark_vision' && !cloudConsent.value) {
-    importError.value = '选择火山方舟云端视觉解析时，必须先勾选同意发送截图。'
-    return
-  }
   importLoading.value = true
   importError.value = ''
   try {
     draft.value = await uploadPortfolioScreenshot(selectedFile.value, {
       parser_provider: parserProvider.value,
-      cloud_send_consent: cloudConsent.value,
-      user_notice_acknowledged_at: cloudConsent.value ? new Date().toISOString() : null,
+      cloud_send_consent: isCloudParser.value,
+      user_notice_acknowledged_at: isCloudParser.value ? new Date().toISOString() : null,
     })
   } catch (error: any) {
-    importError.value = error?.response?.data?.detail || '上传失败'
+    importError.value = error?.response?.data?.detail || error?.message || '识别失败'
   } finally {
     importLoading.value = false
   }
@@ -244,8 +232,6 @@ const saveDraft = async () => {
 
 const confirmDraft = async () => {
   if (!draft.value) return
-  const ok = window.confirm('即将保存为新的本地账户快照；不会覆盖旧快照版本，不会自动向外部 LLM 发送持仓数据。确认继续？')
-  if (!ok) return
   try {
     await saveDraft()
     const result = await confirmPortfolioImportDraft(draft.value.draft_id)
@@ -273,7 +259,7 @@ const chooseCandidate = (row: any) => {
 const buildSnapshot = async () => {
   const snap = await getPortfolioSnapshot()
   snapshotNotice.value = draft.value?.needs_user_confirmation
-    ? '当前摘要只读取已确认的正式 portfolio snapshot；未确认的截图草稿不会进入 evidence_count 或 target_symbols。'
+    ? '当前摘要只读取已确认的正式 portfolio snapshot；未确认草稿不会进入 evidence_count 或 target_symbols。'
     : ''
   snapshotPreview.value = JSON.stringify({
     snapshot_id: snap.snapshot_id,
@@ -310,7 +296,7 @@ onMounted(load)
     <button class="flex w-full items-center justify-between px-3 py-2 text-left" @click="expanded = !expanded">
       <div>
         <h2 class="text-sm font-semibold text-foreground">组合与本地账户快照</h2>
-        <p class="text-[11px] text-muted-foreground">本地保存；确认前的 OCR 草稿不会进入正式组合，也不会自动发送给外部 LLM。</p>
+        <p class="text-[11px] text-muted-foreground">本地保存；截图识别结果先进入草稿，确认后才写入正式组合。</p>
       </div>
       <span class="text-xs text-muted-foreground">{{ expanded ? '收起' : '展开' }}</span>
     </button>
@@ -335,8 +321,8 @@ onMounted(load)
                 <th>可用数量</th>
                 <th>平均成本</th>
                 <th>系统行情价</th>
-                <th>截图现价</th>
-                <th>市值/盈亏</th>
+                <th>截图价格</th>
+                <th>市值 / 盈亏</th>
                 <th>主题</th>
                 <th></th>
               </tr>
@@ -350,7 +336,7 @@ onMounted(load)
                 <td class="text-right">{{ fmt(p.system_quote_price ?? p.market_price) }}</td>
                 <td class="text-right">{{ fmt(p.broker_screenshot_price) }}</td>
                 <td class="text-right">{{ fmt(p.market_value) }} / {{ fmt(p.unrealized_pnl) }}</td>
-                <td class="px-2">{{ p.primary_theme || '-' }} · {{ p.theme_tags.join(',') }}</td>
+                <td class="px-2">{{ p.primary_theme || '-' }} / {{ p.theme_tags.join(',') }}</td>
                 <td class="p-2 text-right"><button class="text-negative" @click="removePosition(p.symbol)">删除</button></td>
               </tr>
             </tbody>
@@ -360,60 +346,48 @@ onMounted(load)
         <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-6">
           <input v-model="positionDraft.symbol" class="rounded bg-input px-2 py-1" placeholder="标准代码，如 601899.SH" />
           <input v-model="positionDraft.name" class="rounded bg-input px-2 py-1" placeholder="名称" />
-          <input v-model.number="positionDraft.quantity" class="rounded bg-input px-2 py-1" type="number" placeholder="持仓数量：当前账户持有的总股数" />
-          <input v-model.number="positionDraft.available_quantity" class="rounded bg-input px-2 py-1" type="number" placeholder="可用数量：当前可卖出的股数" />
-          <input v-model.number="positionDraft.avg_cost" class="rounded bg-input px-2 py-1" type="number" placeholder="平均成本：账户成本价" />
-          <button class="rounded bg-primary px-3 py-1" :disabled="saving" @click="addPosition">新增/保存</button>
+          <input v-model.number="positionDraft.quantity" class="rounded bg-input px-2 py-1" type="number" placeholder="持仓数量" />
+          <input v-model.number="positionDraft.available_quantity" class="rounded bg-input px-2 py-1" type="number" placeholder="可用数量" />
+          <input v-model.number="positionDraft.avg_cost" class="rounded bg-input px-2 py-1" type="number" placeholder="平均成本" />
+          <button class="rounded bg-primary px-3 py-1" :disabled="saving" @click="addPosition">新增持仓</button>
           <input v-model.number="accountDraft.cash_available" class="rounded bg-input px-2 py-1" type="number" placeholder="可用现金" />
           <input v-model.number="accountDraft.repo_amount" class="rounded bg-input px-2 py-1" type="number" placeholder="逆回购金额" />
-          <input v-model="positionDraft.primary_theme" class="rounded bg-input px-2 py-1" placeholder="primary_theme，用户确认" />
+          <input v-model="positionDraft.primary_theme" class="rounded bg-input px-2 py-1" placeholder="primary_theme" />
           <input v-model="positionDraft.theme_tags_text" class="rounded bg-input px-2 py-1" placeholder="theme_tags，逗号分隔" />
-          <input v-model="positionDraft.position_role" class="rounded bg-input px-2 py-1" placeholder="position_role，用户填写" />
-          <input v-model="positionDraft.invalid_condition" class="rounded bg-input px-2 py-1" placeholder="invalid_condition，用户填写" />
+          <input v-model="positionDraft.position_role" class="rounded bg-input px-2 py-1" placeholder="position_role" />
+          <input v-model="positionDraft.invalid_condition" class="rounded bg-input px-2 py-1" placeholder="invalid_condition" />
         </div>
 
         <div class="rounded border border-border/60 p-3">
-          <div class="mb-3">
-            <h3 class="text-xs font-semibold">上传持仓截图生成草稿</h3>
-            <p class="text-[11px] text-muted-foreground">OCR 识别结果仅为草稿，请逐项核对后确认。截图数据默认仅保存在本地，不会自动上传到外部模型。截图现价不等同于当前系统行情价格。</p>
-          </div>
-          <div class="mb-3 grid gap-2 rounded border border-border/60 bg-secondary/20 p-2 text-xs">
-            <label class="flex items-center gap-2">
-              <span class="text-muted-foreground">解析方式</span>
-              <select v-model="parserProvider" class="rounded bg-input px-2 py-1">
-                <option value="local_noop">手工补录 / 本地不解析</option>
-                <option value="volcengine_ark_vision">火山方舟云端视觉解析</option>
-              </select>
-            </label>
-            <div v-if="parserStatus" class="text-[11px] text-muted-foreground">
-              <span v-for="item in parserStatus.providers" :key="item.provider" class="mr-3">
-                {{ item.display_name }} = {{ item.status }}
-              </span>
-            </div>
-            <div v-if="parserProvider === 'volcengine_ark_vision'" class="rounded border border-warning/40 bg-warning/10 p-2 text-warning">
-              <p>你选择了“火山方舟云端视觉解析”。该截图可能包含持仓名称、数量、成本、市值、盈亏、现金等个人账户信息。点击继续后，截图将发送至你自行配置的火山方舟视觉模型，用于生成可编辑的持仓草稿。</p>
-              <p class="mt-1">Stock-Pilot 不会在解析后自动保存正式账户快照，不会自动调用投资分析模型，也不会自动将截图纳入 Analysis Packet。云端服务侧的数据处理与留存规则由用户的服务配置及供应商政策决定，请自行确认。</p>
-              <label class="mt-2 flex items-center gap-2">
-                <input v-model="cloudConsent" type="checkbox" />
-                <span>我理解该截图将发送至我配置的火山方舟视觉模型，并同意继续解析。</span>
-              </label>
-            </div>
-          </div>
-          <div class="flex flex-wrap items-center gap-2 text-xs">
+          <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">
+            <select v-model="parserProvider" class="rounded bg-input px-2 py-1">
+              <option value="local_noop">手工补录</option>
+              <option value="volcengine_ark_vision">云端视觉解析</option>
+            </select>
             <input type="file" accept="image/png,image/jpeg,image/webp" @change="onFileChange" />
-            <button class="rounded bg-primary px-3 py-1" :disabled="!selectedFile || importLoading || (parserProvider === 'volcengine_ark_vision' && !cloudConsent)" @click="uploadScreenshot">
-              {{ importLoading ? '上传中...' : '上传并创建草稿' }}
+            <button class="rounded bg-primary px-3 py-1" :disabled="!selectedFile || importLoading" @click="uploadScreenshot">
+              {{ importLoading ? '正在识别...' : (isCloudParser ? '识别截图' : '创建草稿') }}
             </button>
-            <button v-if="draft" class="rounded bg-secondary px-3 py-1" @click="addDraftRow">手工新增一行</button>
-            <button v-if="draft" class="rounded bg-secondary px-3 py-1" @click="saveDraft">保存草稿修改</button>
+            <button v-if="draft" class="rounded bg-secondary px-3 py-1" @click="addDraftRow">新增行</button>
             <button v-if="draft" class="rounded bg-negative px-3 py-1" @click="rejectDraft">放弃草稿</button>
           </div>
-          <img v-if="selectedPreview" :src="selectedPreview" class="mt-3 max-h-52 rounded border border-border/60 object-contain" alt="脱敏持仓截图预览" />
+          <div v-if="parserStatus" class="mb-2 text-[11px] text-muted-foreground">
+            <span v-for="item in parserStatus.providers" :key="item.provider" class="mr-3">{{ item.display_name }}: {{ item.status }}</span>
+          </div>
+          <div v-if="importLoading" class="mb-2 rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+            正在识别，请稍候。云端视觉解析可能需要几十秒，超时后会返回可手工修正的草稿。
+          </div>
+          <img v-if="selectedPreview" :src="selectedPreview" class="mt-3 max-h-52 rounded border border-border/60 object-contain" alt="持仓截图预览" />
           <div v-if="importError" class="mt-2 text-xs text-negative">{{ importError }}</div>
+
           <div v-if="draft" class="mt-3 space-y-2 text-xs">
-            <div class="text-muted-foreground">草稿 {{ draft.draft_id }} · OCR: {{ draft.ocr_status }} · 解析: {{ draft.parse_status }} · provider: {{ draft.ocr_provider }}</div>
-            <div class="text-muted-foreground">视觉解析 provider: {{ draft.parser_provider || draft.ocr_provider }} · cloud parse: {{ draft.cloud_parse_status || '-' }} · 结果仅为草稿，确认后才写入账户。</div>
+            <div class="text-muted-foreground">
+              草稿 {{ draft.draft_id }} / {{ draft.parse_status }} / provider: {{ draft.parser_provider || draft.ocr_provider }} / cloud: {{ draft.cloud_parse_status || '-' }}
+            </div>
+            <div class="text-muted-foreground">截图价格不是系统实时行情；确认前不会写入正式账户。</div>
             <div v-for="warning in draft.parse_warnings" :key="warning" class="text-warning">{{ warning }}</div>
+            <div v-if="draft.provider_error_summary" class="text-warning">错误摘要：{{ draft.provider_error_summary }}</div>
+
             <div class="overflow-x-auto rounded border border-border/60">
               <table class="w-full min-w-[1200px] text-xs">
                 <thead class="bg-secondary/40 text-muted-foreground">
@@ -424,10 +398,10 @@ onMounted(load)
                     <th>持仓数量</th>
                     <th>可用数量</th>
                     <th>平均成本</th>
-                    <th>截图现价</th>
+                    <th>截图价格</th>
                     <th>截图市值</th>
-                    <th>浮盈亏</th>
-                    <th>external driver profile</th>
+                    <th>浮动盈亏</th>
+                    <th>external driver</th>
                     <th>primary_theme</th>
                     <th>theme_tags</th>
                     <th>position_role</th>
@@ -462,7 +436,7 @@ onMounted(load)
               <span v-if="row.validation_warnings?.length">{{ row.normalized_symbol || row.raw_name_text || row.row_id }}：{{ row.validation_warnings.join('；') }}</span>
             </div>
             <button class="rounded bg-primary px-3 py-2 text-xs" :disabled="draft.parse_status === 'saved_as_portfolio_snapshot'" @click="confirmDraft">
-              确认并保存为新的持仓快照
+              确认入账
             </button>
           </div>
         </div>
@@ -482,7 +456,7 @@ onMounted(load)
           <div class="mb-2 flex items-center justify-between">
             <div>
               <h3 class="text-xs font-semibold">Portfolio Analysis Packet v1</h3>
-              <p class="text-[11px] text-muted-foreground">用户主动生成；可能包含持仓、成本和现金，不会自动调用外部 LLM。</p>
+              <p class="text-[11px] text-muted-foreground">用户主动生成；不会自动调用外部 LLM。</p>
             </div>
             <div class="flex gap-2">
               <button class="rounded bg-secondary px-3 py-1 text-xs" :disabled="!packetMarkdown" @click="copyPortfolioPacket">{{ packetCopied ? 'Copied' : 'Copy Markdown' }}</button>

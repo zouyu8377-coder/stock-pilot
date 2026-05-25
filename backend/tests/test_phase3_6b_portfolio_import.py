@@ -265,7 +265,7 @@ def test_provider_status_does_not_expose_api_key(monkeypatch):
 def test_cloud_provider_requires_consent_before_any_parse(tmp_path):
     service = _service(tmp_path)
 
-    with pytest.raises(ValueError, match="同意"):
+    with pytest.raises(ValueError, match="授权"):
         service.create_draft_from_upload(
             "sanitized.png",
             "image/png",
@@ -345,7 +345,7 @@ def test_cloud_confirm_source_and_block_available_quantity_over_quantity(tmp_pat
     snapshot = result["state"].snapshot
     assert snapshot.source_type == "broker_screenshot_cloud_parsed_user_confirmed"
     assert snapshot.positions[0].source_type == "manual_account"
-    assert "火山方舟视觉解析" in (snapshot.positions[0].source_name or "")
+    assert "云端视觉解析" in (snapshot.positions[0].source_name or "")
     assert snapshot.positions[0].broker_screenshot_price == 31.64
     assert snapshot.positions[0].system_quote_price == 31.38
     assert service.portfolio_service.list_manual_evidence()[0].include_in_analysis_packet is False

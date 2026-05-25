@@ -11,14 +11,14 @@
     },
     {
       "provider": "volcengine_ark_vision",
-      "display_name": "火山方舟云端视觉解析",
+      "display_name": "云端视觉解析",
       "status": "configured_not_verified",
       "enabled": true,
       "configured": true,
       "model": "your-vision-model",
       "base_url_configured": true,
       "api_key_configured": true,
-      "privacy_boundary": "仅在用户主动勾选同意后，将截图以 base64 图片输入发送至已配置的火山方舟视觉模型。"
+      "privacy_boundary": "选择该方式后，将截图发送至已配置的云端视觉模型。"
     }
   ]
 }

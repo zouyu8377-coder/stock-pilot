@@ -14,11 +14,11 @@ Use a脱敏 or synthetic screenshot only until you are comfortable with the priv
 ## B. Cloud Send Authorization
 
 - [ ] Open the portfolio screenshot import area.
-- [ ] Select `火山方舟云端视觉解析`.
+- [ ] Select `云端视觉解析`.
 - [ ] Confirm the privacy notice appears.
 - [ ] Confirm the parse/upload button is disabled before consent.
-- [ ] Check: `我理解该截图将发送至我配置的火山方舟视觉模型，并同意继续解析。`
-- [ ] Confirm parsing only starts after consent.
+- [ ] Click `识别截图`.
+- [ ] Confirm the page shows `正在识别`.
 
 ## C. Sanitized Screenshot Parsing
 

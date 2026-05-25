@@ -26,7 +26,7 @@
 ## Volcengine Ark Vision Integration
 
 - Provider name: `volcengine_ark_vision`
-- User-facing name: `火山方舟云端视觉解析`
+- User-facing name: `云端视觉解析`
 - Image transfer method implemented: OpenAI-compatible chat completions with a base64 `data:` URL image input in request memory.
 - No public temporary URL is created.
 - The implementation uses `VOLCENGINE_ARK_VISION_BASE_URL` plus `/chat/completions` if needed.
@@ -51,7 +51,7 @@ Real values are read only from local environment variables:
 
 - `local_noop` never sends the image to cloud.
 - `volcengine_ark_vision` rejects upload unless `cloud_send_consent=true`.
-- The frontend disables cloud parsing until the user checks the consent box.
+- The frontend treats selecting `云端视觉解析` and clicking `识别截图` as explicit authorization for that upload.
 - Stock-Pilot does not automatically save a formal portfolio snapshot after parsing.
 - Stock-Pilot does not automatically call the investment analysis LLM.
 - The cloud provider result is a draft; the user must verify and confirm before a portfolio snapshot is written.

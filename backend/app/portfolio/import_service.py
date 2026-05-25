@@ -66,7 +66,7 @@ def provider_statuses() -> dict[str, Any]:
         "providers": [
             {
                 "provider": "local_noop",
-                "display_name": "手工补录 / 本地不解析",
+                "display_name": "手工补录",
                 "status": "available",
                 "enabled": True,
                 "configured": True,
@@ -74,8 +74,8 @@ def provider_statuses() -> dict[str, Any]:
             },
             {
                 **volcengine_ark_vision_status(),
-                "display_name": "火山方舟云端视觉解析",
-                "privacy_boundary": "仅在用户主动勾选同意后，将截图以 base64 图片输入发送至已配置的火山方舟视觉模型。",
+                "display_name": "云端视觉解析",
+                "privacy_boundary": "选择该方式后，将截图发送至已配置的云端视觉模型。",
             },
         ],
     }
@@ -121,7 +121,7 @@ class PortfolioImportService:
         filename: str,
         content_type: str,
         content: bytes,
-        options: PortfolioScreenshotImportOptions | None = None,
+        options: PortfolioScreenshotImportOptions | dict[str, Any] | None = None,
     ) -> PortfolioImportDraft:
         if isinstance(options, dict):
             options = PortfolioScreenshotImportOptions(**options)
@@ -131,19 +131,16 @@ class PortfolioImportService:
         if len(content) > MAX_UPLOAD_BYTES:
             raise ValueError("图片超过 8MB 限制。")
         if options.parser_provider == "volcengine_ark_vision" and not options.cloud_send_consent:
-            raise ValueError("选择火山方舟云端视觉解析时，必须先勾选同意将截图发送至已配置的云端视觉模型。")
+            raise ValueError("选择云端视觉解析时，必须明确提交云端发送授权。")
 
         draft_id = f"draft_{uuid4().hex}"
-        ext = ALLOWED_IMAGE_TYPES[content_type]
-        image_path = self.upload_root / f"{draft_id}{ext}"
+        image_path = self.upload_root / f"{draft_id}{ALLOWED_IMAGE_TYPES[content_type]}"
         image_path.write_bytes(content)
         draft = PortfolioImportDraft(
             draft_id=draft_id,
-            source_type=(
-                "cloud_vision_parsed_broker_screenshot"
-                if options.parser_provider == "volcengine_ark_vision"
-                else "portfolio_import_draft"
-            ),
+            source_type="cloud_vision_parsed_broker_screenshot"
+            if options.parser_provider == "volcengine_ark_vision"
+            else "portfolio_import_draft",
             image_reference=str(image_path),
             parser_provider=options.parser_provider,
             cloud_send_consent=options.cloud_send_consent,
@@ -161,15 +158,12 @@ class PortfolioImportService:
         if parser_provider:
             draft.parser_provider = str(parser_provider)
         if draft.parser_provider == "volcengine_ark_vision" and not draft.cloud_send_consent:
-            raise ValueError("未取得云端发送同意，不会发送截图到火山方舟视觉模型。")
+            raise ValueError("未取得云端发送授权，不会发送截图到云端视觉模型。")
 
         draft.ocr_status = "ocr_processing"
         self._write_draft(draft)
         provider = self._provider_for(draft.parser_provider)
-        if hasattr(provider, "parse_image"):
-            result: OcrResult = provider.parse_image(Path(draft.image_reference))
-        else:
-            result = provider.extract_text(Path(draft.image_reference))
+        result: OcrResult = provider.parse_image(Path(draft.image_reference)) if hasattr(provider, "parse_image") else provider.extract_text(Path(draft.image_reference))
         draft.ocr_provider = result.provider_name
         draft.ocr_raw_text = result.raw_text
         draft.cloud_parse_status = result.status if draft.parser_provider == "volcengine_ark_vision" else None
@@ -194,7 +188,7 @@ class PortfolioImportService:
             draft.ocr_status = "ocr_failed"
             draft.parse_status = "manual_review_required" if result.status == "cloud_parse_failed" else "parse_incomplete"
             draft.parse_warnings.extend(warnings)
-            draft.parse_warnings.append("视觉解析未能稳定识别持仓行，请在草稿表格中手工补录或修正。")
+            draft.parse_warnings.append("视觉识别未能稳定解析持仓行，请在草稿表格中手工补录或修正。")
             draft.needs_user_confirmation = True
             self._write_draft(draft)
             return draft
@@ -221,13 +215,9 @@ class PortfolioImportService:
 
     def parse_structured_payload(self, payload: dict[str, Any]) -> tuple[list[HoldingRowDraft], list[str]]:
         rows: list[HoldingRowDraft] = []
-        warnings: list[str] = []
-        for warning in (payload.get("parse_warnings") or []):
-            warnings.append(str(warning))
+        warnings: list[str] = [str(w) for w in (payload.get("parse_warnings") or [])]
         source_view = payload.get("source_view") or {}
-        for warning in (source_view.get("warnings") or []):
-            warnings.append(str(warning))
-
+        warnings.extend(str(w) for w in (source_view.get("warnings") or []))
         for item in payload.get("holdings") or []:
             if not isinstance(item, dict):
                 warnings.append("模型返回了非对象持仓行，已忽略。")
@@ -254,11 +244,7 @@ class PortfolioImportService:
                 validation_warnings=[str(w) for w in (item.get("warnings") or [])],
             )
             self.normalize_row(row)
-            if (
-                row.quantity is not None
-                and row.broker_screenshot_price is not None
-                and row.broker_screenshot_market_value is not None
-            ):
+            if row.quantity is not None and row.broker_screenshot_price is not None and row.broker_screenshot_market_value is not None:
                 expected = row.quantity * row.broker_screenshot_price
                 if expected and abs(expected - row.broker_screenshot_market_value) / abs(expected) > 0.08:
                     row.validation_warnings.append("截图价格、数量与市值差异较大，请人工核对。")
@@ -280,11 +266,10 @@ class PortfolioImportService:
                 continue
             symbol_text = parts[0] if re.search(r"\d{6}", parts[0]) else ""
             name_index = 1 if symbol_text else 0
-            name_text = parts[name_index]
             numeric = parts[name_index + 1 :]
             row = HoldingRowDraft(
                 raw_symbol_text=symbol_text,
-                raw_name_text=name_text,
+                raw_name_text=parts[name_index],
                 raw_quantity_text=numeric[0] if len(numeric) > 0 else "",
                 raw_available_quantity_text=numeric[1] if len(numeric) > 1 else "",
                 raw_avg_cost_text=numeric[2] if len(numeric) > 2 else "",
@@ -358,7 +343,7 @@ class PortfolioImportService:
         positions: list[PortfolioPositionInput] = []
         errors: list[str] = []
         confirmed_source_name = (
-            "同花顺持仓截图 + 火山方舟视觉解析 + 用户人工确认"
+            "同花顺持仓截图 + 云端视觉解析 + 用户人工确认"
             if draft.parser_provider == "volcengine_ark_vision"
             else f"{draft.source_name} + 用户人工确认"
         )
@@ -407,11 +392,9 @@ class PortfolioImportService:
             total_assets=confirmed.get("total_assets") or draft.account_summary_draft.total_assets_ocr,
             cash_available=float(confirmed.get("cash_available") or draft.account_summary_draft.cash_available_ocr or 0),
             repo_amount=float(confirmed.get("repo_amount") or draft.account_summary_draft.repo_amount_ocr or 0),
-            source_type=(
-                "broker_screenshot_cloud_parsed_user_confirmed"
-                if draft.parser_provider == "volcengine_ark_vision"
-                else "broker_screenshot_confirmed"
-            ),
+            source_type="broker_screenshot_cloud_parsed_user_confirmed"
+            if draft.parser_provider == "volcengine_ark_vision"
+            else "broker_screenshot_confirmed",
             source_name=confirmed_source_name,
             draft_id=draft.draft_id,
             confirmed_at=now,

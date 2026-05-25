@@ -92,7 +92,7 @@ class LocalOcrProvider:
             provider_name=self.provider_name,
             status="failed_manual_entry_required",
             raw_text="",
-            warnings=["当前环境未启用云端视觉解析；已保留截图并创建可手工补录的草稿。"],
+            warnings=["当前未启用云端视觉解析；已保留截图并创建可手工补录的草稿。"],
         )
 
 
@@ -153,6 +153,7 @@ def volcengine_ark_vision_status() -> dict[str, Any]:
         "model": settings.VOLCENGINE_ARK_VISION_MODEL,
         "base_url_configured": True,
         "api_key_configured": True,
+        "timeout_seconds": settings.VOLCENGINE_ARK_VISION_TIMEOUT,
     }
 
 
@@ -168,7 +169,7 @@ class VolcengineArkVisionPortfolioImageParser:
             return OcrResult(
                 provider_name=self.provider_name,
                 status="cloud_parse_failed",
-                warnings=[f"火山方舟云端视觉解析不可用：{status['status']}"],
+                warnings=[f"云端视觉解析不可用：{status['status']}"],
                 error_summary=status["status"],
             )
         try:
@@ -209,9 +210,13 @@ class VolcengineArkVisionPortfolioImageParser:
                 json=payload,
                 timeout=settings.VOLCENGINE_ARK_VISION_TIMEOUT,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                body = (response.text or "")[:500]
+                raise RuntimeError(f"HTTP {response.status_code}: {body}") from exc
             data = response.json()
-            content = data["choices"][0]["message"]["content"]
+            content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content", "")
             if isinstance(content, list):
                 content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
             parsed = _extract_json_object(str(content))
@@ -219,14 +224,22 @@ class VolcengineArkVisionPortfolioImageParser:
                 provider_name=self.provider_name,
                 status="draft_parsed",
                 raw_text="[cloud vision structured JSON omitted]",
-                warnings=["云端视觉模型结果仅为待核对草稿，确认前不会写入正式账户快照。"],
+                warnings=["云端视觉识别结果为待核对草稿，确认前不会写入正式账户快照。"],
                 structured_payload=parsed,
+            )
+        except requests.Timeout as exc:
+            return OcrResult(
+                provider_name=self.provider_name,
+                status="cloud_parse_failed",
+                raw_text="",
+                warnings=[f"云端视觉识别超时，已转为可编辑草稿。当前超时阈值为 {settings.VOLCENGINE_ARK_VISION_TIMEOUT} 秒。"],
+                error_summary=f"timeout after {settings.VOLCENGINE_ARK_VISION_TIMEOUT}s",
             )
         except Exception as exc:
             return OcrResult(
                 provider_name=self.provider_name,
                 status="cloud_parse_failed",
                 raw_text="",
-                warnings=[f"云端视觉解析失败，已转为可人工修正草稿：{str(exc)[:160]}"],
-                error_summary=str(exc)[:200],
+                warnings=[f"云端视觉识别失败，已转为可编辑草稿：{str(exc)[:300]}"],
+                error_summary=str(exc)[:300],
             )
