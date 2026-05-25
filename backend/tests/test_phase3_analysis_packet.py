@@ -2,7 +2,9 @@ from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.main import app
 from app.analysis_packet import packet_service
 from app.evidence.schemas import (
     AnalysisScope,
@@ -31,7 +33,7 @@ def _fake_stock_snapshot(symbol: str, user_question=None, persist=True):
         analysis_scope=AnalysisScope.SINGLE_STOCK,
         target_symbols=[symbol],
         user_question=user_question,
-        market_data_as_of=fetched_at,
+        market_data_as_of=None,
         daily_k_as_of=date(2026, 5, 22),
         evidence_items=[
             EvidenceItem(
@@ -39,10 +41,18 @@ def _fake_stock_snapshot(symbol: str, user_question=None, persist=True):
                 evidence_type=EvidenceType.REALTIME_QUOTE,
                 category=EvidenceCategory.AUTO_FACT,
                 title="Realtime quote snapshot",
-                payload={"symbol": symbol, "name": f"Name{symbol}", "price": 10.0, "provider": "test"},
+                payload={
+                    "symbol": symbol,
+                    "name": f"Name{symbol}",
+                    "price": 10.0,
+                    "provider": "test",
+                    "quote_retrieved_at": fetched_at.isoformat(),
+                    "quote_market_time": None,
+                    "quote_time_status": "unavailable",
+                },
                 source="test quote",
                 source_endpoint="collector.get_quote",
-                as_of_time=fetched_at,
+                as_of_time=None,
                 fetched_at=fetched_at,
                 reliability=EvidenceReliability.B,
                 llm_usage=LlmUsage.FACT_WITH_LIMIT,
@@ -60,6 +70,25 @@ def _fake_stock_snapshot(symbol: str, user_question=None, persist=True):
                 reliability=EvidenceReliability.C,
                 llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
                 interpretation_limit="Auxiliary signal only.",
+            ),
+            EvidenceItem(
+                symbol=symbol,
+                evidence_type=EvidenceType.COMPANY_PROFILE,
+                category=EvidenceCategory.AUTO_FACT,
+                title="Company profile",
+                payload={
+                    "company_name": f"Name{symbol}",
+                    "industry_chain_position": "中游制造/服务",
+                    "core_logic": ["rule inferred logic"],
+                    "concept_tags": ["TEST_TAG"],
+                    "competitive_advantage": "评价性最强表述",
+                },
+                source="stock_meta/Tushare cache/rule inference",
+                source_endpoint="build_company_profile",
+                fetched_at=fetched_at,
+                reliability=EvidenceReliability.B,
+                llm_usage=LlmUsage.CONTEXT_ONLY,
+                interpretation_limit="Context only.",
             ),
         ],
         missing_data=[{"key": "announcement_full_text", "reason": "index only"}],
@@ -119,6 +148,12 @@ def test_single_stock_packet_without_holding_has_manual_account_boundary(tmp_pat
     }
     assert required.issubset(result["packet"].keys())
     assert result["packet"]["manual_account"]["has_holding"] is False
+    assert "market_data_as_of" not in result["packet"]["meta"]
+    assert result["packet"]["meta"]["quote_market_time"] is None
+    assert result["packet"]["meta"]["quote_time_status"] == "unavailable"
+    assert not any(item.get("evidence_type") == "company_profile" for item in result["packet"]["auto_fact"])
+    assert any(item.get("evidence_type") == "company_profile_context" for item in result["packet"]["system_hypothesis"])
+    assert "评价性最强表述" not in result["markdown"]
     assert result["packet"]["auto_signal"][0]["llm_usage"] == "weak_signal_only"
     assert "No local holding" in result["packet"]["manual_account"]["message"]
     assert (tmp_path / "snapshots").glob("analysis_packets/single_stock/600000/*.json")
@@ -224,9 +259,9 @@ def test_portfolio_packet_keeps_primary_theme_unique_and_risk_tags_non_additive(
     assert first["packet"]["account_overview"]["repo_amount"] == 200
     assert "holdings" in first["packet"]
     assert "system_hypothesis" in first["packet"]
-    assert first["packet"]["holdings"][0]["market_price_as_of"] is None
-    assert first["packet"]["holdings"][0]["market_price_time_status"] == "unavailable"
-    assert "portfolio snapshot time is not market quote time" in first["markdown"]
+    assert first["packet"]["holdings"][0]["quote_market_time"] is None
+    assert first["packet"]["holdings"][0]["quote_time_status"] == "unavailable"
+    assert "system retrieval time is not market quote time" in first["markdown"]
     assert first["packet"]["account_overview"]["repo_policy"]["cash_equivalent_treatment"] == "unconfirmed"
     themes = {item["theme"] for item in first["packet"]["primary_theme_exposure"]}
     assert themes == {"AI_PCB", "AI_THEME_ETF"}
@@ -374,3 +409,27 @@ def test_configured_external_driver_enters_fact_and_signal_layers(tmp_path, monk
     signals = [item for item in result["packet"]["auto_signal"] if item.get("evidence_type") == "external_driver_signal"]
     assert signals
     assert signals[0]["llm_usage"] == "weak_signal_only"
+    assert "## Relevant External Drivers" in result["markdown"]
+    assert "copper_futures" in result["markdown"]
+
+
+def test_single_packet_api_and_markdown_export_use_visible_fixed_chain(tmp_path, monkeypatch):
+    service = PortfolioService(root=tmp_path / "portfolio")
+    service.save_snapshot(PortfolioSnapshotInput(cash_available=1000, positions=[]))
+    monkeypatch.setattr(packet_service, "portfolio_service", service)
+    monkeypatch.setattr(packet_service, "build_basic_stock_snapshot", _fake_stock_snapshot)
+
+    response = TestClient(app).post("/api/analysis-packet/single/601899")
+
+    assert response.status_code == 200
+    data = response.json()
+    packet = data["packet"]
+    markdown = data["markdown"]
+    assert "## Relevant External Drivers" in markdown
+    assert packet["external_driver_mapping"]["profile_id"] == "ZIJIN_RESOURCE_METALS_V1"
+    assert "quote_retrieved_at" in markdown
+    assert "quote_market_time" in markdown
+    assert "market_data_as_of" not in markdown
+    assert not any(item.get("evidence_type") == "company_profile" for item in packet["auto_fact"])
+    assert any(item.get("evidence_type") == "company_profile_context" for item in packet["system_hypothesis"])
+    assert "FX, futures, backtesting" not in markdown

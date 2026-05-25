@@ -4,7 +4,6 @@ import { analyzeStock, getColdDataStatus, searchStocks, type AnalyzeResponse, ty
 import StockCard from './components/StockCard.vue'
 import DeepAnalysisPanel from './components/DeepAnalysisPanel.vue'
 import KLineChart from './components/KLineChart.vue'
-import AnalysisPromptPanel from './components/AnalysisPromptPanel.vue'
 import AutoFactsPanel from './components/AutoFactsPanel.vue'
 import AnalysisPacketPanel from './components/AnalysisPacketPanel.vue'
 import PortfolioPanel from './components/PortfolioPanel.vue'
@@ -377,7 +376,6 @@ const handleAnalyze = async () => {
           />
           <AutoFactsPanel :symbol="result.stocks[0].symbol" />
           <AnalysisPacketPanel :symbol="result.stocks[0].symbol" />
-          <AnalysisPromptPanel :symbol="result.stocks[0].symbol" />
         </div>
 
         <!-- Right Column: Fixed Width DeepAnalysisPanel -->

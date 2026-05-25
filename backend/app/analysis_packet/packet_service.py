@@ -41,7 +41,10 @@ GLOBAL_BOUNDARIES = [
     "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",
 ]
 
-QUOTE_TIME_BOUNDARY = "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time."
+QUOTE_TIME_BOUNDARY = (
+    "Current quote source does not provide a verifiable market quote time; "
+    "system retrieval time is not market quote time."
+)
 DEFAULT_RISK_BOUNDARY = "Concentration or cash reminders may depend on system default placeholder parameters and are unconfirmed by the user."
 REPO_BOUNDARY = "Repo amount is displayed separately from cash; cash-equivalent treatment is unconfirmed."
 
@@ -103,7 +106,11 @@ def _evidence_dict(item: EvidenceItem) -> dict[str, Any]:
 
 
 def _filter_evidence(snapshot: AnalysisSnapshot, category: EvidenceCategory) -> list[dict[str, Any]]:
-    return [_evidence_dict(item) for item in snapshot.evidence_items if item.category == category]
+    return [
+        _evidence_dict(item)
+        for item in snapshot.evidence_items
+        if item.category == category and item.evidence_type != EvidenceType.COMPANY_PROFILE
+    ]
 
 
 def _external_driver_sections(symbol: str, holding: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -269,8 +276,78 @@ def _company_profile(snapshot: AnalysisSnapshot) -> dict[str, Any]:
     return {}
 
 
+def _company_profile_context(snapshot: AnalysisSnapshot) -> dict[str, Any]:
+    profile = _company_profile(snapshot)
+    if not profile:
+        return {}
+    company_name = profile.get("company_name") or profile.get("name") or profile.get("short_name")
+    return {
+        "company_name": company_name,
+        "structured_fields": {
+            "company_name": company_name,
+            "list_date": profile.get("list_date"),
+            "exchange": profile.get("exchange"),
+            "industry": profile.get("industry") or profile.get("sw_industry"),
+            "area": profile.get("area") or profile.get("city"),
+        },
+        "rule_inferred_context": {
+            "concept_tags": profile.get("concept_tags") or [],
+            "company_type": profile.get("company_type") or [],
+        },
+        "omitted_unverified_fields": [
+            "main_business",
+            "core_products",
+            "industry_chain_position",
+            "core_logic",
+            "profit_driver",
+            "competitive_advantage",
+            "risk_points",
+        ],
+        "data_status": "context_only",
+        "boundary": (
+            "Only explicit structured identity fields are treated as basic facts. Rule-inferred profile, "
+            "business logic, advantage, and risk summaries are context only and are not exported as hard facts."
+        ),
+    }
+
+
+def _company_profile_context_item(snapshot: AnalysisSnapshot) -> dict[str, Any] | None:
+    payload = _company_profile_context(snapshot)
+    if not payload:
+        return None
+    return {
+        "category": "system_hypothesis",
+        "evidence_type": "company_profile_context",
+        "title": "Company profile context",
+        "source": "stock_meta/Tushare cache/rule inference",
+        "source_endpoint": "build_company_profile",
+        "reliability": "H",
+        "llm_usage": "hypothesis_only",
+        "data_status": "context_only",
+        "payload": payload,
+        "interpretation_limit": payload["boundary"],
+    }
+
+
+def _quote_time_meta(snapshot: AnalysisSnapshot, generated_at: datetime) -> dict[str, Any]:
+    for item in snapshot.evidence_items:
+        if item.evidence_type == EvidenceType.REALTIME_QUOTE:
+            payload = item.payload or {}
+            return {
+                "quote_retrieved_at": payload.get("quote_retrieved_at") or item.fetched_at.isoformat(),
+                "quote_market_time": payload.get("quote_market_time"),
+                "quote_time_status": payload.get("quote_time_status") or "unavailable",
+            }
+    return {
+        "quote_retrieved_at": generated_at.isoformat(),
+        "quote_market_time": None,
+        "quote_time_status": "unavailable",
+    }
+
+
 def _basic_information(symbol: str, snapshot: AnalysisSnapshot, holding: dict[str, Any] | None) -> dict[str, Any]:
     profile = _company_profile(snapshot)
+    profile_context = _company_profile_context(snapshot)
     return {
         "symbol": symbol,
         "name": _target_name(snapshot),
@@ -280,7 +357,7 @@ def _basic_information(symbol: str, snapshot: AnalysisSnapshot, holding: dict[st
             "list_date": profile.get("list_date"),
             "exchange": profile.get("exchange"),
         },
-        "company_profile": profile,
+        "company_profile": profile_context,
         "current_holding": _manual_account_section(holding),
         "data_status": "available" if profile else "unavailable",
     }
@@ -325,8 +402,9 @@ def _manual_account_section(holding: dict[str, Any] | None) -> dict[str, Any]:
         "available_quantity": holding.get("available_quantity"),
         "avg_cost": holding.get("avg_cost"),
         "market_price": holding.get("market_price"),
-        "market_price_as_of": None,
-        "market_price_time_status": "unavailable",
+        "quote_retrieved_at": holding.get("quote_retrieved_at"),
+        "quote_market_time": None,
+        "quote_time_status": "unavailable",
         "quote_time_boundary": QUOTE_TIME_BOUNDARY,
         "market_value": holding.get("market_value"),
         "unrealized_pnl": holding.get("unrealized_pnl"),
@@ -345,6 +423,9 @@ def _manual_account_section(holding: dict[str, Any] | None) -> dict[str, Any]:
 
 def _single_hypotheses(snapshot: AnalysisSnapshot, holding: dict[str, Any] | None) -> list[dict[str, Any]]:
     items = [_evidence_dict(item) for item in snapshot.system_hypotheses]
+    profile_context = _company_profile_context_item(snapshot)
+    if profile_context:
+        items.append(profile_context)
     if holding and holding.get("portfolio_weight_pct") is not None:
         items.append({
             "category": "system_hypothesis",
@@ -464,6 +545,7 @@ def build_single_stock_packet(symbol: str, user_question: str | None = None, per
     interpretation_boundaries = GLOBAL_BOUNDARIES.copy()
     if external_driver["boundary"] not in interpretation_boundaries:
         interpretation_boundaries.append(external_driver["boundary"])
+    quote_time = _quote_time_meta(snapshot, generated_at)
     packet = {
         "meta": {
             "packet_id": f"packet_{uuid4().hex}",
@@ -473,7 +555,7 @@ def build_single_stock_packet(symbol: str, user_question: str | None = None, per
             "target_symbol": symbol,
             "target_name": _target_name(snapshot),
             "user_question": user_question,
-            "market_data_as_of": snapshot.market_data_as_of.isoformat() if snapshot.market_data_as_of else None,
+            **quote_time,
             "daily_k_as_of": snapshot.daily_k_as_of.isoformat() if snapshot.daily_k_as_of else None,
             "portfolio_as_of": portfolio_service.get_state().snapshot.snapshot_time.isoformat() if holding else None,
             "source_snapshot_id": snapshot.snapshot_id,
@@ -483,7 +565,7 @@ def build_single_stock_packet(symbol: str, user_question: str | None = None, per
         "stock_profile": {
             "symbol": symbol,
             "name": _target_name(snapshot),
-            "profile": _company_profile(snapshot),
+            "profile": _company_profile_context(snapshot),
             "holding": holding,
         },
         "external_driver_mapping": external_driver["mapping"],
@@ -515,8 +597,9 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         data = position.model_dump(mode="json")
         data["portfolio_weight_pct"] = (weights.get(position.symbol) or {}).get("weight_pct")
         data["weight_pct"] = data["portfolio_weight_pct"]
-        data["market_price_as_of"] = None
-        data["market_price_time_status"] = "unavailable"
+        data["quote_retrieved_at"] = generated_at.isoformat()
+        data["quote_market_time"] = None
+        data["quote_time_status"] = "unavailable"
         data["quote_time_boundary"] = QUOTE_TIME_BOUNDARY
         positions.append(data)
     rule_reminders = [_evidence_dict(item) for item in snapshot.system_hypotheses]
@@ -630,6 +713,54 @@ def _fmt(value: Any) -> str:
     return str(value)
 
 
+def _render_single_external_drivers(packet: dict[str, Any]) -> str:
+    mapping = packet.get("external_driver_mapping") or {}
+    lines = [
+        "## Relevant External Drivers",
+        "",
+        "### Mapping Context",
+        f"- profile_id: {_fmt(mapping.get('profile_id'))}",
+        f"- mapping_status: {_fmt(mapping.get('mapping_status'))}",
+        f"- boundary: {_fmt(mapping.get('boundary'))}",
+        "",
+        "### Driver Status",
+    ]
+    evidence_by_factor = {
+        (item.get("payload") or {}).get("factor_id"): item
+        for item in [*packet.get("auto_fact", []), *packet.get("auto_signal", [])]
+        if (item.get("payload") or {}).get("factor_id")
+    }
+    missing_by_factor = {
+        str(item.get("key", "")).split("external_driver:", 1)[-1]: item
+        for item in packet.get("missing_data", [])
+        if isinstance(item, dict) and str(item.get("key", "")).startswith("external_driver:")
+    }
+    for driver in mapping.get("drivers") or []:
+        factor_id = driver.get("factor_id")
+        evidence = evidence_by_factor.get(factor_id)
+        payload = (evidence or {}).get("payload") or {}
+        missing = missing_by_factor.get(factor_id) or {}
+        data_status = payload.get("data_status") or (evidence or {}).get("data_status")
+        if not data_status:
+            data_status = "pending_probe" if driver.get("status") == "pending_probe" else "unavailable"
+        reason = payload.get("reason") or missing.get("reason")
+        lines.extend([
+            f"- {factor_id}",
+            f"  - data_status: {_fmt(data_status)}",
+        ])
+        if reason:
+            lines.append(f"  - reason: {_fmt(reason)}")
+        if payload.get("trade_date"):
+            lines.append(f"  - trade_date: {_fmt(payload.get('trade_date'))}")
+        if payload.get("close") is not None:
+            lines.append(f"  - close: {_fmt(payload.get('close'))}")
+        lines.append(
+            f"  - interpretation_limit: "
+            f"{_fmt(driver.get('interpretation_limit') or (evidence or {}).get('interpretation_limit'))}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _evidence_markdown(items: list[dict[str, Any]]) -> str:
     if not items:
         return "- No available evidence in this section.\n"
@@ -638,7 +769,12 @@ def _evidence_markdown(items: list[dict[str, Any]]) -> str:
         lines.append(f"- **{_fmt(item.get('title'))}**")
         lines.append(f"  - category: `{_fmt(item.get('category'))}`; type: `{_fmt(item.get('evidence_type'))}`")
         lines.append(f"  - source: {_fmt(item.get('source'))}; endpoint: {_fmt(item.get('source_endpoint'))}")
-        lines.append(f"  - as_of: {_fmt(item.get('as_of_time') or item.get('as_of_date'))}; fetched/recorded: {_fmt(item.get('fetched_at') or item.get('recorded_at'))}")
+        if item.get("evidence_type") == "realtime_quote":
+            payload = item.get("payload") or {}
+            lines.append(f"  - quote_retrieved_at: {_fmt(payload.get('quote_retrieved_at') or item.get('fetched_at') or item.get('recorded_at'))}")
+            lines.append(f"  - quote_market_time: {_fmt(payload.get('quote_market_time'))}; quote_time_status: `{_fmt(payload.get('quote_time_status') or 'unavailable')}`")
+        else:
+            lines.append(f"  - as_of: {_fmt(item.get('as_of_time') or item.get('as_of_date'))}; fetched/recorded: {_fmt(item.get('fetched_at') or item.get('recorded_at'))}")
         lines.append(f"  - reliability: `{_fmt(item.get('reliability'))}`; llm_usage: `{_fmt(item.get('llm_usage'))}`; data_status: `{_fmt(item.get('data_status'))}`")
         if item.get("interpretation_limit"):
             lines.append(f"  - boundary: {_fmt(item.get('interpretation_limit'))}")
@@ -682,8 +818,7 @@ def render_packet_markdown(packet: dict[str, Any]) -> str:
             "",
             "## Manual Evidence",
             _evidence_markdown(packet["manual_evidence"]),
-            "## External Driver Mapping",
-            f"```json\n{json.dumps(packet['external_driver_mapping'], ensure_ascii=False, indent=2, default=str)}\n```",
+            _render_single_external_drivers(packet),
             "## System Hypothesis and Risk Reminders",
             "System-generated, must be questioned and manually verified.",
             _evidence_markdown(packet["system_hypothesis"]),
