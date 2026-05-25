@@ -1,8 +1,8 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.portfolio import portfolio_service
-from app.portfolio.import_schemas import PortfolioImportDraftUpdate
-from app.portfolio.import_service import portfolio_import_service
+from app.portfolio.import_schemas import PortfolioImportDraftUpdate, PortfolioScreenshotImportOptions
+from app.portfolio.import_service import portfolio_import_service, provider_statuses
 from app.portfolio.schemas import (
     ManualEvidenceCreate,
     ManualEvidenceIncludeUpdate,
@@ -83,14 +83,32 @@ def portfolio_analysis_snapshot():
     }
 
 
+@router.get("/portfolio/import/parser-providers")
+def get_portfolio_import_parser_providers():
+    return {
+        "success": True,
+        "data": provider_statuses(),
+    }
+
+
 @router.post("/portfolio/import/screenshot")
-async def upload_portfolio_screenshot(file: UploadFile = File(...)):
+async def upload_portfolio_screenshot(
+    file: UploadFile = File(...),
+    parser_provider: str = Form("local_noop"),
+    cloud_send_consent: bool = Form(False),
+    user_notice_acknowledged_at: str | None = Form(None),
+):
     try:
         content = await file.read()
         draft = portfolio_import_service.create_draft_from_upload(
             filename=file.filename or "portfolio_screenshot",
             content_type=file.content_type or "",
             content=content,
+            options=PortfolioScreenshotImportOptions(
+                parser_provider=parser_provider,
+                cloud_send_consent=cloud_send_consent,
+                user_notice_acknowledged_at=user_notice_acknowledged_at,
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

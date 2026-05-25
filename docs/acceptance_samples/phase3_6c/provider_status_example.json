@@ -1,0 +1,24 @@
+{
+  "default_provider": "local_noop",
+  "providers": [
+    {
+      "provider": "local_noop",
+      "display_name": "手工补录 / 本地不解析",
+      "status": "available",
+      "enabled": true,
+      "configured": true,
+      "privacy_boundary": "不发送图片到云端，仅创建可编辑草稿。"
+    },
+    {
+      "provider": "volcengine_ark_vision",
+      "display_name": "火山方舟云端视觉解析",
+      "status": "configured_not_verified",
+      "enabled": true,
+      "configured": true,
+      "model": "your-vision-model",
+      "base_url_configured": true,
+      "api_key_configured": true,
+      "privacy_boundary": "仅在用户主动勾选同意后，将截图以 base64 图片输入发送至已配置的火山方舟视觉模型。"
+    }
+  ]
+}

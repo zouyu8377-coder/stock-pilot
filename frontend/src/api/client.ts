@@ -196,6 +196,10 @@ export interface PortfolioImportDraft {
   source_name: string
   uploaded_at: string
   image_reference: string
+  parser_provider: string
+  cloud_send_consent: boolean
+  user_notice_acknowledged_at?: string | null
+  cloud_parse_status?: string | null
   ocr_provider: string
   ocr_status: string
   ocr_raw_text: string
@@ -205,8 +209,14 @@ export interface PortfolioImportDraft {
   holding_rows_draft: Array<Record<string, any>>
   parse_warnings: string[]
   unrecognized_fields: string[]
+  provider_error_summary?: string | null
   confirmed_at?: string | null
   saved_snapshot_id?: string | null
+}
+
+export interface PortfolioParserProviderStatus {
+  default_provider: string
+  providers: Array<Record<string, any>>
 }
 
 export interface PortfolioState {
@@ -376,9 +386,20 @@ export async function createPortfolioAnalysisPacket(userQuestion = ''): Promise<
   return response.data
 }
 
-export async function uploadPortfolioScreenshot(file: File): Promise<PortfolioImportDraft> {
+export async function getPortfolioImportParserProviders(): Promise<PortfolioParserProviderStatus> {
+  const response = await client.get<{ success: boolean; data: PortfolioParserProviderStatus }>('/api/portfolio/import/parser-providers')
+  return response.data.data
+}
+
+export async function uploadPortfolioScreenshot(
+  file: File,
+  options: { parser_provider?: string; cloud_send_consent?: boolean; user_notice_acknowledged_at?: string | null } = {},
+): Promise<PortfolioImportDraft> {
   const form = new FormData()
   form.append('file', file)
+  form.append('parser_provider', options.parser_provider || 'local_noop')
+  form.append('cloud_send_consent', String(options.cloud_send_consent || false))
+  if (options.user_notice_acknowledged_at) form.append('user_notice_acknowledged_at', options.user_notice_acknowledged_at)
   const response = await client.post<{ success: boolean; data: PortfolioImportDraft }>('/api/portfolio/import/screenshot', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })

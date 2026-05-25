@@ -36,6 +36,7 @@ GLOBAL_BOUNDARIES = [
     "External commodity, FX, ETF, or sector drivers are attached only when a reviewed symbol mapping exists; unmapped symbols do not receive generic macro factors.",
     "Manual account data uses the user's local snapshot time and may be stale.",
     "Realtime quote data and low-frequency facts may have different timestamps.",
+    "Daily K OHLC, volume, amount, and daily change are local daily-K facts; 5/20/60-day returns are derived observations from daily closes, not trend causality or buy/sell conclusions.",
     "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
     "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
     "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",

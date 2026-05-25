@@ -78,6 +78,10 @@ exports/
 attachments/
 uploads/
 screenshots/
+data/uploads/
+data/uploads/portfolio_screenshots/
+data/portfolio/
+data/analysis_snapshots/
 
 # Logs
 *.log

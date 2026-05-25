@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   confirmPortfolioImportDraft,
+  getPortfolioImportParserProviders,
   createPortfolioAnalysisPacket,
   getPortfolio,
   getPortfolioSnapshot,
@@ -17,11 +18,14 @@ const expanded = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const importLoading = ref(false)
+const parserStatus = ref<any | null>(null)
 const state = ref<PortfolioState | null>(null)
 const draft = ref<PortfolioImportDraft | null>(null)
 const selectedFile = ref<File | null>(null)
 const selectedPreview = ref('')
 const importError = ref('')
+const parserProvider = ref('local_noop')
+const cloudConsent = ref(false)
 const snapshotPreview = ref('')
 const snapshotNotice = ref('')
 const packetMarkdown = ref('')
@@ -64,7 +68,13 @@ const parseTags = (text: string) => text.split(',').map((x) => x.trim()).filter(
 const load = async () => {
   loading.value = true
   try {
-    state.value = await getPortfolio()
+    const [portfolio, providers] = await Promise.all([
+      getPortfolio(),
+      getPortfolioImportParserProviders(),
+    ])
+    state.value = portfolio
+    parserStatus.value = providers
+    parserProvider.value = providers.default_provider || 'local_noop'
     accountDraft.value.cash_available = state.value.snapshot.cash_available
     accountDraft.value.repo_amount = state.value.snapshot.repo_amount
     accountDraft.value.total_assets = state.value.snapshot.total_assets ?? null
@@ -159,10 +169,18 @@ const onFileChange = (event: Event) => {
 
 const uploadScreenshot = async () => {
   if (!selectedFile.value) return
+  if (parserProvider.value === 'volcengine_ark_vision' && !cloudConsent.value) {
+    importError.value = '选择火山方舟云端视觉解析时，必须先勾选同意发送截图。'
+    return
+  }
   importLoading.value = true
   importError.value = ''
   try {
-    draft.value = await uploadPortfolioScreenshot(selectedFile.value)
+    draft.value = await uploadPortfolioScreenshot(selectedFile.value, {
+      parser_provider: parserProvider.value,
+      cloud_send_consent: cloudConsent.value,
+      user_notice_acknowledged_at: cloudConsent.value ? new Date().toISOString() : null,
+    })
   } catch (error: any) {
     importError.value = error?.response?.data?.detail || '上传失败'
   } finally {
@@ -343,9 +361,31 @@ onMounted(load)
             <h3 class="text-xs font-semibold">上传持仓截图生成草稿</h3>
             <p class="text-[11px] text-muted-foreground">OCR 识别结果仅为草稿，请逐项核对后确认。截图数据默认仅保存在本地，不会自动上传到外部模型。截图现价不等同于当前系统行情价格。</p>
           </div>
+          <div class="mb-3 grid gap-2 rounded border border-border/60 bg-secondary/20 p-2 text-xs">
+            <label class="flex items-center gap-2">
+              <span class="text-muted-foreground">解析方式</span>
+              <select v-model="parserProvider" class="rounded bg-input px-2 py-1">
+                <option value="local_noop">手工补录 / 本地不解析</option>
+                <option value="volcengine_ark_vision">火山方舟云端视觉解析</option>
+              </select>
+            </label>
+            <div v-if="parserStatus" class="text-[11px] text-muted-foreground">
+              <span v-for="item in parserStatus.providers" :key="item.provider" class="mr-3">
+                {{ item.display_name }} = {{ item.status }}
+              </span>
+            </div>
+            <div v-if="parserProvider === 'volcengine_ark_vision'" class="rounded border border-warning/40 bg-warning/10 p-2 text-warning">
+              <p>你选择了“火山方舟云端视觉解析”。该截图可能包含持仓名称、数量、成本、市值、盈亏、现金等个人账户信息。点击继续后，截图将发送至你自行配置的火山方舟视觉模型，用于生成可编辑的持仓草稿。</p>
+              <p class="mt-1">Stock-Pilot 不会在解析后自动保存正式账户快照，不会自动调用投资分析模型，也不会自动将截图纳入 Analysis Packet。云端服务侧的数据处理与留存规则由用户的服务配置及供应商政策决定，请自行确认。</p>
+              <label class="mt-2 flex items-center gap-2">
+                <input v-model="cloudConsent" type="checkbox" />
+                <span>我理解该截图将发送至我配置的火山方舟视觉模型，并同意继续解析。</span>
+              </label>
+            </div>
+          </div>
           <div class="flex flex-wrap items-center gap-2 text-xs">
             <input type="file" accept="image/png,image/jpeg,image/webp" @change="onFileChange" />
-            <button class="rounded bg-primary px-3 py-1" :disabled="!selectedFile || importLoading" @click="uploadScreenshot">
+            <button class="rounded bg-primary px-3 py-1" :disabled="!selectedFile || importLoading || (parserProvider === 'volcengine_ark_vision' && !cloudConsent)" @click="uploadScreenshot">
               {{ importLoading ? '上传中...' : '上传并创建草稿' }}
             </button>
             <button v-if="draft" class="rounded bg-secondary px-3 py-1" @click="addDraftRow">手工新增一行</button>
@@ -356,6 +396,7 @@ onMounted(load)
           <div v-if="importError" class="mt-2 text-xs text-negative">{{ importError }}</div>
           <div v-if="draft" class="mt-3 space-y-2 text-xs">
             <div class="text-muted-foreground">草稿 {{ draft.draft_id }} · OCR: {{ draft.ocr_status }} · 解析: {{ draft.parse_status }} · provider: {{ draft.ocr_provider }}</div>
+            <div class="text-muted-foreground">视觉解析 provider: {{ draft.parser_provider || draft.ocr_provider }} · cloud parse: {{ draft.cloud_parse_status || '-' }} · 结果仅为草稿，确认后才写入账户。</div>
             <div v-for="warning in draft.parse_warnings" :key="warning" class="text-warning">{{ warning }}</div>
             <div class="overflow-x-auto rounded border border-border/60">
               <table class="w-full min-w-[1200px] text-xs">

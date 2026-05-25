@@ -87,6 +87,10 @@ def _daily_k_summary(history: pd.DataFrame) -> dict[str, Any]:
             summary["return_5d_pct"] = round((closes.iloc[-1] / closes.iloc[-6] - 1) * 100, 2) if len(closes) >= 6 else None
             summary["return_20d_pct"] = round((closes.iloc[-1] / closes.iloc[-21] - 1) * 100, 2) if len(closes) >= 21 else None
             summary["return_60d_pct"] = round((closes.iloc[-1] / closes.iloc[-61] - 1) * 100, 2) if len(closes) >= 61 else None
+    summary["boundary"] = (
+        "OHLC、成交量、成交额和交易日涨跌来自本地日K事实；"
+        "5/20/60日收益率为基于日K收盘价计算的派生观察，不构成趋势因果判断或买卖结论。"
+    )
     return summary
 
 
@@ -174,7 +178,11 @@ def build_basic_stock_snapshot(
             fetched_at=fetched_at,
             reliability=EvidenceReliability.B,
             llm_usage=LlmUsage.FACT_WITH_LIMIT,
-            interpretation_limit="Local daily K is a market fact summary, not a trading conclusion.",
+            interpretation_limit=(
+                "Local daily K OHLC, volume, amount, and daily change are market facts. "
+                "5/20/60-day returns are derived observations from local daily K closes, "
+                "not trend-causality judgments or buy/sell conclusions."
+            ),
         ),
         EvidenceItem(
             symbol=symbol,

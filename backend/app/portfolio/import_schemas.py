@@ -15,9 +15,13 @@ ImportStatus = Literal[
     "user_confirmed",
     "saved_as_portfolio_snapshot",
     "ocr_failed",
+    "cloud_parse_failed",
+    "manual_review_required",
     "parse_incomplete",
     "user_rejected",
 ]
+
+ParserProviderName = Literal["local_noop", "volcengine_ark_vision"]
 
 
 class SymbolCandidate(BaseModel):
@@ -83,6 +87,10 @@ class PortfolioImportDraft(BaseModel):
     source_name: str = "同花顺持仓截图"
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     image_reference: str
+    parser_provider: str = "local_noop"
+    cloud_send_consent: bool = False
+    user_notice_acknowledged_at: datetime | None = None
+    cloud_parse_status: str | None = None
     ocr_provider: str = "local_noop"
     ocr_status: ImportStatus = "uploaded"
     ocr_raw_text: str = ""
@@ -93,6 +101,7 @@ class PortfolioImportDraft(BaseModel):
     holding_rows_draft: list[HoldingRowDraft] = Field(default_factory=list)
     parse_warnings: list[str] = Field(default_factory=list)
     unrecognized_fields: list[str] = Field(default_factory=list)
+    provider_error_summary: str | None = None
     confirmed_at: datetime | None = None
     saved_snapshot_id: str | None = None
 
@@ -102,3 +111,8 @@ class PortfolioImportDraftUpdate(BaseModel):
     holding_rows_draft: list[HoldingRowDraft] | None = None
     parse_warnings: list[str] | None = None
 
+
+class PortfolioScreenshotImportOptions(BaseModel):
+    parser_provider: ParserProviderName = "local_noop"
+    cloud_send_consent: bool = False
+    user_notice_acknowledged_at: datetime | None = None
