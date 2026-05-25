@@ -155,7 +155,11 @@ Conclusion:
 
 ## Git Baseline Result
 
-Pending.
+- Baseline status: succeeded.
+- Branch: `feature/analysis-packet-v1-baseline`.
+- Baseline commit: `bb3fa99`.
+- Commit message: `Build evidence-based analysis packet and portfolio baseline`.
+- Final sensitive path check confirmed `backend/.env`, portfolio data, Tushare cache, analysis snapshots, account exports, attachments, uploads and screenshots remain ignored.
 
 ## Browser Manual Acceptance
 
