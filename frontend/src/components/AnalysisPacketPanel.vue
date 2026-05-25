@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { createSingleAnalysisPacket } from '../api/client'
+import { APP_VERSION } from '../version'
 
 const props = defineProps<{
   symbol: string
@@ -13,6 +14,7 @@ const markdown = ref('')
 const jsonText = ref('')
 const savedPaths = ref<Record<string, string> | null>(null)
 const copied = ref(false)
+const chainWarning = ref('')
 
 const reset = () => {
   error.value = ''
@@ -20,6 +22,7 @@ const reset = () => {
   jsonText.value = ''
   savedPaths.value = null
   copied.value = false
+  chainWarning.value = ''
 }
 
 const generate = async () => {
@@ -32,6 +35,12 @@ const generate = async () => {
     markdown.value = result.markdown
     jsonText.value = JSON.stringify(result.packet, null, 2)
     savedPaths.value = result.saved_paths || null
+    const packetText = `${result.markdown}\n${JSON.stringify(result.packet)}`
+    const hasVisibleDriverSection = packetText.includes('Relevant External Drivers')
+    const hasOldBoundary = packetText.includes('FX, futures') || packetText.includes('market_data_as_of')
+    chainWarning.value = (!hasVisibleDriverSection || hasOldBoundary)
+      ? `Packet 链路自检未通过：当前页面 ${APP_VERSION} 收到的内容疑似旧版导出，请确认顶部版本号和 API 端口后刷新重试。`
+      : ''
   } catch (e: any) {
     error.value = e?.response?.data?.detail || e.message || 'Analysis Packet generation failed'
   } finally {
@@ -70,6 +79,9 @@ watch(() => props.symbol, reset)
         placeholder="Optional neutral question for the packet"
       ></textarea>
       <div v-if="error" class="text-xs text-warning">{{ error }}</div>
+      <div v-if="chainWarning" class="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+        {{ chainWarning }}
+      </div>
       <div v-if="markdown" class="flex items-center justify-between">
         <span class="text-xs text-muted-foreground">Markdown preview</span>
         <button class="rounded bg-secondary px-3 py-1 text-xs" @click="copyMarkdown">

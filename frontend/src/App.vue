@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { analyzeStock, getColdDataStatus, searchStocks, type AnalyzeResponse, type ColdDataStatus, type StockSearchItem } from './api/client'
+import { API_BASE_URL, analyzeStock, getColdDataStatus, searchStocks, type AnalyzeResponse, type ColdDataStatus, type StockSearchItem } from './api/client'
 import StockCard from './components/StockCard.vue'
 import DeepAnalysisPanel from './components/DeepAnalysisPanel.vue'
 import KLineChart from './components/KLineChart.vue'
@@ -8,6 +8,7 @@ import AutoFactsPanel from './components/AutoFactsPanel.vue'
 import AnalysisPacketPanel from './components/AnalysisPacketPanel.vue'
 import PortfolioPanel from './components/PortfolioPanel.vue'
 import { getSearchHistory, updateSearchHistory, type SearchHistoryItem } from './utils/searchHistory'
+import { APP_VERSION } from './version'
 
 const symbol = ref('600519')
 const loading = ref(false)
@@ -257,6 +258,9 @@ const handleAnalyze = async () => {
           </div>
           <span class="text-lg font-semibold tracking-tight text-foreground">
             Stock-Pilot
+          </span>
+          <span class="rounded bg-secondary/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground" :title="`API ${API_BASE_URL}`">
+            {{ APP_VERSION }} · API {{ API_BASE_URL.replace('http://127.0.0.1:', ':') }}
           </span>
         </div>
 

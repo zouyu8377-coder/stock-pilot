@@ -23,6 +23,7 @@ const selectedFile = ref<File | null>(null)
 const selectedPreview = ref('')
 const importError = ref('')
 const snapshotPreview = ref('')
+const snapshotNotice = ref('')
 const packetMarkdown = ref('')
 const packetJson = ref('')
 const packetCopied = ref(false)
@@ -237,6 +238,9 @@ const chooseCandidate = (row: any) => {
 
 const buildSnapshot = async () => {
   const snap = await getPortfolioSnapshot()
+  snapshotNotice.value = draft.value?.needs_user_confirmation
+    ? '当前摘要只读取已确认的正式 portfolio snapshot；未确认的截图草稿不会进入 evidence_count 或 target_symbols。'
+    : ''
   snapshotPreview.value = JSON.stringify({
     snapshot_id: snap.snapshot_id,
     analysis_scope: snap.analysis_scope,
@@ -410,6 +414,9 @@ onMounted(load)
           <div class="mb-2 flex items-center justify-between">
             <h3 class="text-xs font-semibold">Portfolio Analysis Snapshot</h3>
             <button class="rounded bg-secondary px-3 py-1 text-xs" @click="buildSnapshot">生成 JSON 摘要</button>
+          </div>
+          <div v-if="snapshotNotice" class="mb-2 rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+            {{ snapshotNotice }}
           </div>
           <pre v-if="snapshotPreview" class="max-h-40 overflow-auto rounded bg-black/30 p-2 text-[11px]">{{ snapshotPreview }}</pre>
         </div>
