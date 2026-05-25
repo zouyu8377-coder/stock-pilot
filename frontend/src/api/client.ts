@@ -68,6 +68,10 @@ export interface ColdDataStatus {
   progress: number
   updated_at?: string | null
   failure_reasons: Record<string, number>
+  components?: {
+    stock?: ColdDataStatus
+    etf?: ColdDataStatus
+  }
 }
 
 export interface StockSearchItem {
@@ -75,6 +79,22 @@ export interface StockSearchItem {
   name: string
   industry?: string
   area?: string
+  asset_type?: string
+  fund_type?: string
+  management?: string
+}
+
+export interface StockQuoteInfo extends StockSearchItem {
+  price?: number | null
+  change_pct?: number | null
+  volume?: number | null
+  provider?: string | null
+  quote_status: string
+  quote_error?: string | null
+  list_date?: string | null
+  asset_type?: string
+  fund_type?: string
+  management?: string
 }
 
 export interface FactEvidence {
@@ -184,6 +204,9 @@ export interface PortfolioPosition {
   position_role: string
   theme_tags: string[]
   primary_theme?: string | null
+  semantic_classification_status?: string
+  semantic_classification_source?: string | null
+  semantic_classification_confirmed_at?: string | null
   user_plan: string
   invalid_condition?: string | null
   target_max_weight?: number | null
@@ -252,6 +275,19 @@ export interface PortfolioState {
     missing_data: Array<Record<string, any>>
   }
   supported_theme_tags: string[]
+  supported_primary_themes: string[]
+  supported_position_roles: string[]
+}
+
+export interface HoldingSemanticSuggestion {
+  symbol: string
+  suggested_primary_theme?: string | null
+  suggested_theme_tags: string[]
+  suggested_position_role: string
+  source: string
+  source_detail?: string | null
+  requires_user_confirmation: boolean
+  note?: string | null
 }
 
 export interface ManualEvidenceRecord {
@@ -310,6 +346,11 @@ export async function searchStocks(query: string, limit = 20): Promise<StockSear
   return response.data.items
 }
 
+export async function getStockQuote(symbol: string): Promise<StockQuoteInfo> {
+  const response = await client.get<{ success: boolean; data: StockQuoteInfo }>(`/api/stocks/${symbol}/quote`)
+  return response.data.data
+}
+
 export async function getEtfFacts(symbol: string): Promise<FactResponse<EtfFacts | null>> {
   const response = await client.get<FactResponse<EtfFacts | null>>(`/api/facts/etf/${symbol}`)
   return response.data
@@ -337,6 +378,21 @@ export async function getPortfolio(): Promise<PortfolioState> {
 
 export async function savePortfolio(payload: any): Promise<PortfolioState> {
   const response = await client.put<{ success: boolean; data: PortfolioState }>('/api/portfolio', payload)
+  return response.data.data
+}
+
+export async function getPortfolioSemanticSuggestions(): Promise<HoldingSemanticSuggestion[]> {
+  const response = await client.get<{ success: boolean; items: HoldingSemanticSuggestion[] }>('/api/portfolio/semantic-suggestions')
+  return response.data.items
+}
+
+export async function updateHoldingSemantics(payload: any): Promise<PortfolioState> {
+  const response = await client.patch<{ success: boolean; data: PortfolioState }>('/api/portfolio/holding-semantics', payload)
+  return response.data.data
+}
+
+export async function getAccountAnalysisContext(): Promise<any> {
+  const response = await client.get<{ success: boolean; data: any }>('/api/portfolio/account-analysis-context')
   return response.data.data
 }
 

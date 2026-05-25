@@ -449,15 +449,19 @@ def run_sync_update(target_date: date) -> dict:
 
 
 async def check_and_update() -> None:
+    from app.core.etf_data_updater import etf_needs_update
+
     target_date = get_last_trading_date()
     status = load_update_status()
-
-    if (
+    stocks_ready = (
         status.get("status") == "complete"
         and status.get("last_trading_date") == target_date.isoformat()
-    ):
+    )
+    etf_ready = not etf_needs_update(target_date)
+
+    if stocks_ready and etf_ready:
         total = status.get("total_symbols", 0)
-        print(f"[DataUpdater] Data already updated to {target_date}, total {total} symbols")
+        print(f"[DataUpdater] Stock and ETF data already updated to {target_date}, stock total {total}")
         return
 
     if UPDATE_LOCK_FILE.exists() and not _clear_stale_update_lock():

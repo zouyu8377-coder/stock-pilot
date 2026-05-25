@@ -1,9 +1,11 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.portfolio import portfolio_service
+from app.analysis_packet.packet_service import build_account_analysis_context
 from app.portfolio.import_schemas import PortfolioImportDraftUpdate, PortfolioScreenshotImportOptions
 from app.portfolio.import_service import portfolio_import_service, provider_statuses
 from app.portfolio.schemas import (
+    HoldingSemanticBatchUpdate,
     ManualEvidenceCreate,
     ManualEvidenceIncludeUpdate,
     PortfolioSnapshotInput,
@@ -26,6 +28,22 @@ def save_portfolio(payload: PortfolioSnapshotInput):
     return {
         "success": True,
         "data": portfolio_service.save_snapshot(payload).model_dump(mode="json"),
+    }
+
+
+@router.get("/portfolio/semantic-suggestions")
+def get_portfolio_semantic_suggestions():
+    return {
+        "success": True,
+        "items": [item.model_dump(mode="json") for item in portfolio_service.holding_semantic_suggestions()],
+    }
+
+
+@router.patch("/portfolio/holding-semantics")
+def update_portfolio_holding_semantics(payload: HoldingSemanticBatchUpdate):
+    return {
+        "success": True,
+        "data": portfolio_service.update_holding_semantics(payload).model_dump(mode="json"),
     }
 
 
@@ -80,6 +98,14 @@ def portfolio_analysis_snapshot():
     return {
         "success": True,
         "data": portfolio_service.build_portfolio_snapshot().model_dump(mode="json"),
+    }
+
+
+@router.get("/portfolio/account-analysis-context")
+def portfolio_account_analysis_context():
+    return {
+        "success": True,
+        "data": build_account_analysis_context(),
     }
 
 

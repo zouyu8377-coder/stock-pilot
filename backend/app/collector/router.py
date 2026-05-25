@@ -1,4 +1,4 @@
-from app.collector.realtime.easyquotation_provider import EasyQuotationProvider
+from app.collector.realtime.easyquotation_provider import EasyQuotationProvider, LocalColdQuoteProvider
 from app.collector.realtime.mock_provider import MockRealtimeProvider
 from app.collector.history.base_market_provider import BaseMarketProvider
 
@@ -13,6 +13,7 @@ class CollectorRouter:
     def __init__(self):
         self.providers = [
             EasyQuotationProvider(),
+            LocalColdQuoteProvider(),
             MockRealtimeProvider(),
         ]
         self.history_provider = BaseMarketProvider()

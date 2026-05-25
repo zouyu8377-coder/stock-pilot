@@ -3,6 +3,8 @@ from datetime import date
 import pytest
 
 from app.portfolio.schemas import (
+    HoldingSemanticBatchUpdate,
+    HoldingSemanticUpdate,
     ManualEvidenceCreate,
     ManualEvidenceType,
     PortfolioPositionInput,
@@ -61,6 +63,53 @@ def test_portfolio_snapshot_valuation_and_exposures(tmp_path, monkeypatch):
     assert any("000657" in note for note in state.metrics.composite_exposure_notes)
 
 
+def test_unconfirmed_theme_tags_do_not_become_official_exposure(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = PortfolioService(tmp_path)
+    state = service.save_snapshot(PortfolioSnapshotInput(
+        cash_available=10000,
+        positions=[
+            PortfolioPositionInput(symbol="002463", name="HD", quantity=100, avg_cost=80, theme_tags=["AI_PCB"]),
+        ],
+    ))
+
+    primary = {item.theme: item.weight_pct for item in state.metrics.primary_theme_exposures}
+
+    assert "AI_PCB" not in primary
+    assert "UNCLASSIFIED" in primary
+    assert any("without confirmed primary_theme" in warning for warning in state.metrics.warnings)
+
+
+def test_holding_semantic_suggestions_require_user_confirmation_and_persist(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = PortfolioService(tmp_path)
+    service.save_snapshot(PortfolioSnapshotInput(
+        cash_available=10000,
+        positions=[
+            PortfolioPositionInput(symbol="002463.SZ", name="HD", quantity=100, avg_cost=80),
+        ],
+    ))
+
+    suggestion = service.holding_semantic_suggestions()[0]
+    before = service.get_state().snapshot.positions[0]
+    after = service.update_holding_semantics(HoldingSemanticBatchUpdate(updates=[
+        HoldingSemanticUpdate(
+            symbol="002463.SZ",
+            primary_theme=suggestion.suggested_primary_theme,
+            theme_tags=suggestion.suggested_theme_tags,
+            position_role="trend",
+        )
+    ])).snapshot.positions[0]
+
+    assert suggestion.requires_user_confirmation is True
+    assert before.primary_theme is None
+    assert after.primary_theme == "AI_PCB"
+    assert after.theme_tags == ["AI_PCB", "HIGH_VOLATILITY"]
+    assert after.position_role == "trend"
+    assert after.semantic_classification_status == "user_confirmed"
+    assert service.load_snapshot().positions[0].primary_theme == "AI_PCB"
+
+
 def test_missing_price_does_not_fabricate_market_value_or_pnl(tmp_path, monkeypatch):
     monkeypatch.setattr("app.portfolio.service.collector.get_quote", _missing_quote)
     service = PortfolioService(tmp_path)
@@ -81,7 +130,7 @@ def test_missing_price_does_not_fabricate_market_value_or_pnl(tmp_path, monkeypa
     assert state.metrics.missing_data[0]["symbol"] == "002463"
 
 
-def test_single_position_limit_becomes_system_hypothesis(tmp_path, monkeypatch):
+def test_position_limit_placeholder_does_not_become_system_hypothesis(tmp_path, monkeypatch):
     monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
     service = PortfolioService(tmp_path)
     service.save_snapshot(PortfolioSnapshotInput(
@@ -93,10 +142,8 @@ def test_single_position_limit_becomes_system_hypothesis(tmp_path, monkeypatch):
     ))
 
     snapshot = service.build_portfolio_snapshot(persist=False)
-    assert snapshot.system_hypotheses
-    assert all(item.category == "system_hypothesis" for item in snapshot.system_hypotheses)
-    assert all(item.reliability == "H" for item in snapshot.system_hypotheses)
-    assert all(item.llm_usage == "hypothesis_only" for item in snapshot.system_hypotheses)
+
+    assert snapshot.system_hypotheses == []
 
 
 def test_manual_evidence_enters_portfolio_snapshot(tmp_path):
@@ -194,4 +241,3 @@ def test_sell_simulation_rejects_quantity_above_available(tmp_path, monkeypatch)
             quantity=500,
             estimated_price=100,
         ))
-

@@ -15,21 +15,36 @@ DEFAULT_THEME_TAGS = [
     "METAL_RESOURCE",
     "GOLD",
     "TUNGSTEN",
+    "CASH_EQUIVALENT",
     "BROAD_INDEX",
     "CASH",
     "REPO",
     "HIGH_VOLATILITY",
     "COMPOSITE_EXPOSURE",
+    "OTHER",
+    "UNCLASSIFIED",
+]
+DEFAULT_PRIMARY_THEMES = [
+    "AI_PCB",
+    "AI_THEME_ETF",
+    "METAL_RESOURCE",
+    "GOLD",
+    "TUNGSTEN",
+    "CASH_EQUIVALENT",
+    "OTHER",
+    "UNCLASSIFIED",
 ]
 
 
 class PositionRole(str, Enum):
     CORE = "core"
     TREND = "trend"
+    DEFENSIVE = "defensive"
     HEDGE = "hedge"
     OBSERVATION = "observation"
     SHORT_TERM = "short_term"
     CASH_EQUIVALENT = "cash_equivalent"
+    UNCLASSIFIED = "unclassified"
 
 
 class TradeSide(str, Enum):
@@ -79,6 +94,9 @@ class PortfolioPositionInput(BaseModel):
     position_role: PositionRole = PositionRole.OBSERVATION
     theme_tags: list[str] = Field(default_factory=list)
     primary_theme: str | None = None
+    semantic_classification_status: str = "unconfirmed"
+    semantic_classification_source: str | None = None
+    semantic_classification_confirmed_at: datetime | None = None
     user_plan: str = ""
     invalid_condition: str | None = None
     target_max_weight: float | None = None
@@ -148,6 +166,30 @@ class PortfolioState(BaseModel):
     snapshot: PortfolioSnapshot
     metrics: PortfolioMetrics
     supported_theme_tags: list[str] = Field(default_factory=lambda: DEFAULT_THEME_TAGS.copy())
+    supported_primary_themes: list[str] = Field(default_factory=lambda: DEFAULT_PRIMARY_THEMES.copy())
+    supported_position_roles: list[str] = Field(default_factory=lambda: [item.value for item in PositionRole])
+
+
+class HoldingSemanticSuggestion(BaseModel):
+    symbol: str
+    suggested_primary_theme: str | None = None
+    suggested_theme_tags: list[str] = Field(default_factory=list)
+    suggested_position_role: PositionRole = PositionRole.OBSERVATION
+    source: str = "system_symbol_mapping"
+    source_detail: str | None = None
+    requires_user_confirmation: bool = True
+    note: str | None = None
+
+
+class HoldingSemanticUpdate(BaseModel):
+    symbol: str
+    primary_theme: str | None = None
+    theme_tags: list[str] = Field(default_factory=list)
+    position_role: PositionRole = PositionRole.OBSERVATION
+
+
+class HoldingSemanticBatchUpdate(BaseModel):
+    updates: list[HoldingSemanticUpdate] = Field(default_factory=list)
 
 
 class ManualEvidenceCreate(BaseModel):

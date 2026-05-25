@@ -26,3 +26,4 @@ data/screenshots/
 *.parquet
 *.log
 data/update_status.json
+data/etf_update_status.json

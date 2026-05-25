@@ -14,9 +14,9 @@ def normalize_symbol(symbol: str) -> str:
     """
     symbol = symbol.strip()
 
-    if symbol.startswith(("600", "601", "603", "605", "688")):
+    if symbol.startswith(("600", "601", "603", "605", "688", "510", "511", "512", "513", "515", "516", "517", "518", "588", "589")):
         return f"sh.{symbol}"
-    elif symbol.startswith(("000", "001", "002", "003", "300")):
+    elif symbol.startswith(("000", "001", "002", "003", "300", "159")):
         return f"sz.{symbol}"
     else:
         raise ValueError(f"Unknown symbol prefix: {symbol}")

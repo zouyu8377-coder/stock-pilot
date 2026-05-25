@@ -423,6 +423,12 @@ def _manual_account_section(holding: dict[str, Any] | None) -> dict[str, Any]:
         "position_role": holding.get("position_role"),
         "primary_theme": holding.get("primary_theme"),
         "theme_tags": holding.get("theme_tags", []),
+        "confirmed_position_role": holding.get("position_role"),
+        "confirmed_primary_theme": holding.get("primary_theme"),
+        "confirmed_theme_tags": holding.get("theme_tags", []),
+        "semantic_classification_status": holding.get("semantic_classification_status"),
+        "semantic_classification_source": holding.get("semantic_classification_source"),
+        "account_analysis_boundary": "Single-stock packet may show this holding relationship read-only; account-level position and portfolio analysis belongs in the future personal investment dashboard.",
         "user_plan": holding.get("user_plan"),
         "invalid_condition": holding.get("invalid_condition"),
         "target_max_weight": holding.get("target_max_weight"),
@@ -611,6 +617,9 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         data["quote_market_time"] = None
         data["quote_time_status"] = "unavailable"
         data["quote_time_boundary"] = QUOTE_TIME_BOUNDARY
+        data["confirmed_primary_theme"] = data.get("primary_theme")
+        data["confirmed_theme_tags"] = data.get("theme_tags", [])
+        data["confirmed_position_role"] = data.get("position_role")
         positions.append(data)
     rule_reminders = [_evidence_dict(item) for item in snapshot.system_hypotheses]
     high_volatility = [
@@ -636,10 +645,35 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
     for reminder in rule_reminders:
         reminder.setdefault("risk_parameter_source", "system_default_placeholder")
         reminder.setdefault("unconfirmed_by_user", True)
+        reminder.setdefault("inactive_for_ai_reasoning", True)
         current_limit = reminder.get("interpretation_limit") or "System-generated hypothesis only."
         reminder["interpretation_limit"] = current_limit if DEFAULT_RISK_BOUNDARY in current_limit else f"{current_limit} {DEFAULT_RISK_BOUNDARY}"
-    missing_data = _clean_text([
+    unclassified_holdings = [
+        item for item in positions
+        if not item.get("confirmed_primary_theme") or str(item.get("confirmed_primary_theme")).upper() == "UNCLASSIFIED"
+    ]
+    data_gaps = [
         *state.metrics.missing_data,
+        *[
+            {
+                "key": "holding_semantics",
+                "symbol": item.get("symbol"),
+                "reason": "Holding primary_theme is not confirmed; account theme analysis is incomplete.",
+            }
+            for item in unclassified_holdings
+        ],
+        *[
+            {
+                "key": "holding_position_role",
+                "symbol": item.get("symbol"),
+                "reason": "Holding position_role is unclassified or observation only.",
+            }
+            for item in positions
+            if item.get("confirmed_position_role") in (None, "", "unclassified", "observation")
+        ],
+    ]
+    missing_data = _clean_text([
+        *data_gaps,
         {"key": "broker_sync", "reason": "Broker account sync is not implemented."},
         {"key": "quote_time", "reason": QUOTE_TIME_BOUNDARY},
         {"key": "repo_cash_equivalent_policy", "reason": REPO_BOUNDARY},
@@ -684,6 +718,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         "holdings": positions,
         "positions": positions,
         "primary_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
+        "official_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
         "related_risk_observations": {
             "risk_tag_exposure": [item.model_dump(mode="json") for item in state.metrics.risk_tag_exposures],
             "composite_exposure_notes": [
@@ -697,11 +732,37 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             ],
             "boundary": "Primary theme exposure is unique attribution. Theme tag observations are non-additive and must not be summed as asset weights.",
         },
+        "related_theme_observations": {
+            "theme_tag_exposure": [item.model_dump(mode="json") for item in state.metrics.risk_tag_exposures],
+            "composite_exposure_notes": [
+                {
+                    "symbol": position.symbol,
+                    "theme_tags": position.theme_tags,
+                    "message": "theme_tags are related observations only and are not added into official asset exposure.",
+                }
+                for position in state.snapshot.positions
+                if len(set(position.theme_tags)) > 1 or "COMPOSITE_EXPOSURE" in set(position.theme_tags)
+            ],
+            "boundary": "primary_theme is the single official attribution; theme_tags are non-additive observations.",
+        },
         "system_hypothesis": rule_reminders,
         "rule_reminders": rule_reminders,
         "manual_evidence": _manual_evidence_for_symbol(None),
         "auto_fact_summary": _portfolio_auto_fact_summary([p.symbol for p in state.snapshot.positions]),
         "external_driver_summary": external_driver_summary,
+        "data_gaps": missing_data,
+        "ai_analysis_boundary": {
+            "intended_use": "Future dashboard account-level review and candidate watch items.",
+            "not_trade_execution": True,
+            "external_llm_called": False,
+            "inactive_rules_for_ai_reasoning": [
+                "single_position_limit",
+                "theme_exposure_limit",
+                "cash_floor",
+                "repo_cash_equivalent_policy",
+            ],
+            "boundary": "Do not output discipline violations or buy/sell requirements from unconfigured limits. theme_tags do not participate in official exposure sums.",
+        },
         "missing_data": missing_data,
         "interpretation_boundaries": interpretation_boundaries,
         "missing_data_and_boundaries": [*interpretation_boundaries, *missing_data],
@@ -713,6 +774,47 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
     if persist:
         result["saved_paths"] = _save_packet(packet, markdown)
     return result
+
+
+def build_account_analysis_context() -> dict[str, Any]:
+    result = build_portfolio_packet(user_question=None, persist=False)
+    packet = result["packet"]
+    return {
+        "meta": {
+            "generated_at": packet["meta"]["generated_at"],
+            "portfolio_snapshot_id": packet["meta"]["source_snapshot_id"],
+            "portfolio_as_of": packet["meta"]["portfolio_as_of"],
+            "quote_time_boundary": QUOTE_TIME_BOUNDARY,
+            "privacy_boundary": PRIVACY_NOTICE,
+        },
+        "account_facts": {
+            **packet["account_overview"],
+            "holdings_count": len(packet["holdings"]),
+        },
+        "holdings": [
+            {
+                "symbol": item.get("symbol"),
+                "name": item.get("name"),
+                "quantity": item.get("quantity"),
+                "avg_cost": item.get("avg_cost"),
+                "market_value": item.get("market_value"),
+                "unrealized_pnl": item.get("unrealized_pnl"),
+                "unrealized_pnl_pct": item.get("unrealized_pnl_pct"),
+                "portfolio_weight_pct": item.get("portfolio_weight_pct"),
+                "confirmed_primary_theme": item.get("confirmed_primary_theme"),
+                "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
+                "confirmed_position_role": item.get("confirmed_position_role"),
+                "external_driver_profile_id": None,
+                "data_status": item.get("data_status"),
+            }
+            for item in packet["holdings"]
+        ],
+        "official_theme_exposure": packet["official_theme_exposure"],
+        "related_theme_observations": packet["related_theme_observations"],
+        "external_driver_summary": packet["external_driver_summary"],
+        "data_gaps": packet["data_gaps"],
+        "ai_analysis_boundary": packet["ai_analysis_boundary"],
+    }
 
 
 def _fmt(value: Any) -> str:

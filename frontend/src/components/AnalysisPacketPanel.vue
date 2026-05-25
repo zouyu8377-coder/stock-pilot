@@ -61,16 +61,19 @@ watch(() => props.symbol, reset)
   <section class="rounded-lg border border-border bg-card">
     <div class="flex items-center justify-between border-b border-border bg-secondary/30 px-3 py-2">
       <div>
-        <h3 class="text-sm font-semibold text-foreground">Analysis Packet v1</h3>
-        <p class="text-[11px] text-muted-foreground">Local preview only. Copy or export manually; no external LLM call is made.</p>
+        <h3 class="text-sm font-semibold text-foreground">单票证据包 / Stock Analysis Packet v1</h3>
+        <p class="text-[11px] text-muted-foreground">汇总该标的的行情、事实、辅助信号与外部驱动；如当前持有，仅只读展示其账户关系。</p>
       </div>
       <button class="rounded bg-primary px-3 py-1 text-xs" :disabled="loading" @click="generate">
-        {{ loading ? 'Generating...' : 'Generate Analysis Packet' }}
+        {{ loading ? 'Generating...' : '生成单票证据包 / Generate Stock Packet' }}
       </button>
     </div>
     <div class="space-y-3 p-3">
       <div class="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-muted-foreground">
         Exported content may include real holdings, cost, cash, plans, and manual evidence. Attachments are referenced only and are not uploaded automatically.
+      </div>
+      <div class="rounded border border-border/60 bg-secondary/30 p-2 text-xs text-muted-foreground">
+        账户级仓位与组合分析请在未来的个人投资仪表盘中查看；本页不生成账户级行动建议。
       </div>
       <textarea
         v-model="userQuestion"

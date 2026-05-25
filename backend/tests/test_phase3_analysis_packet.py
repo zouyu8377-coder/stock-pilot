@@ -206,6 +206,9 @@ def test_single_stock_packet_includes_holding_and_only_selected_manual_evidence(
     assert account["has_holding"] is True
     assert account["quantity"] == 100
     assert account["portfolio_weight_pct"] is not None
+    assert account["confirmed_primary_theme"] == "BANK"
+    assert account["confirmed_theme_tags"] == ["BANK"]
+    assert "account-level position and portfolio analysis belongs" in account["account_analysis_boundary"]
     assert [item["evidence_id"] for item in result["packet"]["manual_evidence"]] == [included.evidence_id]
     assert all(item["category"] == "manual_evidence" for item in result["packet"]["manual_evidence"])
     assert all(item["category"] != "auto_fact" for item in result["packet"]["manual_evidence"])
@@ -266,11 +269,58 @@ def test_portfolio_packet_keeps_primary_theme_unique_and_risk_tags_non_additive(
     themes = {item["theme"] for item in first["packet"]["primary_theme_exposure"]}
     assert themes == {"AI_PCB", "AI_THEME_ETF"}
     assert "non-additive" in first["packet"]["related_risk_observations"]["boundary"]
+    assert first["packet"]["official_theme_exposure"] == first["packet"]["primary_theme_exposure"]
+    assert "related_theme_observations" in first["packet"]
+    assert first["packet"]["ai_analysis_boundary"]["external_llm_called"] is False
+    assert "single_position_limit" in first["packet"]["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]
     assert all(item.get("unconfirmed_by_user") is True for item in first["packet"]["system_hypothesis"])
+    assert all(item.get("inactive_for_ai_reasoning") is True for item in first["packet"]["system_hypothesis"])
     assert first["packet"]["manual_evidence"][0]["title"] == "Portfolio level evidence"
     assert first["packet"]["meta"]["packet_id"] != second["packet"]["meta"]["packet_id"]
     saved = list((tmp_path / "snapshots" / "analysis_packets" / "portfolio" / "local_default").glob("*.json"))
     assert len(saved) == 2
+
+
+def test_account_analysis_context_uses_confirmed_semantics_without_ai_call(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    monkeypatch.setattr(packet_service, "get_dragon_tiger_facts", lambda symbol: {"data_status": "unavailable", "evidence": []})
+    monkeypatch.setattr(packet_service, "get_disclosure_facts", lambda symbol: {"data_status": "unavailable", "evidence": []})
+    monkeypatch.setattr(packet_service, "get_etf_facts", lambda symbol: {"data_status": "unavailable", "evidence": []})
+    monkeypatch.setattr(packet_service, "build_external_driver_context", _unmapped_external_context)
+    service = PortfolioService(root=tmp_path / "portfolio")
+    service.save_snapshot(PortfolioSnapshotInput(
+        cash_available=500,
+        positions=[
+            PortfolioPositionInput(
+                symbol="600000",
+                name="Name600000",
+                quantity=100,
+                avg_cost=8,
+                primary_theme="AI_PCB",
+                theme_tags=["AI_PCB", "HIGH_VOLATILITY"],
+                position_role="core",
+            ),
+            PortfolioPositionInput(
+                symbol="159382",
+                name="ETF",
+                quantity=100,
+                avg_cost=1,
+                primary_theme="AI_THEME_ETF",
+                theme_tags=["AI_THEME_ETF", "HIGH_VOLATILITY"],
+                position_role="trend",
+            ),
+        ],
+    ))
+    monkeypatch.setattr(packet_service, "portfolio_service", service)
+
+    context = packet_service.build_account_analysis_context()
+
+    assert context["account_facts"]["holdings_count"] == 2
+    assert {item["confirmed_primary_theme"] for item in context["holdings"]} == {"AI_PCB", "AI_THEME_ETF"}
+    assert context["official_theme_exposure"]
+    assert context["related_theme_observations"]["boundary"].startswith("primary_theme")
+    assert context["ai_analysis_boundary"]["external_llm_called"] is False
+    assert "cash_floor" in context["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]
 
 
 def test_manual_evidence_include_update_controls_packet_export(tmp_path, monkeypatch):

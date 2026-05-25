@@ -21,6 +21,8 @@ from app.evidence.schemas import (
 from app.portfolio.schemas import (
     DEFAULT_PORTFOLIO_ID,
     DEFAULT_THEME_TAGS,
+    HoldingSemanticBatchUpdate,
+    HoldingSemanticSuggestion,
     ManualEvidenceCreate,
     ManualEvidenceRecord,
     PortfolioMetrics,
@@ -45,6 +47,26 @@ THEME_GROUPS = {
     "HIGH_VOLATILITY": {"HIGH_VOLATILITY"},
 }
 
+SEMANTIC_SUGGESTIONS: dict[str, dict[str, Any]] = {
+    "601899": {
+        "primary_theme": "METAL_RESOURCE",
+        "theme_tags": ["METAL_RESOURCE", "GOLD", "COMPOSITE_EXPOSURE"],
+        "note": (
+            "Zijin Mining is associated with both resource metals and gold. primary_theme is used only for "
+            "one official account attribution; keep the other association in theme_tags."
+        ),
+    },
+    "603993": {"primary_theme": "METAL_RESOURCE", "theme_tags": ["METAL_RESOURCE"]},
+    "002463": {"primary_theme": "AI_PCB", "theme_tags": ["AI_PCB", "HIGH_VOLATILITY"]},
+    "002916": {"primary_theme": "AI_PCB", "theme_tags": ["AI_PCB", "HIGH_VOLATILITY"]},
+    "159382": {"primary_theme": "AI_THEME_ETF", "theme_tags": ["AI_THEME_ETF", "HIGH_VOLATILITY"]},
+    "159934": {"primary_theme": "GOLD", "theme_tags": ["GOLD"]},
+    "000657": {
+        "primary_theme": "TUNGSTEN",
+        "theme_tags": ["TUNGSTEN", "METAL_RESOURCE", "AI_PCB", "COMPOSITE_EXPOSURE"],
+    },
+}
+
 
 def _round(value: float | None, digits: int = 2) -> float:
     return round(float(value or 0), digits)
@@ -52,6 +74,17 @@ def _round(value: float | None, digits: int = 2) -> float:
 
 def _compact_symbol(symbol: str) -> str:
     return symbol.split(".", 1)[0].strip().zfill(6)
+
+
+def _dedupe_tags(tags: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for tag in tags:
+        clean = str(tag or "").strip().upper()
+        if clean and clean not in seen:
+            seen.add(clean)
+            result.append(clean)
+    return result
 
 
 class PortfolioService:
@@ -89,6 +122,52 @@ class PortfolioService:
     def get_state(self) -> PortfolioState:
         snapshot = self.enrich_snapshot(self.load_snapshot())
         return PortfolioState(snapshot=snapshot, metrics=self.compute_metrics(snapshot))
+
+    def semantic_suggestion_for_symbol(self, symbol: str) -> HoldingSemanticSuggestion:
+        compact = _compact_symbol(symbol)
+        suggestion = SEMANTIC_SUGGESTIONS.get(compact)
+        if not suggestion:
+            return HoldingSemanticSuggestion(
+                symbol=symbol,
+                suggested_primary_theme=None,
+                suggested_theme_tags=[],
+                source_detail="No reviewed account semantic mapping for this symbol.",
+                note="Please classify this holding manually before relying on account-level theme exposure.",
+            )
+        return HoldingSemanticSuggestion(
+            symbol=symbol,
+            suggested_primary_theme=suggestion["primary_theme"],
+            suggested_theme_tags=suggestion["theme_tags"],
+            source_detail=f"Reviewed static mapping for {compact}.",
+            note=suggestion.get("note"),
+        )
+
+    def holding_semantic_suggestions(self) -> list[HoldingSemanticSuggestion]:
+        return [
+            self.semantic_suggestion_for_symbol(position.symbol)
+            for position in self.load_snapshot().positions
+        ]
+
+    def update_holding_semantics(self, payload: HoldingSemanticBatchUpdate) -> PortfolioState:
+        snapshot = self.load_snapshot()
+        updates = {_compact_symbol(item.symbol): item for item in payload.updates}
+        now = datetime.utcnow()
+        positions: list[PortfolioPositionInput] = []
+        for position in snapshot.positions:
+            data = position.model_dump()
+            update = updates.get(_compact_symbol(position.symbol))
+            if update:
+                data["primary_theme"] = (update.primary_theme or "UNCLASSIFIED").strip().upper()
+                data["theme_tags"] = _dedupe_tags(update.theme_tags)
+                data["position_role"] = update.position_role
+                data["semantic_classification_status"] = "user_confirmed"
+                data["semantic_classification_source"] = "manual_confirmed_from_system_suggestion"
+                data["semantic_classification_confirmed_at"] = now
+            positions.append(PortfolioPositionInput(**data))
+        snapshot.positions = positions
+        snapshot.snapshot_id = f"portfolio_snapshot_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+        snapshot.snapshot_time = now
+        return self.save_snapshot(PortfolioSnapshotInput(**snapshot.model_dump()))
 
     def _quote_price(self, symbol: str) -> tuple[float | None, str, str]:
         try:
@@ -168,7 +247,7 @@ class PortfolioService:
             weight = market_value / total_assets * 100
             position_weights.append({"symbol": p.symbol, "name": p.name, "weight_pct": _round(weight), "market_value": p.market_value, "data_status": p.data_status})
             pnl_contributors.append({"symbol": p.symbol, "name": p.name, "unrealized_pnl": p.unrealized_pnl, "unrealized_pnl_pct": p.unrealized_pnl_pct, "data_status": p.data_status})
-            primary_theme = p.primary_theme or (p.theme_tags[0] if p.theme_tags else "UNCLASSIFIED")
+            primary_theme = (p.primary_theme or "UNCLASSIFIED").strip().upper()
             entry = primary.setdefault(primary_theme, {"market_value": 0.0, "symbols": []})
             entry["market_value"] += market_value
             entry["symbols"].append(p.symbol)
@@ -203,6 +282,17 @@ class PortfolioService:
         cash_ratio = snapshot.cash_available / total_assets * 100
         if cash_ratio < snapshot.risk_limits.min_cash_ratio:
             warnings.append(f"现金比例 {cash_ratio:.2f}% 低于底线 {snapshot.risk_limits.min_cash_ratio:.2f}%。")
+
+        unclassified = [
+            p.symbol for p in snapshot.positions
+            if not p.primary_theme or str(p.primary_theme).strip().upper() == "UNCLASSIFIED"
+        ]
+        warnings = []
+        if unclassified:
+            warnings.append(
+                "There are holdings without confirmed primary_theme; account theme exposure is incomplete. "
+                f"Please confirm holding semantics first: {', '.join(unclassified)}."
+            )
 
         return PortfolioMetrics(
             total_assets=_round(total_assets),
