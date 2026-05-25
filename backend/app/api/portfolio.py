@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.portfolio import portfolio_service
+from app.portfolio.import_schemas import PortfolioImportDraftUpdate
+from app.portfolio.import_service import portfolio_import_service
 from app.portfolio.schemas import (
     ManualEvidenceCreate,
     ManualEvidenceIncludeUpdate,
@@ -78,4 +80,86 @@ def portfolio_analysis_snapshot():
     return {
         "success": True,
         "data": portfolio_service.build_portfolio_snapshot().model_dump(mode="json"),
+    }
+
+
+@router.post("/portfolio/import/screenshot")
+async def upload_portfolio_screenshot(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        draft = portfolio_import_service.create_draft_from_upload(
+            filename=file.filename or "portfolio_screenshot",
+            content_type=file.content_type or "",
+            content=content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "data": draft.model_dump(mode="json"),
+    }
+
+
+@router.get("/portfolio/import/drafts/{draft_id}")
+def get_portfolio_import_draft(draft_id: str):
+    try:
+        draft = portfolio_import_service.get_draft(draft_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Import draft not found") from exc
+    return {
+        "success": True,
+        "data": draft.model_dump(mode="json"),
+    }
+
+
+@router.patch("/portfolio/import/drafts/{draft_id}")
+def update_portfolio_import_draft(draft_id: str, payload: PortfolioImportDraftUpdate):
+    try:
+        draft = portfolio_import_service.update_draft(draft_id, payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Import draft not found") from exc
+    return {
+        "success": True,
+        "data": draft.model_dump(mode="json"),
+    }
+
+
+@router.post("/portfolio/import/drafts/{draft_id}/parse")
+def rerun_portfolio_import_parse(draft_id: str):
+    try:
+        draft = portfolio_import_service.run_ocr_and_parse(draft_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Import draft not found") from exc
+    return {
+        "success": True,
+        "data": draft.model_dump(mode="json"),
+    }
+
+
+@router.post("/portfolio/import/drafts/{draft_id}/confirm")
+def confirm_portfolio_import_draft(draft_id: str):
+    try:
+        result = portfolio_import_service.confirm_draft(draft_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Import draft not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "data": {
+            "draft": result["draft"].model_dump(mode="json"),
+            "portfolio": result["state"].model_dump(mode="json"),
+        },
+    }
+
+
+@router.delete("/portfolio/import/drafts/{draft_id}")
+def reject_portfolio_import_draft(draft_id: str):
+    try:
+        draft = portfolio_import_service.reject_draft(draft_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Import draft not found") from exc
+    return {
+        "success": True,
+        "data": draft.model_dump(mode="json"),
     }

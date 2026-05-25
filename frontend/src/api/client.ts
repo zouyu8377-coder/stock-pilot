@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001'
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -161,6 +161,20 @@ export interface PortfolioPosition {
   quantity: number
   available_quantity?: number | null
   avg_cost: number
+  broker_screenshot_price?: number | null
+  broker_screenshot_price_source?: string | null
+  broker_screenshot_price_time?: string | null
+  broker_screenshot_market_value?: number | null
+  broker_screenshot_unrealized_pnl?: number | null
+  broker_screenshot_unrealized_pnl_pct?: number | null
+  system_quote_price?: number | null
+  system_quote_retrieved_at?: string | null
+  system_quote_market_time?: string | null
+  quote_time_status?: string
+  source_type?: string
+  source_name?: string | null
+  import_draft_id?: string | null
+  confirmed_by_user?: boolean
   market_price?: number | null
   market_value?: number | null
   unrealized_pnl?: number | null
@@ -174,6 +188,25 @@ export interface PortfolioPosition {
   invalid_condition?: string | null
   target_max_weight?: number | null
   notes?: string | null
+}
+
+export interface PortfolioImportDraft {
+  draft_id: string
+  source_type: string
+  source_name: string
+  uploaded_at: string
+  image_reference: string
+  ocr_provider: string
+  ocr_status: string
+  ocr_raw_text: string
+  parse_status: string
+  needs_user_confirmation: boolean
+  account_summary_draft: Record<string, any>
+  holding_rows_draft: Array<Record<string, any>>
+  parse_warnings: string[]
+  unrecognized_fields: string[]
+  confirmed_at?: string | null
+  saved_snapshot_id?: string | null
 }
 
 export interface PortfolioState {
@@ -341,4 +374,28 @@ export async function createPortfolioAnalysisPacket(userQuestion = ''): Promise<
     params: userQuestion ? { user_question: userQuestion } : undefined,
   })
   return response.data
+}
+
+export async function uploadPortfolioScreenshot(file: File): Promise<PortfolioImportDraft> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await client.post<{ success: boolean; data: PortfolioImportDraft }>('/api/portfolio/import/screenshot', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return response.data.data
+}
+
+export async function updatePortfolioImportDraft(draftId: string, payload: any): Promise<PortfolioImportDraft> {
+  const response = await client.patch<{ success: boolean; data: PortfolioImportDraft }>(`/api/portfolio/import/drafts/${draftId}`, payload)
+  return response.data.data
+}
+
+export async function confirmPortfolioImportDraft(draftId: string): Promise<{ draft: PortfolioImportDraft; portfolio: PortfolioState }> {
+  const response = await client.post<{ success: boolean; data: { draft: PortfolioImportDraft; portfolio: PortfolioState } }>(`/api/portfolio/import/drafts/${draftId}/confirm`)
+  return response.data.data
+}
+
+export async function rejectPortfolioImportDraft(draftId: string): Promise<PortfolioImportDraft> {
+  const response = await client.delete<{ success: boolean; data: PortfolioImportDraft }>(`/api/portfolio/import/drafts/${draftId}`)
+  return response.data.data
 }

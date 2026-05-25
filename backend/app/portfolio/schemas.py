@@ -66,6 +66,16 @@ class PortfolioPositionInput(BaseModel):
     quantity: float
     available_quantity: float | None = None
     avg_cost: float
+    broker_screenshot_price: float | None = None
+    broker_screenshot_price_source: str | None = None
+    broker_screenshot_price_time: datetime | None = None
+    broker_screenshot_market_value: float | None = None
+    broker_screenshot_unrealized_pnl: float | None = None
+    broker_screenshot_unrealized_pnl_pct: float | None = None
+    source_type: str = "manual_account"
+    source_name: str | None = None
+    import_draft_id: str | None = None
+    confirmed_by_user: bool = False
     position_role: PositionRole = PositionRole.OBSERVATION
     theme_tags: list[str] = Field(default_factory=list)
     primary_theme: str | None = None
@@ -81,11 +91,16 @@ class PortfolioPosition(PortfolioPositionInput):
     unrealized_pnl: float | None = None
     unrealized_pnl_pct: float | None = None
     price_source: str = ""
+    system_quote_price: float | None = None
+    system_quote_retrieved_at: datetime | None = None
+    system_quote_market_time: datetime | None = None
+    quote_time_status: str = "unavailable"
     data_status: str = "available"
     missing_data: list[str] = Field(default_factory=list)
 
 
 class PortfolioSnapshotInput(BaseModel):
+    snapshot_id: str = Field(default_factory=lambda: f"portfolio_snapshot_{uuid4().hex}")
     portfolio_id: str = DEFAULT_PORTFOLIO_ID
     snapshot_time: datetime = Field(default_factory=datetime.utcnow)
     total_assets: float | None = None
@@ -93,6 +108,10 @@ class PortfolioSnapshotInput(BaseModel):
     repo_amount: float = 0
     repo_available_date: date | None = None
     notes: str | None = None
+    source_type: str = "manual_account"
+    source_name: str | None = None
+    draft_id: str | None = None
+    confirmed_at: datetime | None = None
     risk_limits: RiskLimits = Field(default_factory=RiskLimits)
     positions: list[PortfolioPositionInput] = Field(default_factory=list)
 

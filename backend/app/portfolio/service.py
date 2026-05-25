@@ -59,6 +59,7 @@ class PortfolioService:
         self.root = Path(root or settings.PORTFOLIO_DATA_DIR)
         self.root.mkdir(parents=True, exist_ok=True)
         self.portfolio_path = self.root / "default_portfolio.json"
+        self.snapshots_dir = self.root / "snapshots"
         self.evidence_path = self.root / "manual_evidence.json"
 
     def _read_json(self, path: Path, default):
@@ -82,6 +83,7 @@ class PortfolioService:
     def save_snapshot(self, payload: PortfolioSnapshotInput) -> PortfolioState:
         snapshot = PortfolioSnapshot(**payload.model_dump())
         self._write_json(self.portfolio_path, snapshot.model_dump(mode="json"))
+        self._write_json(self.snapshots_dir / f"{snapshot.snapshot_id}.json", snapshot.model_dump(mode="json"))
         return self.get_state()
 
     def get_state(self) -> PortfolioState:
@@ -108,8 +110,15 @@ class PortfolioService:
                 "unrealized_pnl",
                 "unrealized_pnl_pct",
                 "price_source",
+                "system_quote_price",
+                "system_quote_retrieved_at",
+                "system_quote_market_time",
+                "quote_time_status",
+                "data_status",
+                "missing_data",
             }))
             price, source, quote_name = self._quote_price(base.symbol)
+            retrieved_at = datetime.utcnow() if price is not None else None
             missing_data: list[str] = []
             if price is None:
                 missing_data.append("market_price")
@@ -131,6 +140,10 @@ class PortfolioService:
                 unrealized_pnl=_round(pnl) if pnl is not None else None,
                 unrealized_pnl_pct=_round(pnl_pct) if pnl_pct is not None else None,
                 price_source=source,
+                system_quote_price=_round(price, 4) if price is not None else None,
+                system_quote_retrieved_at=retrieved_at,
+                system_quote_market_time=None,
+                quote_time_status="unavailable",
                 data_status="available" if not missing_data else "missing_data",
                 missing_data=missing_data,
             ))

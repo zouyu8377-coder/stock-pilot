@@ -58,6 +58,9 @@ backend/data/indicators/
 backend/data/deep_analysis/
 backend/data/analysis_snapshots/
 backend/data/portfolio/
+backend/data/portfolio_imports/
+backend/data/portfolio/imports/
+backend/data/portfolio/snapshots/
 backend/data/tushare/
 backend/data/metadata/
 backend/data/*.lock
@@ -68,6 +71,7 @@ backend/data/account_exports/
 backend/data/exports/
 backend/data/attachments/
 backend/data/uploads/
+backend/data/uploads/portfolio_screenshots/
 backend/data/screenshots/
 account_exports/
 exports/
