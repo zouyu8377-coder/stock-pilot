@@ -68,13 +68,29 @@ const parseTags = (text: string) => text.split(',').map((x) => x.trim()).filter(
 const load = async () => {
   loading.value = true
   try {
-    const [portfolio, providers] = await Promise.all([
-      getPortfolio(),
-      getPortfolioImportParserProviders(),
-    ])
-    state.value = portfolio
-    parserStatus.value = providers
-    parserProvider.value = providers.default_provider || 'local_noop'
+    state.value = await getPortfolio()
+    try {
+      const providers = await getPortfolioImportParserProviders()
+      parserStatus.value = providers
+      parserProvider.value = providers.default_provider || 'local_noop'
+    } catch (error) {
+      parserStatus.value = {
+        default_provider: 'local_noop',
+        providers: [
+          {
+            provider: 'local_noop',
+            display_name: '手工补录 / 本地不解析',
+            status: 'available',
+          },
+          {
+            provider: 'volcengine_ark_vision',
+            display_name: '火山方舟云端视觉解析',
+            status: 'backend_endpoint_unavailable',
+          },
+        ],
+      }
+      parserProvider.value = 'local_noop'
+    }
     accountDraft.value.cash_available = state.value.snapshot.cash_available
     accountDraft.value.repo_amount = state.value.snapshot.repo_amount
     accountDraft.value.total_assets = state.value.snapshot.total_assets ?? null
