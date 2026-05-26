@@ -1,0 +1,55 @@
+{
+  "generated_at": "2026-05-26T06:52:17.390937",
+  "summary": {
+    "available": 3,
+    "unavailable": 0
+  },
+  "results": [
+    {
+      "factor_id": "comex_copper_yahoo",
+      "yahoo_symbol": "HG=F",
+      "product": "Copper",
+      "provider": "yahoo_finance",
+      "status": "available",
+      "latest_trade_date": "20260526",
+      "close": 6.4105,
+      "currency": "USD",
+      "exchange_name": "CMX",
+      "instrument_type": "FUTURE",
+      "quote_delay_status": "delayed_or_unverified",
+      "packet_eligible": true,
+      "limitation": "Yahoo Finance COMEX delayed reference; not official CME settlement; interface may change; not a causal conclusion or trading advice."
+    },
+    {
+      "factor_id": "comex_gold_yahoo",
+      "yahoo_symbol": "GC=F",
+      "product": "Gold",
+      "provider": "yahoo_finance",
+      "status": "available",
+      "latest_trade_date": "20260526",
+      "close": 4534.0,
+      "currency": "USD",
+      "exchange_name": "CMX",
+      "instrument_type": "FUTURE",
+      "quote_delay_status": "delayed_or_unverified",
+      "packet_eligible": true,
+      "limitation": "Yahoo Finance COMEX delayed reference; not official CME settlement; interface may change; not a causal conclusion or trading advice."
+    },
+    {
+      "factor_id": "comex_silver_yahoo",
+      "yahoo_symbol": "SI=F",
+      "product": "Silver",
+      "provider": "yahoo_finance",
+      "status": "available",
+      "latest_trade_date": "20260526",
+      "close": 76.825,
+      "currency": "USD",
+      "exchange_name": "CMX",
+      "instrument_type": "FUTURE",
+      "quote_delay_status": "delayed_or_unverified",
+      "packet_eligible": true,
+      "limitation": "Yahoo Finance COMEX delayed reference; not official CME settlement; interface may change; not a causal conclusion or trading advice."
+    }
+  ],
+  "privacy_note": "No account, token, holding, or personal data was transmitted."
+}

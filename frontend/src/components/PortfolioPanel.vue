@@ -82,6 +82,30 @@ const signedFmt = (v?: number | null, suffix = '') => {
 
 const rowKey = () => `manual_${Date.now()}_${Math.random().toString(16).slice(2)}`
 const compactSymbol = (symbol: string) => symbol.split('.', 1)[0].padStart(6, '0')
+const roleLabelMap: Record<string, string> = {
+  core: '核心',
+  trend: '趋势',
+  defensive: '防御',
+  short_term: '短线',
+  observation: '观察',
+  unclassified: '待分类',
+}
+const roleLabel = (key: string) => roleLabelMap[key] || key
+
+const themeLabelMap: Record<string, string> = {
+  AI_PCB: 'AI / PCB',
+  AI_THEME_ETF: 'AI 主题 ETF',
+  METAL_RESOURCE: '金属资源',
+  GOLD: '黄金',
+  TUNGSTEN: '钨',
+  CASH_EQUIVALENT: '现金等价',
+  OTHER: '其他',
+  UNCLASSIFIED: '待分类',
+  HIGH_VOLATILITY: '高波动',
+  COMPOSITE_EXPOSURE: '复合关联',
+}
+const themeLabel = (key: string) => themeLabelMap[key] || key
+
 const quotePrice = (row: ManualRow) => row.quote?.price ?? null
 const suggestionFor = (row: ManualRow) => suggestions.value[compactSymbol(row.symbol)]
 const rowQuantity = (row: ManualRow) => Number(row.quantity || 0)
@@ -386,7 +410,7 @@ onMounted(load)
         </div>
 
         <div class="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
-          系统建议仅用于加速分类，必须保存后才成为用户确认语义。primary_theme 用于正式主题归属加总；theme_tags 只做非加总关联观察。
+          保存后主题与角色才生效；主主题决定正式资产归属，关联标签仅作风险观察。
         </div>
 
         <div class="overflow-x-auto rounded border border-border/60">
@@ -432,8 +456,8 @@ onMounted(load)
                       @focus="scheduleSearch(row)"
                       @input="scheduleSearch(row)"
                     />
-                    <div v-if="row.quote" class="-mt-1 truncate px-2 pb-1 text-[11px] text-muted-foreground">
-                      {{ row.quote.provider || '本地标的' }}
+                    <div v-if="row.quote && row.quote.provider && row.quote.provider !== '本地标的'" class="-mt-1 truncate px-2 pb-1 text-[11px] text-muted-foreground">
+                      {{ row.quote.provider }}
                     </div>
                   </div>
                   <div v-if="activeRowId === row.row_id && rowMatches.length" class="absolute left-2 right-2 top-12 z-30 overflow-hidden rounded border border-border bg-card shadow-xl">
@@ -462,20 +486,17 @@ onMounted(load)
                 <td class="p-2 text-right font-mono">{{ fmt(computedTotalAssets ? rowMarketValue(row) / computedTotalAssets * 100 : 0, '%') }}</td>
                 <td class="p-2">
                   <div class="space-y-1">
-                    <div class="font-mono">{{ suggestionFor(row)?.suggested_primary_theme || 'UNCLASSIFIED' }}</div>
-                    <div class="text-[11px] text-muted-foreground">{{ suggestionFor(row)?.suggested_theme_tags?.join(', ') || '需要手动分类' }}</div>
+                    <div class="font-mono">{{ suggestionFor(row)?.suggested_primary_theme || '—' }}</div>
+                    <div class="text-[11px] text-muted-foreground">{{ (suggestionFor(row)?.suggested_theme_tags?.length ? suggestionFor(row)?.suggested_theme_tags?.join(', ') : '') }}</div>
                     <button class="rounded bg-secondary px-2 py-1 text-[11px]" type="button" @click="applySuggestion(row)">采用建议</button>
-                    <div v-if="compactSymbol(row.symbol) === '601899'" class="text-[11px] text-warning">
-                      紫金矿业同时关联资源与黄金方向；请选择一个主归属，其他关联保留在 theme_tags。
-                    </div>
                   </div>
                 </td>
                 <td class="p-2">
                   <select v-model="row.primary_theme" class="h-9 w-full rounded bg-input px-2">
                     <option value="">未确认</option>
-                    <option v-for="theme in primaryThemes" :key="theme" :value="theme">{{ theme }}</option>
+                    <option v-for="theme in primaryThemes" :key="theme" :value="theme">{{ themeLabel(theme) }}</option>
                   </select>
-                  <div class="mt-1 text-[11px] text-muted-foreground">{{ row.semantic_classification_status }}</div>
+                  <div v-if="row.semantic_classification_status === 'unconfirmed'" class="mt-1 text-[11px] text-warning">待确认</div>
                 </td>
                 <td class="p-2">
                   <div class="flex flex-wrap gap-1">
@@ -486,13 +507,13 @@ onMounted(load)
                       :class="['rounded border px-2 py-1 text-[11px]', row.theme_tags.includes(tag) ? 'border-primary bg-primary/20 text-foreground' : 'border-border text-muted-foreground']"
                       @click="toggleTag(row, tag)"
                     >
-                      {{ tag }}
+                      {{ themeLabel(tag) }}
                     </button>
                   </div>
                 </td>
                 <td class="p-2">
                   <select v-model="row.position_role" class="h-9 w-full rounded bg-input px-2">
-                    <option v-for="role in positionRoles" :key="role" :value="role">{{ role }}</option>
+                    <option v-for="role in positionRoles" :key="role" :value="role">{{ roleLabel(role) }}</option>
                   </select>
                 </td>
                 <td class="p-2 text-right"><button class="text-negative" @click="removeRow(row.row_id)">删除</button></td>

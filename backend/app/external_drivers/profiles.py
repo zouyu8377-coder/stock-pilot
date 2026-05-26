@@ -170,15 +170,51 @@ RESOURCE_SECTOR_PLACEHOLDER = _driver(
     status="unsupported",
 )
 
+COMEX_COPPER = _driver(
+    "comex_copper_yahoo",
+    "COMEX Copper Futures Reference",
+    "commodity",
+    "context",
+    "yahoo_finance",
+    "v8/finance/chart",
+    "International copper futures background observation via Yahoo Finance COMEX delayed quote.",
+    "Yahoo Finance COMEX delayed reference only; not official CME settlement, not realtime, not a causal conclusion, and not trading advice. Does not replace domestic futures prices.",
+    provider_symbol="HG=F",
+)
+
+COMEX_GOLD = _driver(
+    "comex_gold_yahoo",
+    "COMEX Gold Futures Reference",
+    "commodity",
+    "context",
+    "yahoo_finance",
+    "v8/finance/chart",
+    "International gold futures background observation via Yahoo Finance COMEX delayed quote.",
+    "Yahoo Finance COMEX delayed reference only; not official CME settlement, not realtime, not a causal conclusion, and not trading advice. Does not replace domestic futures prices.",
+    provider_symbol="GC=F",
+)
+
+COMEX_SILVER = _driver(
+    "comex_silver_yahoo",
+    "COMEX Silver Futures Reference",
+    "commodity",
+    "context",
+    "yahoo_finance",
+    "v8/finance/chart",
+    "International silver futures background observation via Yahoo Finance COMEX delayed quote.",
+    "Yahoo Finance COMEX delayed reference only; not official CME settlement, not realtime, not a causal conclusion, and not trading advice. Does not replace domestic futures prices.",
+    provider_symbol="SI=F",
+)
+
 
 PROFILES = [
     ExternalDriverProfile(
         profile_id="ZIJIN_RESOURCE_METALS_V1",
         profile_name="Zijin Mining external drivers",
-        description="Metal and FX context for Zijin Mining.",
+        description="Metal and FX context for Zijin Mining including COMEX international reference.",
         applies_to_symbols=["601899.SH"],
         applies_to_primary_themes=["METAL_RESOURCE", "GOLD"],
-        drivers=[COPPER, GOLD_FUTURE, USDCNH, GOLD_ETF],
+        drivers=[COPPER, GOLD_FUTURE, USDCNH, GOLD_ETF, COMEX_COPPER, COMEX_GOLD],
         boundary=MAPPING_BOUNDARY,
     ),
     ExternalDriverProfile(
@@ -193,10 +229,10 @@ PROFILES = [
     ExternalDriverProfile(
         profile_id="LUOMO_RESOURCE_METALS_V1",
         profile_name="Luomo Mining external drivers",
-        description="Copper and FX context for Luomo Mining; cobalt/molybdenum remain uncovered.",
+        description="Copper and FX context for Luomo Mining; cobalt/molybdenum remain uncovered; COMEX copper reference added.",
         applies_to_symbols=["603993.SH"],
         applies_to_primary_themes=["METAL_RESOURCE"],
-        drivers=[COPPER, USDCNH, COBALT_MOLY_PLACEHOLDER, RESOURCE_SECTOR_PLACEHOLDER],
+        drivers=[COPPER, USDCNH, COBALT_MOLY_PLACEHOLDER, RESOURCE_SECTOR_PLACEHOLDER, COMEX_COPPER],
         boundary=MAPPING_BOUNDARY,
     ),
     ExternalDriverProfile(
@@ -229,10 +265,19 @@ PROFILES = [
     ExternalDriverProfile(
         profile_id="GOLD_ETF_SELF_V1",
         profile_name="Gold ETF self facts",
-        description="ETF share, NAV, and price facts for the gold ETF itself.",
+        description="ETF share, NAV, and price facts for the gold ETF itself plus COMEX gold reference.",
         applies_to_symbols=["159934.SZ"],
         applies_to_primary_themes=["GOLD"],
-        drivers=[GOLD_ETF],
+        drivers=[GOLD_ETF, COMEX_GOLD],
+        boundary=MAPPING_BOUNDARY,
+    ),
+    ExternalDriverProfile(
+        profile_id="COMEX_SILVER_CAPABILITY_V1",
+        profile_name="COMEX Silver capability placeholder",
+        description="COMEX silver futures reference is supported as a provider capability but not mapped to current holdings.",
+        applies_to_symbols=[],
+        applies_to_primary_themes=[],
+        drivers=[COMEX_SILVER],
         boundary=MAPPING_BOUNDARY,
     ),
 ]

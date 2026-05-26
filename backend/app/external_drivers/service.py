@@ -16,6 +16,7 @@ from app.evidence.schemas import (
 from app.external_drivers.profiles import DEFAULT_UNMAPPED, MAPPING_BOUNDARY, find_profile
 from app.external_drivers.schemas import ExternalDriver, ExternalDriverContext
 from app.facts.common import DEFAULT_DAILY_TTL, days_ago_yyyymmdd, parse_yyyymmdd, records_from_df, safe_float, to_ts_code
+from app.external_drivers.yahoo_comex_provider import get_comex_fact, YahooComexError
 from app.facts.etf_service import get_etf_facts
 from app.tushare import TushareConfigError, TushareLowFrequencyClient, TushareRequestError
 
@@ -129,6 +130,10 @@ def _unsupported_missing(driver: ExternalDriver) -> dict[str, Any]:
 
 
 def _fetch_daily_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceItem]:
+    provider = driver.retrieval_config.provider
+    if provider == "yahoo_finance":
+        return _fetch_yahoo_comex_driver(symbol, driver)
+
     client = TushareLowFrequencyClient()
     provider_symbol = driver.retrieval_config.provider_symbol
     if not provider_symbol:
@@ -181,6 +186,54 @@ def _fetch_daily_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceIte
         llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
         interpretation_limit=SIGNAL_LIMIT,
         data_status=fact.data_status,
+    )
+    return [fact, signal]
+
+
+def _fetch_yahoo_comex_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceItem]:
+    try:
+        result = get_comex_fact(driver.factor_id, range_days="30d")
+    except YahooComexError as exc:
+        return [_unavailable_evidence(symbol, driver, str(exc))]
+
+    if result.get("data_status") != "available":
+        return [_unavailable_evidence(symbol, driver, result.get("reason") or "Yahoo COMEX data unavailable.")]
+
+    as_of = parse_yyyymmdd(result.get("trade_date"))
+    fact = EvidenceItem(
+        symbol=to_ts_code(symbol),
+        evidence_type=EvidenceType.EXTERNAL_DRIVER_FACT,
+        category=EvidenceCategory.AUTO_FACT,
+        title=f"External driver fact: {driver.display_name}",
+        payload=result,
+        source=f"{driver.retrieval_config.provider}.{driver.retrieval_config.endpoint}",
+        source_endpoint=driver.retrieval_config.endpoint,
+        as_of_date=as_of,
+        fetched_at=datetime.utcnow(),
+        reliability=EvidenceReliability.B,
+        llm_usage=LlmUsage.CONTEXT_ONLY,
+        interpretation_limit=result.get("interpretation_limit") or FACT_LIMIT,
+        data_status=DataStatus.AVAILABLE,
+    )
+    signal = EvidenceItem(
+        symbol=to_ts_code(symbol),
+        evidence_type=EvidenceType.EXTERNAL_DRIVER_SIGNAL,
+        category=EvidenceCategory.AUTO_SIGNAL,
+        title=f"External driver derived changes: {driver.display_name}",
+        payload={
+            "factor_id": driver.factor_id,
+            "display_name": driver.display_name,
+            "returns_pct": result.get("returns_pct"),
+            "calculation": "close-to-close percentage change over 1, 5, and 20 observations from Yahoo COMEX delayed reference",
+        },
+        source=f"{driver.retrieval_config.provider}.{driver.retrieval_config.endpoint}",
+        source_endpoint=driver.retrieval_config.endpoint,
+        as_of_date=as_of,
+        fetched_at=datetime.utcnow(),
+        reliability=EvidenceReliability.C,
+        llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
+        interpretation_limit=SIGNAL_LIMIT,
+        data_status=DataStatus.AVAILABLE,
     )
     return [fact, signal]
 
