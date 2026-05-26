@@ -166,6 +166,11 @@ class PortfolioMetrics(BaseModel):
     primary_theme_exposures: list[ThemeExposure] = Field(default_factory=list)
     risk_tag_exposures: list[ThemeExposure] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    total_cost_basis: float | None = None
+    total_unrealized_pnl: float | None = None
+    total_unrealized_pnl_pct: float | None = None
+    total_unrealized_pnl_status: str = "unavailable"
+    excluded_symbols: list[str] = Field(default_factory=list)
     composite_exposure_notes: list[str] = Field(default_factory=list)
     missing_data: list[dict[str, Any]] = Field(default_factory=list)
 

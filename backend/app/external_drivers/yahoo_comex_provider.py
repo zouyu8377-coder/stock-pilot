@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -19,6 +19,9 @@ FACTOR_CONFIG: dict[str, dict[str, str]] = {
         "product": "Copper",
         "market": "COMEX",
         "currency": "USD",
+        "quote_unit": "USD/lb",
+        "quote_unit_status": "verified",
+        "quote_unit_source": "contract_definition",
     },
     "comex_gold_yahoo": {
         "display_name": "COMEX Gold Futures Reference",
@@ -26,6 +29,9 @@ FACTOR_CONFIG: dict[str, dict[str, str]] = {
         "product": "Gold",
         "market": "COMEX",
         "currency": "USD",
+        "quote_unit": "USD/troy oz",
+        "quote_unit_status": "verified",
+        "quote_unit_source": "contract_definition",
     },
     "comex_silver_yahoo": {
         "display_name": "COMEX Silver Futures Reference",
@@ -33,6 +39,9 @@ FACTOR_CONFIG: dict[str, dict[str, str]] = {
         "product": "Silver",
         "market": "COMEX",
         "currency": "USD",
+        "quote_unit": "USD/troy oz",
+        "quote_unit_status": "verified",
+        "quote_unit_source": "contract_definition",
     },
 }
 
@@ -151,7 +160,7 @@ def fetch_yahoo_comex_series(
         "factor_id": factor_id,
         "provider": "yahoo_finance",
         "provider_endpoint": "v8/finance/chart",
-        "retrieved_at": datetime.utcnow().isoformat(),
+        "retrieved_at": datetime.now(timezone.utc).isoformat(),
         "quote_delay_status": "delayed_or_unverified",
         "source_note": (
             "Yahoo Finance COMEX delayed quote reference; programmatic access is best-effort "
@@ -206,13 +215,17 @@ def get_comex_fact(
             return None
         return round((curr / past - 1) * 100, 4)
 
+    config = FACTOR_CONFIG[factor_id]
     result = {
         "factor_id": factor_id,
-        "display_name": FACTOR_CONFIG[factor_id]["display_name"],
+        "display_name": config["display_name"],
         "provider": "yahoo_finance",
         "market": "COMEX",
         "yahoo_symbol": meta["yahoo_symbol"],
         "currency": meta.get("currency") or "USD",
+        "quote_unit": config.get("quote_unit"),
+        "quote_unit_status": config.get("quote_unit_status", "unverified"),
+        "quote_unit_source": config.get("quote_unit_source"),
         "quote_type": "delayed_reference",
         "quote_delay_status": "delayed_or_unverified",
         "data_status": "available",

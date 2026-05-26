@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -142,7 +142,7 @@ class PortfolioService:
     def update_holding_semantics(self, payload: HoldingSemanticBatchUpdate) -> PortfolioState:
         snapshot = self.load_snapshot()
         updates = {_compact_symbol(item.symbol): item for item in payload.updates}
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         positions: list[PortfolioPositionInput] = []
         for position in snapshot.positions:
             data = position.model_dump()
@@ -156,7 +156,7 @@ class PortfolioService:
                 data["semantic_classification_confirmed_at"] = now
             positions.append(PortfolioPositionInput(**data))
         snapshot.positions = positions
-        snapshot.snapshot_id = f"portfolio_snapshot_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
+        snapshot.snapshot_id = f"portfolio_snapshot_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
         snapshot.snapshot_time = now
         return self.save_snapshot(PortfolioSnapshotInput(**snapshot.model_dump()))
 
@@ -188,7 +188,7 @@ class PortfolioService:
                 "missing_data",
             }))
             price, source, quote_name = self._quote_price(base.symbol)
-            retrieved_at = datetime.utcnow() if price is not None else None
+            retrieved_at = datetime.now(timezone.utc) if price is not None else None
             missing_data: list[str] = []
             if price is None:
                 missing_data.append("market_price")
@@ -232,6 +232,10 @@ class PortfolioService:
         composite_notes = []
         missing_data = []
 
+        total_cost_basis = 0.0
+        total_unrealized_pnl = 0.0
+        excluded_symbols: list[str] = []
+
         for p in snapshot.positions:
             if p.missing_data:
                 missing_data.append({"symbol": p.symbol, "fields": p.missing_data, "data_status": p.data_status})
@@ -249,10 +253,20 @@ class PortfolioService:
                 risk_entry = risk_tags.setdefault(tag, {"market_value": 0.0, "symbols": []})
                 risk_entry["market_value"] += market_value
                 risk_entry["symbols"].append(p.symbol)
-            if len(set(p.theme_tags)) > 1:
+            if "COMPOSITE_EXPOSURE" in set(p.theme_tags):
                 composite_notes.append(
                     f"{p.symbol} 同时暴露于 {', '.join(p.theme_tags)}，主题占比不可简单相加。"
                 )
+
+            # Cost basis and unrealized PnL aggregation
+            if p.avg_cost is not None and p.avg_cost > 0 and p.quantity is not None and p.quantity >= 0:
+                total_cost_basis += p.avg_cost * p.quantity
+                if p.market_price is not None and p.market_price > 0:
+                    total_unrealized_pnl += (p.market_price - p.avg_cost) * p.quantity
+                else:
+                    excluded_symbols.append(p.symbol)
+            else:
+                excluded_symbols.append(p.symbol)
 
         primary_exposures = [
             ThemeExposure(theme=k, market_value=_round(v["market_value"]), weight_pct=_round(v["market_value"] / total_assets * 100), symbols=v["symbols"])
@@ -287,6 +301,10 @@ class PortfolioService:
                 f"Please confirm holding semantics first: {', '.join(unclassified)}."
             )
 
+        pnl_status = "available"
+        if excluded_symbols:
+            pnl_status = "partial" if total_cost_basis > 0 else "unavailable"
+
         return PortfolioMetrics(
             total_assets=_round(total_assets),
             total_market_value=_round(total_market_value),
@@ -302,6 +320,11 @@ class PortfolioService:
             cash_ratio_pct=_round(cash_ratio),
             repo_ratio_pct=_round(snapshot.repo_amount / total_assets * 100),
             invested_ratio_pct=_round(total_market_value / total_assets * 100),
+            total_cost_basis=_round(total_cost_basis) if total_cost_basis > 0 else None,
+            total_unrealized_pnl=_round(total_unrealized_pnl) if total_cost_basis > 0 else None,
+            total_unrealized_pnl_pct=_round(total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis > 0 else None,
+            total_unrealized_pnl_status=pnl_status,
+            excluded_symbols=sorted(set(excluded_symbols)),
             position_weights=sorted(position_weights, key=lambda x: x["weight_pct"], reverse=True),
             pnl_contributors=sorted(pnl_contributors, key=lambda x: x["unrealized_pnl"] or 0, reverse=True),
             primary_theme_exposures=sorted(primary_exposures, key=lambda x: x.weight_pct, reverse=True),
@@ -457,7 +480,7 @@ class PortfolioService:
     def build_portfolio_snapshot(self, user_question: str | None = None, persist: bool = True) -> AnalysisSnapshot:
         state = self.get_state()
         evidence_items: list[EvidenceItem] = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for position in state.snapshot.positions:
             evidence_items.append(EvidenceItem(
                 symbol=position.symbol,

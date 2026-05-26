@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -68,7 +68,21 @@ PORTFOLIO_LLM_QUESTIONS = [
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
+
+
+def _iso_z(value: datetime | str | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value.endswith("Z"):
+            return value
+        if value.endswith("+00:00"):
+            return value.replace("+00:00", "Z")
+        return value + "Z"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat().replace("+00:00", "Z")
 
 
 def _jsonable(value: Any) -> Any:
@@ -783,7 +797,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
                     "message": "Composite exposure: this holding has multiple risk tags. It is counted once in primary_theme exposure and must not be double counted through tags.",
                 }
                 for position in state.snapshot.positions
-                if len(set(position.theme_tags)) > 1 or "COMPOSITE_EXPOSURE" in set(position.theme_tags)
+                if "COMPOSITE_EXPOSURE" in set(position.theme_tags)
             ],
             "boundary": "Primary theme exposure is unique attribution. Theme tag observations are non-additive and must not be summed as asset weights.",
         },
@@ -796,7 +810,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
                     "message": "theme_tags are related observations only and are not added into official asset exposure.",
                 }
                 for position in state.snapshot.positions
-                if len(set(position.theme_tags)) > 1 or "COMPOSITE_EXPOSURE" in set(position.theme_tags)
+                if "COMPOSITE_EXPOSURE" in set(position.theme_tags)
             ],
             "boundary": "primary_theme is the single official attribution; theme_tags are non-additive observations.",
         },
@@ -837,44 +851,202 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
     return result
 
 
-def build_account_analysis_context() -> dict[str, Any]:
+_THEME_LABEL_MAP = {
+    "AI_PCB": "AI / PCB",
+    "AI_THEME_ETF": "AI 主题 ETF",
+    "METAL_RESOURCE": "金属资源",
+    "GOLD": "黄金",
+    "TUNGSTEN": "钨",
+    "CASH_EQUIVALENT": "现金等价",
+    "HIGH_VOLATILITY": "高波动关联",
+    "COMPOSITE_EXPOSURE": "多重逻辑关联",
+    "OTHER": "其他",
+    "UNCLASSIFIED": "待分类",
+}
+
+_DRIVER_LABEL_MAP = {
+    "comex_copper_yahoo": "COMEX 铜参考",
+    "comex_gold_yahoo": "COMEX 黄金参考",
+    "comex_silver_yahoo": "COMEX 白银参考",
+    "copper_futures": "国内铜参考",
+    "gold_futures": "国内黄金参考",
+    "usd_cnh": "USD/CNH",
+    "gold_etf_159934": "黄金 ETF 背景",
+    "ai_theme_etf_159382": "AI 主题 ETF 背景",
+    "pcb_sector_index_placeholder": "PCB 板块指数",
+    "tungsten_price_placeholder": "钨价格",
+    "tin_price_placeholder": "锡价格",
+    "cobalt_moly_price_placeholder": "钴/钼价格",
+    "resource_sector_index_placeholder": "资源板块指数",
+}
+
+_COMPACT_BOUNDARIES = [
+    "隐私边界：本上下文由本地生成，不会自动发送给外部 AI；仅在用户主动复制、导出或提交时外传。",
+    "行情时间边界：当前 A 股行情源不提供可验证市场报价时间；总资产与浮动盈亏均为系统当前取价估算。",
+    "主题口径边界：正式主题按主主题唯一加总；关联标签仅用于补充观察，不得重复统计为资产暴露。",
+    "外部驱动边界：COMEX、汇率、ETF 或其他外部驱动仅作为关联背景，不构成因果结论、估值结论或买卖建议。",
+]
+
+
+def _theme_label(key: str) -> str:
+    return _THEME_LABEL_MAP.get(key, key)
+
+
+def _driver_label(key: str) -> str:
+    return _DRIVER_LABEL_MAP.get(key, key)
+
+
+def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
     result = build_portfolio_packet(user_question=None, persist=False)
     packet = result["packet"]
+
+    if mode == "audit":
+        return {
+            "meta": {
+                "generated_at": _iso_z(packet["meta"]["generated_at"]),
+                "portfolio_snapshot_id": packet["meta"]["source_snapshot_id"],
+                "portfolio_as_of": _iso_z(packet["meta"]["portfolio_as_of"]),
+                "quote_time_boundary": QUOTE_TIME_BOUNDARY,
+                "privacy_boundary": PRIVACY_NOTICE,
+            },
+            "account_facts": {
+                **packet["account_overview"],
+                "holdings_count": len(packet["holdings"]),
+            },
+            "holdings": [
+                {
+                    "symbol": item.get("symbol"),
+                    "name": item.get("name"),
+                    "quantity": item.get("quantity"),
+                    "avg_cost": item.get("avg_cost"),
+                    "market_value": item.get("market_value"),
+                    "unrealized_pnl": item.get("unrealized_pnl"),
+                    "unrealized_pnl_pct": item.get("unrealized_pnl_pct"),
+                    "portfolio_weight_pct": item.get("portfolio_weight_pct"),
+                    "confirmed_primary_theme": item.get("confirmed_primary_theme"),
+                    "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
+                    "confirmed_position_role": item.get("confirmed_position_role"),
+                    "external_driver_profile_id": None,
+                    "data_status": item.get("data_status"),
+                }
+                for item in packet["holdings"]
+            ],
+            "official_theme_exposure": packet["official_theme_exposure"],
+            "related_theme_observations": packet["related_theme_observations"],
+            "external_driver_summary": _compact_external_driver_summary(packet["external_driver_summary"]),
+            "data_gaps": packet["data_gaps"],
+            "ai_analysis_boundary": packet["ai_analysis_boundary"],
+            "suggested_questions_for_external_llm": packet["suggested_questions_for_external_llm"],
+        }
+
+    # Compact mode
+    state = portfolio_service.get_state()
+    metrics = state.metrics
+    has_repo = bool(metrics.repo_amount and metrics.repo_amount > 0)
+
+    account_facts: dict[str, Any] = {
+        "total_assets": metrics.total_assets,
+        "total_market_value": metrics.total_market_value,
+        "cash_available": metrics.cash_available,
+        "invested_ratio_pct": metrics.invested_ratio_pct,
+        "cash_ratio_pct": metrics.cash_ratio_pct,
+        "total_cost_basis": metrics.total_cost_basis,
+        "total_unrealized_pnl": metrics.total_unrealized_pnl,
+        "total_unrealized_pnl_pct": metrics.total_unrealized_pnl_pct,
+        "total_unrealized_pnl_status": metrics.total_unrealized_pnl_status,
+    }
+    if has_repo:
+        account_facts["repo_amount"] = metrics.repo_amount
+        account_facts["repo_ratio_pct"] = metrics.repo_ratio_pct
+
+    compact_holdings = []
+    for item in packet["holdings"]:
+        compact_holdings.append({
+            "symbol": item.get("symbol"),
+            "name": item.get("name"),
+            "quantity": item.get("quantity"),
+            "avg_cost": item.get("avg_cost"),
+            "market_price": item.get("market_price") or item.get("system_quote_price"),
+            "market_value": item.get("market_value"),
+            "unrealized_pnl": item.get("unrealized_pnl"),
+            "unrealized_pnl_pct": item.get("unrealized_pnl_pct"),
+            "portfolio_weight_pct": item.get("portfolio_weight_pct"),
+            "confirmed_primary_theme": item.get("confirmed_primary_theme"),
+            "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
+            "confirmed_position_role": item.get("confirmed_position_role"),
+        })
+
+    # Related observations: only tags that are NOT primary themes (supplementary only)
+    primary_themes = {item["theme"] for item in packet["official_theme_exposure"]}
+    supplementary_exposures = [
+        item for item in packet["related_theme_observations"]["theme_tag_exposure"]
+        if item["theme"] not in primary_themes
+    ]
+
+    # Data gaps: remove broker_sync and quote_time; keep real data gaps only
+    compact_data_gaps: list[dict[str, Any]] = []
+    for gap in packet["data_gaps"]:
+        if isinstance(gap, dict):
+            key = gap.get("key", "")
+            if key in ("broker_sync", "quote_time"):
+                continue
+            compact_data_gaps.append(gap)
+        else:
+            compact_data_gaps.append(gap)
+
+    # External driver summary enhancements
+    ext_summary = _compact_external_driver_summary(packet["external_driver_summary"])
+    # Also add unavailable drivers with reasons
+    unavailable_drivers: list[dict[str, Any]] = []
+    for item in packet.get("external_driver_summary", []):
+        if item.get("type") == "symbol_mapping":
+            for md in item.get("missing_data", []):
+                factor_id = str(md.get("key", "")).replace("external_driver:", "")
+                if factor_id and not any(d.get("factor_id") == factor_id for d in unavailable_drivers):
+                    unavailable_drivers.append({
+                        "factor_id": factor_id,
+                        "display_name": _driver_label(factor_id),
+                        "associated_symbols": [item.get("symbol")],
+                        "data_status": md.get("mapping_status", "unavailable"),
+                        "reason": md.get("reason") or "当前 provider 未配置或不可用",
+                    })
+        elif item.get("type") == "shared_driver":
+            evidence = item.get("evidence") or {}
+            payload = evidence.get("payload") or {}
+            if payload.get("data_status") != "available":
+                if not any(d.get("factor_id") == item.get("factor_id") for d in unavailable_drivers):
+                    unavailable_drivers.append({
+                        "factor_id": item.get("factor_id"),
+                        "display_name": item.get("display_name", _driver_label(item.get("factor_id", ""))),
+                        "associated_symbols": item.get("associated_symbols", []),
+                        "data_status": payload.get("data_status", "unavailable"),
+                        "reason": payload.get("reason") or "当前 provider 未配置或不可用",
+                    })
+
     return {
         "meta": {
-            "generated_at": packet["meta"]["generated_at"],
+            "generated_at": _iso_z(packet["meta"]["generated_at"]),
             "portfolio_snapshot_id": packet["meta"]["source_snapshot_id"],
-            "portfolio_as_of": packet["meta"]["portfolio_as_of"],
-            "quote_time_boundary": QUOTE_TIME_BOUNDARY,
-            "privacy_boundary": PRIVACY_NOTICE,
+            "portfolio_as_of": _iso_z(packet["meta"]["portfolio_as_of"]),
+            "analysis_boundaries": _COMPACT_BOUNDARIES,
         },
-        "account_facts": {
-            **packet["account_overview"],
-            "holdings_count": len(packet["holdings"]),
-        },
-        "holdings": [
-            {
-                "symbol": item.get("symbol"),
-                "name": item.get("name"),
-                "quantity": item.get("quantity"),
-                "avg_cost": item.get("avg_cost"),
-                "market_value": item.get("market_value"),
-                "unrealized_pnl": item.get("unrealized_pnl"),
-                "unrealized_pnl_pct": item.get("unrealized_pnl_pct"),
-                "portfolio_weight_pct": item.get("portfolio_weight_pct"),
-                "confirmed_primary_theme": item.get("confirmed_primary_theme"),
-                "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
-                "confirmed_position_role": item.get("confirmed_position_role"),
-                "external_driver_profile_id": None,
-                "data_status": item.get("data_status"),
-            }
-            for item in packet["holdings"]
-        ],
+        "account_facts": account_facts,
+        "holdings": compact_holdings,
         "official_theme_exposure": packet["official_theme_exposure"],
-        "related_theme_observations": packet["related_theme_observations"],
-        "external_driver_summary": _compact_external_driver_summary(packet["external_driver_summary"]),
-        "data_gaps": packet["data_gaps"],
-        "ai_analysis_boundary": packet["ai_analysis_boundary"],
+        "related_theme_observations": {
+            "supplementary_tag_exposure": supplementary_exposures,
+            "boundary": "补充关联标签仅作观察用途，不得重复计入正式主题资产暴露。",
+        },
+        "external_driver_summary": {
+            **ext_summary,
+            "unavailable_drivers": unavailable_drivers,
+        },
+        "data_gaps": compact_data_gaps,
+        "ai_analysis_boundary": {
+            "external_llm_called": packet["ai_analysis_boundary"]["external_llm_called"],
+            "inactive_decision_rules": packet["ai_analysis_boundary"]["inactive_decision_rules"],
+            "boundary": "当前上下文仅用于账户事实汇总、主题结构观察与数据缺口识别；不输出买卖或调仓指令。",
+        },
         "suggested_questions_for_external_llm": packet["suggested_questions_for_external_llm"],
     }
 
@@ -958,7 +1130,7 @@ def _evidence_markdown(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]]) -> str:
+def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]], mode: str = "audit") -> str:
     shared = [item for item in summary if item.get("type") == "shared_driver"]
     mappings = [item for item in summary if item.get("type") == "symbol_mapping"]
 
@@ -970,14 +1142,17 @@ def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]]) -
         for item in shared:
             evidence = item.get("evidence") or {}
             payload = evidence.get("payload") or {}
-            lines.append(f"- **{item.get('display_name', item.get('factor_id'))}** (`{item.get('factor_id')}`)")
+            display_name = _driver_label(item.get("factor_id", "")) if mode == "compact" else item.get("display_name", item.get("factor_id"))
+            lines.append(f"- **{display_name}** (`{item.get('factor_id')}`)")
             lines.append(f"  - factor_type: `{item.get('factor_type', 'unknown')}`")
             lines.append(f"  - associated_symbols: {', '.join(item.get('associated_symbols', []))}")
             if payload.get("trade_date"):
                 lines.append(f"  - trade_date: {payload['trade_date']}")
             if payload.get("close") is not None:
                 currency = payload.get("currency", "")
-                lines.append(f"  - close: {payload['close']} {currency}".strip())
+                quote_unit = payload.get("quote_unit", "")
+                unit_str = f" {currency}/{quote_unit}".strip() if quote_unit else f" {currency}".strip()
+                lines.append(f"  - close: {payload['close']}{unit_str}")
             returns = payload.get("returns_pct") or {}
             if returns:
                 ret_parts = []
@@ -994,7 +1169,7 @@ def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]]) -
         lines.append("- No shared external drivers in current portfolio.")
         lines.append("")
 
-    if mappings:
+    if mode == "audit" and mappings:
         lines.append("### Per-Symbol Mapping Status")
         lines.append("")
         for item in mappings:
@@ -1009,7 +1184,206 @@ def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]]) -
     return "\n".join(lines)
 
 
-def render_packet_markdown(packet: dict[str, Any]) -> str:
+def render_compact_markdown(context: dict[str, Any]) -> str:
+    """Render a compact, AI-friendly account analysis markdown."""
+    meta = context["meta"]
+    account = context["account_facts"]
+    holdings = context["holdings"]
+    official_themes = context["official_theme_exposure"]
+    related = context["related_theme_observations"]
+    ext_summary = context["external_driver_summary"]
+    data_gaps = context["data_gaps"]
+    ai_boundary = context["ai_analysis_boundary"]
+    questions = context["suggested_questions_for_external_llm"]
+
+    lines = [
+        "# Stock-Pilot 账户分析上下文",
+        "",
+        f"生成时间：{meta['generated_at']}",
+        "",
+        "## 分析边界",
+    ]
+    for b in meta.get("analysis_boundaries", []):
+        lines.append(f"- {b}")
+    lines.append("")
+
+    # Account summary table
+    lines.extend([
+        "## 账户摘要",
+        "",
+        "| 指标 | 当前估算值 |",
+        "|---|---:|",
+    ])
+    lines.append(f"| 总资产 | {account.get('total_assets', '-'):,} |")
+    lines.append(f"| 持仓市值 | {account.get('total_market_value', '-'):,} |")
+    lines.append(f"| 可用现金 | {account.get('cash_available', '-'):,} |")
+    lines.append(f"| 当前仓位 | {account.get('invested_ratio_pct', '-'):.2f}% |")
+    if account.get("total_cost_basis") is not None:
+        pnl = account.get("total_unrealized_pnl")
+        pnl_pct = account.get("total_unrealized_pnl_pct")
+        pnl_str = f"{pnl:,.2f}" if pnl is not None else "-"
+        pnl_pct_str = f" ({pnl_pct:+.2f}%)" if pnl_pct is not None else ""
+        lines.append(f"| 持仓总成本 | {account['total_cost_basis']:,.2f} |")
+        lines.append(f"| 持仓累计浮动盈亏 | {pnl_str}{pnl_pct_str} |")
+    if account.get("repo_amount") is not None:
+        lines.append(f"| 逆回购余额 | {account['repo_amount']:,.2f} |")
+    lines.append("")
+
+    # Holdings table
+    lines.extend([
+        "## 当前持仓",
+        "",
+        "| 标的 | 持仓数量 | 成本价 | 当前价 | 当前市值 | 浮动盈亏 | 权重 | 主主题 | 补充关联标签 | 角色 |",
+        "|---|---:|---:|---:|---:|---:|---:|---|---|---|",
+    ])
+    for h in holdings:
+        name = h.get("name") or h.get("symbol", "")
+        qty = h.get("quantity")
+        cost = h.get("avg_cost")
+        price = h.get("market_price")
+        mv = h.get("market_value")
+        pnl = h.get("unrealized_pnl")
+        pnl_pct = h.get("unrealized_pnl_pct")
+        weight = h.get("portfolio_weight_pct")
+        theme = _theme_label(h.get("confirmed_primary_theme") or "UNCLASSIFIED")
+        tags = [_theme_label(t) for t in (h.get("confirmed_theme_tags") or []) if t != h.get("confirmed_primary_theme")]
+        role = h.get("confirmed_position_role", "")
+
+        qty_str = f"{qty:,.0f}" if qty is not None else "-"
+        cost_str = f"{cost:,.3f}" if cost is not None else "-"
+        price_str = f"{price:,.3f}" if price is not None else "-"
+        mv_str = f"{mv:,.2f}" if mv is not None else "-"
+        if pnl is not None and pnl_pct is not None:
+            pnl_str = f"{pnl:+.2f} ({pnl_pct:+.2f}%)"
+        elif pnl is not None:
+            pnl_str = f"{pnl:+.2f}"
+        else:
+            pnl_str = "-"
+        weight_str = f"{weight:.2f}%" if weight is not None else "-"
+        tags_str = ", ".join(tags) if tags else "-"
+        lines.append(f"| {name} | {qty_str} | {cost_str} | {price_str} | {mv_str} | {pnl_str} | {weight_str} | {theme} | {tags_str} | {role} |")
+    lines.append("")
+
+    # Official theme exposure
+    lines.extend([
+        "## 正式主题暴露",
+        "",
+        "| 正式主题 | 当前市值 | 占总资产比例 | 组成标的 |",
+        "|---|---:|---:|---|",
+    ])
+    for item in official_themes:
+        theme = _theme_label(item.get("theme", ""))
+        mv = item.get("market_value", 0)
+        wp = item.get("weight_pct", 0)
+        syms = ", ".join(item.get("symbols", []))
+        lines.append(f"| {theme} | {mv:,.2f} | {wp:.2f}% | {syms} |")
+    lines.append("")
+    lines.append("正式主题为唯一资产归属口径，可加总；补充关联标签不得再次并入正式主题合计。")
+    lines.append("")
+
+    # Supplementary related observations
+    supp = related.get("supplementary_tag_exposure", [])
+    if supp:
+        lines.extend([
+            "## 补充关联观察",
+            "",
+            "| 关联观察 | 当前市值 | 占总资产比例 | 关联标的 | 说明 |",
+            "|---|---:|---:|---|---|",
+        ])
+        for item in supp:
+            tag = _theme_label(item.get("theme", ""))
+            mv = item.get("market_value", 0)
+            wp = item.get("weight_pct", 0)
+            syms = ", ".join(item.get("symbols", []))
+            note = "描述性标签，不代表阈值触发或调仓建议"
+            if tag == "多重逻辑关联":
+                note = "非加总观察，不得与正式主题重复统计"
+            elif tag == "高波动关联":
+                note = "描述性标签，不代表阈值触发或调仓建议"
+            lines.append(f"| {tag} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
+        lines.append("")
+
+    # External driver summary
+    observations = ext_summary.get("shared_external_driver_observations", [])
+    unavailable = ext_summary.get("unavailable_drivers", [])
+    lines.extend([
+        "## 外部驱动摘要",
+        "",
+    ])
+    if observations:
+        lines.extend([
+            "### 可用参考数据",
+            "",
+            "| 驱动 | 当前值 | 1日变化 | 5日变化 | 20日变化 | 关联标的 |",
+            "|---|---:|---:|---:|---:|---|",
+        ])
+        for obs in observations:
+            name = _driver_label(obs.get("factor_id", ""))
+            close = obs.get("close")
+            currency = obs.get("currency", "")
+            quote_unit = obs.get("quote_unit", "")
+            unit_str = f" {currency}/{quote_unit}".strip() if quote_unit else f" {currency}".strip()
+            close_str = f"{close:,.4f}{unit_str}" if close is not None else "-"
+            ret = obs.get("returns_pct") or {}
+            ret_1d = f"{ret.get('1d'):+.2f}%" if ret.get("1d") is not None else "-"
+            ret_5d = f"{ret.get('5d'):+.2f}%" if ret.get("5d") is not None else "-"
+            ret_20d = f"{ret.get('20d'):+.2f}%" if ret.get("20d") is not None else "-"
+            syms = ", ".join(obs.get("associated_symbols", []))
+            lines.append(f"| {name} | {close_str} | {ret_1d} | {ret_5d} | {ret_20d} | {syms} |")
+        lines.append("")
+        lines.append("来源边界：Yahoo Finance / COMEX 数据仅作为延迟参考行情；不是 CME 官方结算数据，不保证实时性，不替代国内对应品种，不构成交易建议。")
+        lines.append("")
+
+    if unavailable:
+        lines.extend([
+            "### 已映射但当前暂无数据的驱动",
+            "",
+            "| 驱动 | 关联标的 | 状态 | 原因 |",
+            "|---|---|---|---|",
+        ])
+        for drv in unavailable:
+            name = _driver_label(drv.get("factor_id", ""))
+            syms = ", ".join(drv.get("associated_symbols", []))
+            status = drv.get("data_status", "暂无数据")
+            reason = drv.get("reason", "当前 provider 未配置或不可用")
+            lines.append(f"| {name} | {syms} | {status} | {reason} |")
+        lines.append("")
+
+    # Data gaps
+    if data_gaps:
+        lines.extend([
+            "## 数据缺口",
+            "",
+        ])
+        # Group by reason for compactness
+        for gap in data_gaps:
+            if isinstance(gap, dict):
+                key = gap.get("key", "")
+                reason = gap.get("reason", "")
+                symbol = gap.get("symbol", "")
+                if symbol:
+                    lines.append(f"- {key}（{symbol}）：{reason}")
+                else:
+                    lines.append(f"- {key}：{reason}")
+            else:
+                lines.append(f"- {gap}")
+        lines.append("")
+
+    # AI questions
+    lines.extend([
+        "## 给外部 AI 的任务",
+        "",
+    ])
+    for q in questions:
+        lines.append(f"- {q}")
+    lines.append("")
+    lines.append("注意：不输出买入、卖出、减仓、加仓或调仓指令。")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def render_packet_markdown(packet: dict[str, Any], mode: str = "audit") -> str:
     meta = packet["meta"]
     lines = [
         f"# Stock-Pilot Analysis Packet v1 - {meta['analysis_scope']}",
@@ -1073,7 +1447,7 @@ def render_packet_markdown(packet: dict[str, Any]) -> str:
             "## Auto Fact Summary",
             f"```json\n{json.dumps(packet['auto_fact_summary'], ensure_ascii=False, indent=2, default=str)}\n```",
             "",
-            _render_portfolio_external_drivers_markdown(packet["external_driver_summary"]),
+            _render_portfolio_external_drivers_markdown(packet["external_driver_summary"], mode=mode),
         ])
 
     lines.extend([

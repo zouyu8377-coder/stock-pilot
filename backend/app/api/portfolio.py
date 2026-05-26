@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from app.portfolio import portfolio_service
 from app.analysis_packet.packet_service import build_account_analysis_context
@@ -102,10 +102,10 @@ def portfolio_analysis_snapshot():
 
 
 @router.get("/portfolio/account-analysis-context")
-def portfolio_account_analysis_context():
+def portfolio_account_analysis_context(mode: str = Query(default="compact")):
     return {
         "success": True,
-        "data": build_account_analysis_context(),
+        "data": build_account_analysis_context(mode=mode),
     }
 
 

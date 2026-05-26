@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
@@ -114,7 +114,7 @@ def _unavailable_evidence(symbol: str, driver: ExternalDriver, reason: str) -> E
         },
         source=f"{driver.retrieval_config.provider}.{driver.retrieval_config.endpoint}",
         source_endpoint=driver.retrieval_config.endpoint,
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
         reliability=EvidenceReliability.B,
         llm_usage=LlmUsage.CONTEXT_ONLY,
         interpretation_limit=FACT_LIMIT,
@@ -163,7 +163,7 @@ def _fetch_daily_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceIte
         source=f"{driver.retrieval_config.provider}.{driver.retrieval_config.endpoint}",
         source_endpoint=driver.retrieval_config.endpoint,
         as_of_date=as_of,
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
         reliability=EvidenceReliability.B,
         llm_usage=LlmUsage.FACT_WITH_LIMIT,
         interpretation_limit=FACT_LIMIT,
@@ -183,7 +183,7 @@ def _fetch_daily_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceIte
         source=f"{driver.retrieval_config.provider}.{driver.retrieval_config.endpoint}",
         source_endpoint=driver.retrieval_config.endpoint,
         as_of_date=as_of,
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
         reliability=EvidenceReliability.C,
         llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
         interpretation_limit=SIGNAL_LIMIT,
@@ -212,7 +212,7 @@ def _fetch_yahoo_comex_driver(symbol: str, driver: ExternalDriver) -> list[Evide
         source=f"{driver.retrieval_config.provider}.{driver.retrieval_config.endpoint}",
         source_endpoint=driver.retrieval_config.endpoint,
         as_of_date=as_of,
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
         reliability=EvidenceReliability.B,
         llm_usage=LlmUsage.CONTEXT_ONLY,
         interpretation_limit=result.get("interpretation_limit") or FACT_LIMIT,
@@ -232,7 +232,7 @@ def _fetch_yahoo_comex_driver(symbol: str, driver: ExternalDriver) -> list[Evide
         source=f"{driver.retrieval_config.provider}.{driver.retrieval_config.endpoint}",
         source_endpoint=driver.retrieval_config.endpoint,
         as_of_date=as_of,
-        fetched_at=datetime.utcnow(),
+        fetched_at=datetime.now(timezone.utc),
         reliability=EvidenceReliability.C,
         llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
         interpretation_limit=SIGNAL_LIMIT,
@@ -267,7 +267,7 @@ def _fetch_etf_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceItem]
             source=item.get("source") or "tushare.etf_fact_service",
             source_endpoint=item.get("source_endpoint") or driver.retrieval_config.endpoint,
             as_of_date=parse_yyyymmdd((payload.get("as_of_date") or "").replace("-", "")),
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(timezone.utc),
             reliability=EvidenceReliability.B,
             llm_usage=LlmUsage.FACT_WITH_LIMIT,
             interpretation_limit=FACT_LIMIT,
@@ -288,7 +288,7 @@ def _fetch_etf_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceItem]
             source=item.get("source") or "tushare.etf_fact_service",
             source_endpoint=item.get("source_endpoint") or driver.retrieval_config.endpoint,
             as_of_date=parse_yyyymmdd((payload.get("as_of_date") or "").replace("-", "")),
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(timezone.utc),
             reliability=EvidenceReliability.C,
             llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
             interpretation_limit=SIGNAL_LIMIT,

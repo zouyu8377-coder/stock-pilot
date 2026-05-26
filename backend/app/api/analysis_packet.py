@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from app.analysis_packet import build_portfolio_packet, build_single_stock_packet
+from app.analysis_packet.packet_service import build_account_analysis_context, render_compact_markdown, render_packet_markdown
 
 router = APIRouter()
 
@@ -17,11 +18,17 @@ def create_single_stock_packet(symbol: str, user_question: str | None = Query(de
 
 
 @router.post("/analysis-packet/portfolio")
-def create_portfolio_packet(user_question: str | None = Query(default=None)):
+def create_portfolio_packet(user_question: str | None = Query(default=None), mode: str = Query(default="compact")):
     try:
+        if mode == "audit":
+            result = build_portfolio_packet(user_question=user_question)
+            return {"success": True, **result}
+        # compact mode (default)
+        context = build_account_analysis_context(mode="compact")
         return {
             "success": True,
-            **build_portfolio_packet(user_question=user_question),
+            "packet": context,
+            "markdown": render_compact_markdown(context),
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Portfolio analysis packet failed: {str(exc)}") from exc

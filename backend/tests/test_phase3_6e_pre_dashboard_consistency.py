@@ -151,9 +151,89 @@ def test_account_context_external_driver_summary_is_compact(tmp_path, monkeypatc
     context = build_account_analysis_context()
     summary = context["external_driver_summary"]
 
-    assert set(summary.keys()) == {"shared_external_driver_observations", "boundary"}
+    assert "shared_external_driver_observations" in summary
+    assert "boundary" in summary
+    assert "unavailable_drivers" in summary
     observation = summary["shared_external_driver_observations"][0]
     assert observation["factor_id"] == "ai_theme_etf_159382"
     assert set(observation["associated_symbols"]) == {"002463", "002916", "159382"}
     assert "evidence" not in observation
     assert "mapping" not in observation
+
+
+def test_total_cost_basis_and_unrealized_pnl(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    packet = build_portfolio_packet(persist=False)["packet"]
+    metrics = packet_service.portfolio_service.get_state().metrics
+
+    # Expected calculations based on _fake_quote:
+    # 002463: qty=500, cost=35, price=40 -> cost=17500, pnl=2500
+    # 002916: qty=500, cost=28, price=30 -> cost=14000, pnl=1000
+    # 159382: qty=10000, cost=1.4, price=1.5 -> cost=14000, pnl=1000
+    # 601899: qty=1000, cost=18, price=20 -> cost=18000, pnl=2000
+    # 603993: qty=1000, cost=9, price=10 -> cost=9000, pnl=1000
+    # 159934: qty=2000, cost=4.8, price=5 -> cost=9600, pnl=400
+    expected_cost = 17500 + 14000 + 14000 + 18000 + 9000 + 9600
+    expected_pnl = 2500 + 1000 + 1000 + 2000 + 1000 + 400
+    expected_pnl_pct = expected_pnl / expected_cost * 100
+
+    assert metrics.total_cost_basis == expected_cost
+    assert metrics.total_unrealized_pnl == expected_pnl
+    assert abs(metrics.total_unrealized_pnl_pct - expected_pnl_pct) < 0.1
+    assert metrics.total_unrealized_pnl_status == "available"
+    assert metrics.excluded_symbols == []
+
+
+def test_compact_context_excludes_audit_fields(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+
+    assert "broker_screenshot_price" not in context["holdings"][0]
+    assert "import_draft_id" not in context["holdings"][0]
+    assert "semantic_classification_source" not in context["holdings"][0]
+    assert "user_plan" not in context["holdings"][0]
+    assert "quote_time_boundary" not in context["holdings"][0]
+    assert "interpretation_boundaries" not in context
+    assert "system_hypothesis" not in context
+    assert "auto_fact_summary" not in context
+    assert "broker_sync" not in str(context.get("data_gaps", []))
+    assert "quote_time" not in str(context.get("data_gaps", []))
+
+
+def test_compact_repo_hidden_when_zero(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = PortfolioService(tmp_path)
+    monkeypatch.setattr(packet_service, "portfolio_service", service)
+    service.save_snapshot(PortfolioSnapshotInput(
+        total_assets=100000,
+        cash_available=50000,
+        repo_amount=0,
+        positions=[
+            PortfolioPositionInput(symbol="601899", name="Zijin", quantity=1000, avg_cost=18, primary_theme="METAL_RESOURCE", theme_tags=["METAL_RESOURCE"], position_role="observation", semantic_classification_status="user_confirmed"),
+        ],
+    ))
+    context = build_account_analysis_context(mode="compact")
+
+    assert "repo_amount" not in context["account_facts"]
+    assert "repo_ratio_pct" not in context["account_facts"]
+
+
+def test_time_format_is_utc_z(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+
+    generated = context["meta"]["generated_at"]
+    assert generated.endswith("Z")
+
+
+def test_composite_exposure_only_from_tag_not_length(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    packet = build_portfolio_packet(persist=False)["packet"]
+
+    # Only 601899 has COMPOSITE_EXPOSURE tag
+    composite_notes = packet["related_risk_observations"]["composite_exposure_notes"]
+    symbols_with_composite = {n["symbol"] for n in composite_notes}
+    assert symbols_with_composite == {"601899"}
+
+    # 002463 and 002916 have multiple tags (AI_PCB + HIGH_VOLATILITY) but no COMPOSITE_EXPOSURE
+    # They should NOT appear in composite_exposure_notes

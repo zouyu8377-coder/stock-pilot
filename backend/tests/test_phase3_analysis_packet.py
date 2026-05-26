@@ -314,7 +314,7 @@ def test_account_analysis_context_uses_confirmed_semantics_without_ai_call(tmp_p
     ))
     monkeypatch.setattr(packet_service, "portfolio_service", service)
 
-    context = packet_service.build_account_analysis_context()
+    context = packet_service.build_account_analysis_context(mode="audit")
 
     assert context["account_facts"]["holdings_count"] == 2
     assert {item["confirmed_primary_theme"] for item in context["holdings"]} == {"AI_PCB", "AI_THEME_ETF"}

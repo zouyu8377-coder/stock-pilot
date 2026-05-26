@@ -66,7 +66,7 @@ def test_closure_synthetic_primary_theme_exposure_is_unique(tmp_path, monkeypatc
 
 def test_closure_account_analysis_context_is_local_and_rule_limited(tmp_path, monkeypatch):
     _synthetic_closure_service(tmp_path, monkeypatch)
-    context = build_account_analysis_context()
+    context = build_account_analysis_context(mode="audit")
 
     assert context["ai_analysis_boundary"]["external_llm_called"] is False
     assert set(context["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]) == {
