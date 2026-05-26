@@ -209,23 +209,64 @@ def _portfolio_external_driver_summary(positions: list[dict[str, Any]]) -> list[
 
 def _compact_external_driver_summary(summary: list[dict[str, Any]]) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
+    unavailable: list[dict[str, Any]] = []
     for item in summary:
         if item.get("type") != "shared_driver":
             continue
         evidence = item.get("evidence") or {}
         payload = evidence.get("payload") or {}
-        observations.append({
-            "factor_id": item.get("factor_id"),
-            "display_name": item.get("display_name"),
-            "associated_symbols": item.get("associated_symbols", []),
-            "data_status": payload.get("data_status") or evidence.get("data_status") or "unavailable",
-            "reason": payload.get("reason"),
-            "close": payload.get("close"),
-            "currency": payload.get("currency"),
-            "returns_pct": payload.get("returns_pct"),
-        })
+        factor_type = payload.get("factor_type") or item.get("factor_type", "unknown")
+        # 10. Hide pure unsupported placeholders from compact
+        if factor_type == "unsupported_placeholder":
+            continue
+        data_status = payload.get("data_status") or evidence.get("data_status") or "unavailable"
+        if data_status == "available":
+            observations.append({
+                "factor_id": item.get("factor_id"),
+                "display_name": _driver_label(item.get("factor_id", "")),
+                "associated_symbols": item.get("associated_symbols", []),
+                "close": payload.get("close"),
+                "currency": payload.get("currency"),
+                "quote_unit": payload.get("quote_unit"),
+                "returns_pct": payload.get("returns_pct"),
+            })
+        else:
+            unavailable.append({
+                "factor_id": item.get("factor_id"),
+                "display_name": _driver_label(item.get("factor_id", "")),
+                "associated_symbols": item.get("associated_symbols", []),
+                "data_status": data_status,
+                "reason": payload.get("reason"),
+            })
+
+    # Also collect missing_data from symbol_mappings
+    for item in summary:
+        if item.get("type") != "symbol_mapping":
+            continue
+        for md in item.get("missing_data", []):
+            factor_id = str(md.get("key", "")).replace("external_driver:", "")
+            if not factor_id:
+                continue
+            factor_type = md.get("factor_type", "unknown")
+            if factor_type == "unsupported_placeholder":
+                continue
+            existing = next((d for d in unavailable if d.get("factor_id") == factor_id), None)
+            if existing:
+                sym = item.get("symbol")
+                if sym and sym not in existing["associated_symbols"]:
+                    existing["associated_symbols"].append(sym)
+            else:
+                unavailable.append({
+                    "factor_id": factor_id,
+                    "display_name": _driver_label(factor_id),
+                    "associated_symbols": [item.get("symbol")] if item.get("symbol") else [],
+                    "data_status": md.get("mapping_status", "unavailable"),
+                    "reason": md.get("reason"),
+                })
+
     return {
         "shared_external_driver_observations": observations,
+        "unavailable_drivers": unavailable,
         "boundary": "External-driver observations are contextual only and do not establish causal effects or trading conclusions.",
     }
 
@@ -880,6 +921,22 @@ _DRIVER_LABEL_MAP = {
     "resource_sector_index_placeholder": "资源板块指数",
 }
 
+_ROLE_LABEL_MAP = {
+    "observation": "观察",
+    "core": "核心",
+    "trend": "趋势",
+    "defensive": "防御",
+    "unclassified": "待分类",
+}
+
+_COMPACT_LLM_QUESTIONS = [
+    "请总结当前持仓在已确认 primary_theme 下的正式暴露结构，并说明 theme_tags 仅是非加总的关联观察。",
+    "请识别共享相同或相关外部驱动上下文的持仓，并说明这些关联仅为背景观察而非因果结论。",
+    "请列出缺失的账户记录、持仓计划、角色备注或外部事实，这些因素可能显著影响后续复核。",
+    "请将观察整理为关注区域、待补充信息，以及尚无足够依据做出判断的条目；不输出买入、卖出或调仓指令。",
+    "请说明哪些结论是情境假设而非已验证事实。",
+]
+
 _COMPACT_BOUNDARIES = [
     "隐私边界：本上下文由本地生成，不会自动发送给外部 AI；仅在用户主动复制、导出或提交时外传。",
     "行情时间边界：当前 A 股行情源不提供可验证市场报价时间；总资产与浮动盈亏均为系统当前取价估算。",
@@ -959,11 +1016,18 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
         account_facts["repo_amount"] = metrics.repo_amount
         account_facts["repo_ratio_pct"] = metrics.repo_ratio_pct
 
+    # Build name/primary maps and compact holdings
+    symbol_name_map: dict[str, str] = {}
+    symbol_primary_map: dict[str, str] = {}
     compact_holdings = []
     for item in packet["holdings"]:
+        symbol = item.get("symbol", "")
+        name = item.get("name") or symbol
+        symbol_name_map[symbol] = name
+        symbol_primary_map[symbol] = item.get("confirmed_primary_theme") or ""
         compact_holdings.append({
-            "symbol": item.get("symbol"),
-            "name": item.get("name"),
+            "symbol": symbol,
+            "name": name,
             "quantity": item.get("quantity"),
             "avg_cost": item.get("avg_cost"),
             "market_price": item.get("market_price") or item.get("system_quote_price"),
@@ -976,14 +1040,38 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
             "confirmed_position_role": item.get("confirmed_position_role"),
         })
 
-    # Related observations: only tags that are NOT primary themes (supplementary only)
-    primary_themes = {item["theme"] for item in packet["official_theme_exposure"]}
-    supplementary_exposures = [
-        item for item in packet["related_theme_observations"]["theme_tag_exposure"]
-        if item["theme"] not in primary_themes
-    ]
+    # 1. Supplementary tag exposure:
+    # Keep a tag only if at least one holding with that tag has primary_theme != tag.
+    # This preserves cross-theme linkages (e.g., GOLD on 601899 even though 159934's primary is GOLD).
+    tag_aggregates: dict[str, dict[str, Any]] = {}
+    for item in packet["holdings"]:
+        symbol = item.get("symbol", "")
+        primary = item.get("confirmed_primary_theme", "")
+        mv = item.get("market_value") or 0
+        for tag in item.get("confirmed_theme_tags", []):
+            if not tag or tag == "UNCLASSIFIED":
+                continue
+            entry = tag_aggregates.setdefault(tag, {"market_value": 0.0, "symbols": [], "all_same_as_primary": True})
+            entry["market_value"] += mv
+            entry["symbols"].append(symbol)
+            if tag != primary:
+                entry["all_same_as_primary"] = False
 
-    # Data gaps: remove broker_sync and quote_time; keep real data gaps only
+    total_assets_for_wp = metrics.total_assets or 1
+    supplementary_exposures = []
+    for tag, data in sorted(tag_aggregates.items(), key=lambda x: x[1]["market_value"], reverse=True):
+        if data["all_same_as_primary"]:
+            continue
+        mv = data["market_value"]
+        wp = mv / total_assets_for_wp * 100
+        supplementary_exposures.append({
+            "theme": tag,
+            "market_value": round(mv, 2),
+            "weight_pct": round(wp, 2),
+            "symbols": sorted(set(data["symbols"])),
+        })
+
+    # Data gaps: remove broker_sync and quote_time; keep real data gaps; add fact coverage gaps
     compact_data_gaps: list[dict[str, Any]] = []
     for gap in packet["data_gaps"]:
         if isinstance(gap, dict):
@@ -994,40 +1082,36 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
         else:
             compact_data_gaps.append(gap)
 
-    # External driver summary enhancements
+    # 3. Restore fact coverage gaps in compact
+    for summary_item in packet.get("auto_fact_summary", []):
+        if summary_item.get("data_status") != "available" and summary_item.get("missing_reason"):
+            coverage = summary_item.get("coverage", "")
+            symbol = summary_item.get("symbol", "")
+            reason = summary_item.get("missing_reason", "")
+            if coverage == "etf_facts":
+                compact_data_gaps.append({
+                    "key": "ETF份额净值事实",
+                    "symbol": symbol,
+                    "reason": f"ETF 份额/净值/价格事实因 Tushare 未配置而暂无数据：{reason}",
+                })
+            elif coverage == "dragon_tiger_and_disclosure_index":
+                compact_data_gaps.append({
+                    "key": "龙虎榜与公告索引",
+                    "symbol": symbol,
+                    "reason": f"龙虎榜/公告索引因 Tushare 未配置而暂无数据：{reason}",
+                })
+
+    # External driver summary (2. groups available/unavailable without duplication; 10. hides unsupported placeholders)
     ext_summary = _compact_external_driver_summary(packet["external_driver_summary"])
-    # Also add unavailable drivers with reasons
-    unavailable_drivers: list[dict[str, Any]] = []
-    for item in packet.get("external_driver_summary", []):
-        if item.get("type") == "symbol_mapping":
-            for md in item.get("missing_data", []):
-                factor_id = str(md.get("key", "")).replace("external_driver:", "")
-                if factor_id and not any(d.get("factor_id") == factor_id for d in unavailable_drivers):
-                    unavailable_drivers.append({
-                        "factor_id": factor_id,
-                        "display_name": _driver_label(factor_id),
-                        "associated_symbols": [item.get("symbol")],
-                        "data_status": md.get("mapping_status", "unavailable"),
-                        "reason": md.get("reason") or "当前 provider 未配置或不可用",
-                    })
-        elif item.get("type") == "shared_driver":
-            evidence = item.get("evidence") or {}
-            payload = evidence.get("payload") or {}
-            if payload.get("data_status") != "available":
-                if not any(d.get("factor_id") == item.get("factor_id") for d in unavailable_drivers):
-                    unavailable_drivers.append({
-                        "factor_id": item.get("factor_id"),
-                        "display_name": item.get("display_name", _driver_label(item.get("factor_id", ""))),
-                        "associated_symbols": item.get("associated_symbols", []),
-                        "data_status": payload.get("data_status", "unavailable"),
-                        "reason": payload.get("reason") or "当前 provider 未配置或不可用",
-                    })
 
     return {
         "meta": {
             "generated_at": _iso_z(packet["meta"]["generated_at"]),
             "portfolio_snapshot_id": packet["meta"]["source_snapshot_id"],
             "portfolio_as_of": _iso_z(packet["meta"]["portfolio_as_of"]),
+            "quote_retrieved_at": _iso_z(packet["account_overview"]["current_quote_estimate"]["quote_retrieved_at"]),
+            "symbol_name_map": symbol_name_map,
+            "symbol_primary_map": symbol_primary_map,
             "analysis_boundaries": _COMPACT_BOUNDARIES,
         },
         "account_facts": account_facts,
@@ -1037,17 +1121,14 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
             "supplementary_tag_exposure": supplementary_exposures,
             "boundary": "补充关联标签仅作观察用途，不得重复计入正式主题资产暴露。",
         },
-        "external_driver_summary": {
-            **ext_summary,
-            "unavailable_drivers": unavailable_drivers,
-        },
+        "external_driver_summary": ext_summary,
         "data_gaps": compact_data_gaps,
         "ai_analysis_boundary": {
             "external_llm_called": packet["ai_analysis_boundary"]["external_llm_called"],
             "inactive_decision_rules": packet["ai_analysis_boundary"]["inactive_decision_rules"],
             "boundary": "当前上下文仅用于账户事实汇总、主题结构观察与数据缺口识别；不输出买卖或调仓指令。",
         },
-        "suggested_questions_for_external_llm": packet["suggested_questions_for_external_llm"],
+        "suggested_questions_for_external_llm": _COMPACT_LLM_QUESTIONS,
     }
 
 
@@ -1151,7 +1232,10 @@ def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]], m
             if payload.get("close") is not None:
                 currency = payload.get("currency", "")
                 quote_unit = payload.get("quote_unit", "")
-                unit_str = f" {currency}/{quote_unit}".strip() if quote_unit else f" {currency}".strip()
+                if quote_unit:
+                    unit_str = f" {quote_unit}" if quote_unit.startswith(currency) else f" {currency}/{quote_unit}"
+                else:
+                    unit_str = f" {currency}"
                 lines.append(f"  - close: {payload['close']}{unit_str}")
             returns = payload.get("returns_pct") or {}
             if returns:
@@ -1184,6 +1268,29 @@ def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]], m
     return "\n".join(lines)
 
 
+def _localize_driver_status(status: str | None, reason: str | None) -> tuple[str, str]:
+    status_map = {
+        "available": "可用",
+        "unavailable": "暂无数据",
+        "not_configured": "未配置",
+        "pending_probe": "待验证接入",
+        "unsupported_placeholder": "尚未支持",
+    }
+    localized_status = status_map.get(str(status).lower() if status else "", "暂无数据")
+    reason_str = str(reason) if reason else ""
+    if "Tushare token is not configured" in reason_str:
+        localized_reason = "Tushare 未配置"
+    elif "No verified provider symbol" in reason_str:
+        localized_reason = "Provider 符号未配置"
+    elif "No verified ETF symbol" in reason_str:
+        localized_reason = "ETF 符号未配置"
+    elif "Yahoo" in reason_str and ("unavailable" in reason_str or "failed" in reason_str):
+        localized_reason = "Yahoo 数据暂不可用"
+    else:
+        localized_reason = reason_str
+    return localized_status, localized_reason
+
+
 def render_compact_markdown(context: dict[str, Any]) -> str:
     """Render a compact, AI-friendly account analysis markdown."""
     meta = context["meta"]
@@ -1193,13 +1300,30 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     related = context["related_theme_observations"]
     ext_summary = context["external_driver_summary"]
     data_gaps = context["data_gaps"]
-    ai_boundary = context["ai_analysis_boundary"]
     questions = context["suggested_questions_for_external_llm"]
+
+    symbol_name_map = meta.get("symbol_name_map") or {}
+    symbol_primary_map = meta.get("symbol_primary_map") or {}
+
+    def _names(symbols: list[str]) -> str:
+        return ", ".join(symbol_name_map.get(s, s) for s in symbols)
+
+    def _fmt_amount(value: Any) -> str:
+        if value is None:
+            return "-"
+        try:
+            return f"{float(value):,.2f}"
+        except (TypeError, ValueError):
+            return str(value)
 
     lines = [
         "# Stock-Pilot 账户分析上下文",
         "",
         f"生成时间：{meta['generated_at']}",
+        f"持仓快照时间：{meta.get('portfolio_as_of', '-')}",
+        f"行情取数时间：{meta.get('quote_retrieved_at', '-')}",
+        "",
+        "> 注意：系统取数时间不是可验证市场报价时间。",
         "",
         "## 分析边界",
     ]
@@ -1214,19 +1338,20 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         "| 指标 | 当前估算值 |",
         "|---|---:|",
     ])
-    lines.append(f"| 总资产 | {account.get('total_assets', '-'):,} |")
-    lines.append(f"| 持仓市值 | {account.get('total_market_value', '-'):,} |")
-    lines.append(f"| 可用现金 | {account.get('cash_available', '-'):,} |")
-    lines.append(f"| 当前仓位 | {account.get('invested_ratio_pct', '-'):.2f}% |")
+    lines.append(f"| 总资产 | {_fmt_amount(account.get('total_assets'))} |")
+    lines.append(f"| 持仓市值 | {_fmt_amount(account.get('total_market_value'))} |")
+    lines.append(f"| 可用现金 | {_fmt_amount(account.get('cash_available'))} |")
+    ir = account.get("invested_ratio_pct")
+    lines.append(f"| 当前仓位 | {ir:.2f}% |" if ir is not None else "| 当前仓位 | - |")
     if account.get("total_cost_basis") is not None:
+        lines.append(f"| 持仓总成本 | {_fmt_amount(account['total_cost_basis'])} |")
         pnl = account.get("total_unrealized_pnl")
         pnl_pct = account.get("total_unrealized_pnl_pct")
-        pnl_str = f"{pnl:,.2f}" if pnl is not None else "-"
+        pnl_str = _fmt_amount(pnl)
         pnl_pct_str = f" ({pnl_pct:+.2f}%)" if pnl_pct is not None else ""
-        lines.append(f"| 持仓总成本 | {account['total_cost_basis']:,.2f} |")
         lines.append(f"| 持仓累计浮动盈亏 | {pnl_str}{pnl_pct_str} |")
     if account.get("repo_amount") is not None:
-        lines.append(f"| 逆回购余额 | {account['repo_amount']:,.2f} |")
+        lines.append(f"| 逆回购余额 | {_fmt_amount(account['repo_amount'])} |")
     lines.append("")
 
     # Holdings table
@@ -1247,12 +1372,12 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         weight = h.get("portfolio_weight_pct")
         theme = _theme_label(h.get("confirmed_primary_theme") or "UNCLASSIFIED")
         tags = [_theme_label(t) for t in (h.get("confirmed_theme_tags") or []) if t != h.get("confirmed_primary_theme")]
-        role = h.get("confirmed_position_role", "")
+        role = _ROLE_LABEL_MAP.get(str(h.get("confirmed_position_role", "")).lower(), h.get("confirmed_position_role", ""))
 
         qty_str = f"{qty:,.0f}" if qty is not None else "-"
         cost_str = f"{cost:,.3f}" if cost is not None else "-"
         price_str = f"{price:,.3f}" if price is not None else "-"
-        mv_str = f"{mv:,.2f}" if mv is not None else "-"
+        mv_str = _fmt_amount(mv)
         if pnl is not None and pnl_pct is not None:
             pnl_str = f"{pnl:+.2f} ({pnl_pct:+.2f}%)"
         elif pnl is not None:
@@ -1275,7 +1400,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         theme = _theme_label(item.get("theme", ""))
         mv = item.get("market_value", 0)
         wp = item.get("weight_pct", 0)
-        syms = ", ".join(item.get("symbols", []))
+        syms = _names(item.get("symbols", []))
         lines.append(f"| {theme} | {mv:,.2f} | {wp:.2f}% | {syms} |")
     lines.append("")
     lines.append("正式主题为唯一资产归属口径，可加总；补充关联标签不得再次并入正式主题合计。")
@@ -1294,12 +1419,17 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             tag = _theme_label(item.get("theme", ""))
             mv = item.get("market_value", 0)
             wp = item.get("weight_pct", 0)
-            syms = ", ".join(item.get("symbols", []))
+            syms = _names(item.get("symbols", []))
             note = "描述性标签，不代表阈值触发或调仓建议"
-            if tag == "多重逻辑关联":
+            if item.get("theme") == "COMPOSITE_EXPOSURE":
                 note = "非加总观察，不得与正式主题重复统计"
-            elif tag == "高波动关联":
+            elif item.get("theme") == "HIGH_VOLATILITY":
                 note = "描述性标签，不代表阈值触发或调仓建议"
+            # 1. GOLD cross-theme note
+            if item.get("theme") == "GOLD":
+                non_gold_syms = [s for s in item.get("symbols", []) if symbol_primary_map.get(s) != "GOLD"]
+                if non_gold_syms:
+                    note = f"其中 {_names(non_gold_syms)} 的正式主题仍归属其他类别"
             lines.append(f"| {tag} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
         lines.append("")
 
@@ -1322,13 +1452,16 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             close = obs.get("close")
             currency = obs.get("currency", "")
             quote_unit = obs.get("quote_unit", "")
-            unit_str = f" {currency}/{quote_unit}".strip() if quote_unit else f" {currency}".strip()
+            if quote_unit:
+                unit_str = f" {quote_unit}" if quote_unit.startswith(currency) else f" {currency}/{quote_unit}"
+            else:
+                unit_str = f" {currency}"
             close_str = f"{close:,.4f}{unit_str}" if close is not None else "-"
             ret = obs.get("returns_pct") or {}
             ret_1d = f"{ret.get('1d'):+.2f}%" if ret.get("1d") is not None else "-"
             ret_5d = f"{ret.get('5d'):+.2f}%" if ret.get("5d") is not None else "-"
             ret_20d = f"{ret.get('20d'):+.2f}%" if ret.get("20d") is not None else "-"
-            syms = ", ".join(obs.get("associated_symbols", []))
+            syms = _names(obs.get("associated_symbols", []))
             lines.append(f"| {name} | {close_str} | {ret_1d} | {ret_5d} | {ret_20d} | {syms} |")
         lines.append("")
         lines.append("来源边界：Yahoo Finance / COMEX 数据仅作为延迟参考行情；不是 CME 官方结算数据，不保证实时性，不替代国内对应品种，不构成交易建议。")
@@ -1343,9 +1476,8 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         ])
         for drv in unavailable:
             name = _driver_label(drv.get("factor_id", ""))
-            syms = ", ".join(drv.get("associated_symbols", []))
-            status = drv.get("data_status", "暂无数据")
-            reason = drv.get("reason", "当前 provider 未配置或不可用")
+            syms = _names(drv.get("associated_symbols", []))
+            status, reason = _localize_driver_status(drv.get("data_status"), drv.get("reason"))
             lines.append(f"| {name} | {syms} | {status} | {reason} |")
         lines.append("")
 
@@ -1355,7 +1487,6 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             "## 数据缺口",
             "",
         ])
-        # Group by reason for compactness
         for gap in data_gaps:
             if isinstance(gap, dict):
                 key = gap.get("key", "")
@@ -1376,8 +1507,6 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     ])
     for q in questions:
         lines.append(f"- {q}")
-    lines.append("")
-    lines.append("注意：不输出买入、卖出、减仓、加仓或调仓指令。")
     lines.append("")
 
     return "\n".join(lines)

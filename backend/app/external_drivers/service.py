@@ -128,6 +128,7 @@ def _unsupported_missing(driver: ExternalDriver) -> dict[str, Any]:
         "mapping_status": driver.status,
         "reason": driver.interpretation_limit,
         "future_extension": "Add a verified provider endpoint/code before enabling automatic retrieval.",
+        "factor_type": driver.factor_type,
     }
 
 

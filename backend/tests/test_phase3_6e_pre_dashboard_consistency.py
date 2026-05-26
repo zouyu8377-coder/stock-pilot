@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from app.analysis_packet import packet_service
-from app.analysis_packet.packet_service import build_account_analysis_context, build_portfolio_packet
+from app.analysis_packet.packet_service import build_account_analysis_context, build_portfolio_packet, render_compact_markdown
 from app.portfolio.schemas import PortfolioPositionInput, PortfolioSnapshotInput
 from app.portfolio.service import PortfolioService
 
@@ -154,7 +154,10 @@ def test_account_context_external_driver_summary_is_compact(tmp_path, monkeypatc
     assert "shared_external_driver_observations" in summary
     assert "boundary" in summary
     assert "unavailable_drivers" in summary
-    observation = summary["shared_external_driver_observations"][0]
+    # Unavailable drivers go to unavailable_drivers, not observations
+    unavailable = summary["unavailable_drivers"]
+    assert unavailable
+    observation = unavailable[0]
     assert observation["factor_id"] == "ai_theme_etf_159382"
     assert set(observation["associated_symbols"]) == {"002463", "002916", "159382"}
     assert "evidence" not in observation
@@ -237,3 +240,137 @@ def test_composite_exposure_only_from_tag_not_length(tmp_path, monkeypatch):
 
     # 002463 and 002916 have multiple tags (AI_PCB + HIGH_VOLATILITY) but no COMPOSITE_EXPOSURE
     # They should NOT appear in composite_exposure_notes
+
+
+def test_compact_gold_cross_theme_restored(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    supp = {item["theme"]: item for item in context["related_theme_observations"]["supplementary_tag_exposure"]}
+    assert "GOLD" in supp, "GOLD cross-theme linkage should be restored"
+    assert set(supp["GOLD"]["symbols"]) == {"601899", "159934"}
+
+    md = render_compact_markdown(context)
+    assert "黄金" in md
+    assert "正式主题仍归属其他类别" in md
+
+
+def test_compact_external_driver_groups_no_duplication(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+
+    def fake_mixed_drivers(symbol: str, primary_theme=None):
+        evidence = []
+        if symbol == "601899":
+            evidence.append({
+                "category": "auto_fact",
+                "evidence_type": "external_driver_fact",
+                "data_status": "available",
+                "payload": {
+                    "factor_id": "comex_gold_yahoo",
+                    "display_name": "COMEX Gold Futures Reference",
+                    "factor_type": "commodity",
+                    "data_status": "available",
+                    "close": 2345.6,
+                    "currency": "USD",
+                    "quote_unit": "USD/troy oz",
+                    "returns_pct": {"1d": 0.5, "5d": 1.2, "20d": 3.4},
+                },
+            })
+        return SimpleNamespace(
+            mapping_status="configured",
+            profile_id="TEST",
+            symbol=symbol,
+            message="test",
+            future_extension="test",
+            drivers=[],
+            boundary="External-driver mapping boundary.",
+            evidence=evidence,
+            missing_data=[],
+        )
+
+    monkeypatch.setattr(packet_service, "build_external_driver_context", fake_mixed_drivers)
+    context = build_account_analysis_context(mode="compact")
+    summary = context["external_driver_summary"]
+    observations = summary["shared_external_driver_observations"]
+    unavailable = summary["unavailable_drivers"]
+
+    obs_ids = {o["factor_id"] for o in observations}
+    unav_ids = {u["factor_id"] for u in unavailable}
+    assert not (obs_ids & unav_ids), "Available and unavailable driver sets must not overlap"
+    assert "comex_gold_yahoo" in obs_ids
+    assert "comex_gold_yahoo" not in unav_ids
+
+    md = render_compact_markdown(context)
+    assert "2,345.6000 USD/troy oz" in md
+
+
+def test_compact_data_gaps_restored(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    assert context["data_gaps"], "Compact data_gaps should be restored"
+    gap_keys = {g["key"] for g in context["data_gaps"] if isinstance(g, dict)}
+    assert "ETF份额净值事实" in gap_keys or "龙虎榜与公告索引" in gap_keys
+
+    md = render_compact_markdown(context)
+    assert "## 数据缺口" in md
+
+
+def test_compact_role_chinese_names_and_format(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    md = render_compact_markdown(context)
+
+    # Role mapped to Chinese
+    assert "观察" in md
+
+    # Chinese names used in tables
+    assert "Zijin" in md or "Hudian" in md
+
+    # Amount format with 2 decimals
+    import re
+    assert re.search(r"\d{1,3}(?:,\d{3})+\.\d{2}", md), "Amount should use thousands separator and 2 decimals"
+
+
+def test_compact_time_info_and_ai_questions(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    md = render_compact_markdown(context)
+
+    assert "持仓快照时间" in md
+    assert "行情取数时间" in md
+    assert "系统取数时间不是可验证市场报价时间" in md
+
+    assert "给外部 AI 的任务" in md
+    questions = context["suggested_questions_for_external_llm"]
+    assert all(any("一" <= ch <= "鿿" for ch in q) for q in questions), "AI questions should be in Chinese"
+
+
+def test_unsupported_placeholder_hidden_in_compact(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+
+    def fake_with_placeholder(symbol: str, primary_theme=None):
+        return SimpleNamespace(
+            mapping_status="configured",
+            profile_id="TEST",
+            symbol=symbol,
+            message="test",
+            future_extension="test",
+            drivers=[],
+            boundary="External-driver mapping boundary.",
+            evidence=[],
+            missing_data=[{
+                "key": "external_driver:cobalt_moly_price_placeholder",
+                "mapping_status": "unsupported",
+                "reason": "Placeholder driver.",
+                "factor_type": "unsupported_placeholder",
+            }],
+        )
+
+    monkeypatch.setattr(packet_service, "build_external_driver_context", fake_with_placeholder)
+    context = build_account_analysis_context(mode="compact")
+    summary = context["external_driver_summary"]
+    all_factor_ids = {
+        o["factor_id"] for o in summary.get("shared_external_driver_observations", [])
+    } | {
+        u["factor_id"] for u in summary.get("unavailable_drivers", [])
+    }
+    assert "cobalt_moly_price_placeholder" not in all_factor_ids
