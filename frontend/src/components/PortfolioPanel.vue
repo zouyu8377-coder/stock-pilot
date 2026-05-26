@@ -493,7 +493,7 @@ onMounted(load)
                 <td class="p-2">
                   <div class="flex flex-wrap gap-1">
                     <span
-                      v-for="tag in row.theme_tags.filter((t) => directionTags.includes(t))"
+                      v-for="tag in row.theme_tags.filter((t) => directionTags.includes(t) && t !== row.primary_theme)"
                       :key="tag"
                       class="rounded border border-primary bg-primary/20 px-2 py-1 text-[11px] text-foreground"
                     >
@@ -508,7 +508,7 @@ onMounted(load)
                   </div>
                   <div v-if="editingTagsRowId === row.row_id" class="mt-2 flex flex-wrap gap-1 rounded border border-border/60 bg-secondary/20 p-2">
                     <button
-                      v-for="tag in directionTags"
+                      v-for="tag in directionTags.filter((t) => t !== row.primary_theme)"
                       :key="tag"
                       type="button"
                       :class="['rounded border px-2 py-1 text-[11px]', row.theme_tags.includes(tag) ? 'border-primary bg-primary/20 text-foreground' : 'border-border text-muted-foreground']"

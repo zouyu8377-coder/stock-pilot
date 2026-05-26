@@ -935,7 +935,7 @@ _ROLE_LABEL_MAP = {
 }
 
 _COMPACT_LLM_QUESTIONS = [
-    "请总结当前持仓在已确认 primary_theme 下的正式暴露结构，并说明 theme_tags 仅是非加总的关联观察。",
+    "请总结当前持仓在正式主主题下的资产暴露结构，并明确正式主题为唯一可加总口径；请分别识别关联方向与风险观察，两者均不得与正式主题重复加总。",
     "请识别共享相同或相关外部驱动上下文的持仓，并说明这些关联仅为背景观察而非因果结论。",
     "请列出缺失的账户记录、持仓计划、角色备注或外部事实，这些因素可能显著影响后续复核。",
     "请将观察整理为关注区域、待补充信息，以及尚无足够依据做出判断的条目；不输出买入、卖出或调仓指令。",
@@ -1301,6 +1301,8 @@ def _localize_driver_status(status: str | None, reason: str | None) -> tuple[str
         localized_reason = "Yahoo Finance 请求失败（HTTP 403）"
     elif "Yahoo" in reason_str and ("unavailable" in reason_str or "failed" in reason_str):
         localized_reason = "Yahoo 数据暂不可用"
+    elif "requires a successful probe before automatic retrieval" in reason_str:
+        localized_reason = "数据源尚未完成成功探测"
     else:
         localized_reason = reason_str
     return localized_status, localized_reason

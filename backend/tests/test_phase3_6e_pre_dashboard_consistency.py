@@ -430,3 +430,43 @@ def test_compact_data_gaps_grouped(tmp_path, monkeypatch):
     # Per-symbol repetition pattern like "（601899）" should not appear
     assert "（601899）" not in md
     assert "（603993）" not in md
+
+
+def test_compact_holdings_direction_excludes_primary_theme(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    md = render_compact_markdown(context)
+
+    # 601899 has primary_theme=METAL_RESOURCE and theme_tags=[METAL_RESOURCE, GOLD, COPPER, COMPOSITE_EXPOSURE]
+    # The holdings table should show only "黄金, 铜" in the 关联方向 column, not "金属资源, 黄金, 铜"
+    lines = md.split("\n")
+    zijin_line = [line for line in lines if "Zijin" in line and "金属资源" in line]
+    assert zijin_line, "Zijin holding row should exist in markdown"
+    # The line should contain "黄金, 铜" but NOT "金属资源" in the direction column
+    # Because the row is: | Zijin | ... | 金属资源 | 黄金, 铜 | 观察 |
+    assert "黄金, 铜" in zijin_line[0], "Zijin direction should show 黄金 and 铜"
+    # Verify METAL_RESOURCE does not appear twice in the same row (once as primary theme, once as direction)
+    zijin_parts = zijin_line[0].split("|")
+    # Find occurrences of "金属资源" in the row
+    metal_count = zijin_line[0].count("金属资源")
+    assert metal_count == 1, f"METAL_RESOURCE should appear only once (as primary_theme), but found {metal_count} times"
+
+
+def test_compact_ai_question_wording(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    questions = context["suggested_questions_for_external_llm"]
+
+    first_question = questions[0]
+    assert "关联方向与风险观察" in first_question, "AI question should distinguish direction and risk"
+    assert "theme_tags 仅是非加总的关联观察" not in first_question, "AI question should not use old theme_tags wording"
+
+
+def test_localize_driver_pending_probe():
+    from app.analysis_packet.packet_service import _localize_driver_status
+    status, reason = _localize_driver_status(
+        "pending_probe",
+        "Gold futures provider code still requires a successful probe before automatic retrieval.",
+    )
+    assert status == "待验证接入"
+    assert reason == "数据源尚未完成成功探测"
