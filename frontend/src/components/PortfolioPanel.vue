@@ -176,6 +176,9 @@ const newRow = (position?: PortfolioPosition): ManualRow => ({
   quoteLoading: false,
 })
 
+const hasValidDirection = (row: ManualRow) =>
+  row.theme_tags.some((t) => directionTags.includes(t) && t !== row.primary_theme)
+
 const loadSuggestions = async () => {
   const items = await getPortfolioSemanticSuggestions()
   suggestions.value = Object.fromEntries(items.map((item) => [compactSymbol(item.symbol), item]))
@@ -184,9 +187,15 @@ const loadSuggestions = async () => {
 const applySuggestionToRow = (row: ManualRow) => {
   const suggestion = suggestionFor(row)
   if (!suggestion) return
-  row.primary_theme = suggestion.suggested_primary_theme || 'UNCLASSIFIED'
-  row.theme_tags = [...(suggestion.suggested_theme_tags || [])]
-  row.position_role = suggestion.suggested_position_role || 'observation'
+  if (!row.primary_theme) {
+    row.primary_theme = suggestion.suggested_primary_theme || 'UNCLASSIFIED'
+  }
+  if (!hasValidDirection(row)) {
+    row.theme_tags = [...(suggestion.suggested_theme_tags || [])]
+  }
+  if (!row.position_role) {
+    row.position_role = suggestion.suggested_position_role || 'observation'
+  }
 }
 
 const load = async () => {
@@ -201,9 +210,8 @@ const load = async () => {
     accountDraft.value.min_cash_ratio = state.value.snapshot.risk_limits.min_cash_ratio
     manualRows.value = state.value.snapshot.positions.length ? state.value.snapshot.positions.map(newRow) : [newRow()]
     manualRows.value.forEach((row) => {
-      if (!row.primary_theme && row.symbol) {
-        applySuggestionToRow(row)
-      }
+      if (!row.symbol) return
+      applySuggestionToRow(row)
     })
     await Promise.all(manualRows.value.filter((row) => row.symbol).map(loadQuoteForRow))
   } finally {
