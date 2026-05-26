@@ -235,7 +235,7 @@ const loadQuoteForRow = async (row: ManualRow) => {
   try {
     row.quote = await getStockQuote(row.symbol)
     row.name = row.quote.name || row.name
-    row.query = `${row.symbol} ${row.name}`.trim()
+    row.query = `${row.name || ''}`.trim()
   } finally {
     row.quoteLoading = false
   }
@@ -244,7 +244,7 @@ const loadQuoteForRow = async (row: ManualRow) => {
 const chooseMatch = async (row: ManualRow, match: StockSearchItem) => {
   row.symbol = match.symbol
   row.name = match.name
-  row.query = `${match.symbol} ${match.name}`
+  row.query = `${match.name}`
   rowMatches.value = []
   activeRowId.value = ''
   await loadQuoteForRow(row)
