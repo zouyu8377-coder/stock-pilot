@@ -36,7 +36,7 @@ type ManualRow = {
 }
 
 const primaryThemes = ['AI_PCB', 'AI_THEME_ETF', 'METAL_RESOURCE', 'GOLD', 'TUNGSTEN', 'CASH_EQUIVALENT', 'OTHER', 'UNCLASSIFIED']
-const themeTags = ['AI_PCB', 'AI_THEME_ETF', 'METAL_RESOURCE', 'GOLD', 'TUNGSTEN', 'CASH_EQUIVALENT', 'HIGH_VOLATILITY', 'COMPOSITE_EXPOSURE', 'OTHER', 'UNCLASSIFIED']
+const directionTags = ['AI_PCB', 'AI_THEME_ETF', 'METAL_RESOURCE', 'GOLD', 'COPPER', 'TUNGSTEN', 'CASH_EQUIVALENT', 'OTHER', 'UNCLASSIFIED']
 const positionRoles = ['core', 'trend', 'defensive', 'short_term', 'observation', 'unclassified']
 
 const expanded = ref(false)
@@ -97,6 +97,7 @@ const themeLabelMap: Record<string, string> = {
   AI_THEME_ETF: 'AI 主题 ETF',
   METAL_RESOURCE: '金属资源',
   GOLD: '黄金',
+  COPPER: '铜',
   TUNGSTEN: '钨',
   CASH_EQUIVALENT: '现金等价',
   OTHER: '其他',
@@ -111,6 +112,13 @@ const marketBadge = (symbol: string) => {
   if (code.startsWith('6')) return '沪'
   if (code.startsWith('0') || code.startsWith('3')) return '深'
   return ''
+}
+
+const rowShortName = (row: ManualRow) => {
+  const name = row.name || ''
+  if (name.includes('创业板人工智能ETF')) return '创业板人工智能 ETF'
+  if (name.includes('黄金ETF')) return '黄金 ETF'
+  return name
 }
 
 const quotePrice = (row: ManualRow) => row.quote?.price ?? null
@@ -132,6 +140,13 @@ const computedTotalAssets = computed(() =>
 const cashRatio = computed(() => computedTotalAssets.value ? Number(accountDraft.value.cash_available || 0) / computedTotalAssets.value * 100 : 0)
 const investedRatio = computed(() => computedTotalAssets.value ? totalMarketValue.value / computedTotalAssets.value * 100 : 0)
 const validRows = computed(() => manualRows.value.filter((row) => row.symbol && rowQuantity(row) > 0 && rowAvgCost(row) > 0))
+
+const riskObservationSummary = computed(() => {
+  const highVolRows = manualRows.value.filter((row) => row.theme_tags.includes('HIGH_VOLATILITY'))
+  if (!highVolRows.length) return ''
+  const names = highVolRows.map((row) => rowShortName(row) || compactSymbol(row.symbol)).join('、')
+  return `风险观察：高波动关联持仓包括 ${names}。`
+})
 
 const newRow = (position?: PortfolioPosition): ManualRow => ({
   row_id: rowKey(),
@@ -422,7 +437,7 @@ onMounted(load)
                 <th class="px-2 py-2 text-right">市值</th>
                 <th class="px-2 py-2 text-right">账户权重</th>
                 <th class="px-2 py-2">主主题</th>
-                <th class="px-2 py-2">关联标签</th>
+                <th class="px-2 py-2">关联方向</th>
                 <th class="px-2 py-2">角色</th>
                 <th class="px-2 py-2"></th>
               </tr>
@@ -439,8 +454,9 @@ onMounted(load)
                       @input="scheduleSearch(row)"
                     />
                     <div v-if="row.symbol" class="-mt-1 flex items-center gap-1 truncate px-2 pb-1 text-[11px]">
+                      <span class="font-mono text-foreground">{{ compactSymbol(row.symbol) }}</span>
+                      <span>{{ rowShortName(row) }}</span>
                       <span v-if="marketBadge(row.symbol)" class="rounded bg-secondary px-1 text-muted-foreground">{{ marketBadge(row.symbol) }}</span>
-                      <span class="text-muted-foreground">{{ row.name }}</span>
                     </div>
                   </div>
                   <div v-if="activeRowId === row.row_id && rowMatches.length" class="absolute left-2 right-2 top-12 z-30 overflow-hidden rounded border border-border bg-card shadow-xl">
@@ -477,7 +493,7 @@ onMounted(load)
                 <td class="p-2">
                   <div class="flex flex-wrap gap-1">
                     <span
-                      v-for="tag in row.theme_tags"
+                      v-for="tag in row.theme_tags.filter((t) => directionTags.includes(t))"
                       :key="tag"
                       class="rounded border border-primary bg-primary/20 px-2 py-1 text-[11px] text-foreground"
                     >
@@ -487,12 +503,12 @@ onMounted(load)
                       class="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground"
                       @click="toggleTagEdit(row.row_id)"
                     >
-                      {{ editingTagsRowId === row.row_id ? '完成' : (row.theme_tags.length ? '编辑' : '+ 标签') }}
+                      {{ editingTagsRowId === row.row_id ? '完成' : (row.theme_tags.length ? '编辑' : '+ 方向') }}
                     </button>
                   </div>
                   <div v-if="editingTagsRowId === row.row_id" class="mt-2 flex flex-wrap gap-1 rounded border border-border/60 bg-secondary/20 p-2">
                     <button
-                      v-for="tag in themeTags"
+                      v-for="tag in directionTags"
                       :key="tag"
                       type="button"
                       :class="['rounded border px-2 py-1 text-[11px]', row.theme_tags.includes(tag) ? 'border-primary bg-primary/20 text-foreground' : 'border-border text-muted-foreground']"
@@ -517,6 +533,10 @@ onMounted(load)
           <button class="rounded bg-secondary px-3 py-2" @click="addRow">新增一行</button>
           <span v-if="saveNotice" class="text-positive">{{ saveNotice }}</span>
           <span v-if="saveError" class="text-negative">{{ saveError }}</span>
+        </div>
+
+        <div v-if="riskObservationSummary" class="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
+          {{ riskObservationSummary }}
         </div>
 
         <div class="rounded border border-border/60 p-2">

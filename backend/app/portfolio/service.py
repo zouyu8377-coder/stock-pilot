@@ -41,20 +41,20 @@ from app.portfolio.schemas import (
 SEMANTIC_SUGGESTIONS: dict[str, dict[str, Any]] = {
     "601899": {
         "primary_theme": "METAL_RESOURCE",
-        "theme_tags": ["METAL_RESOURCE", "GOLD", "COMPOSITE_EXPOSURE"],
+        "theme_tags": ["METAL_RESOURCE", "GOLD", "COPPER"],
         "note": (
             "Zijin Mining is associated with both resource metals and gold. primary_theme is used only for "
             "one official account attribution; keep the other association in theme_tags."
         ),
     },
-    "603993": {"primary_theme": "METAL_RESOURCE", "theme_tags": ["METAL_RESOURCE"]},
+    "603993": {"primary_theme": "METAL_RESOURCE", "theme_tags": ["METAL_RESOURCE", "COPPER"]},
     "002463": {"primary_theme": "AI_PCB", "theme_tags": ["AI_PCB", "HIGH_VOLATILITY"]},
     "002916": {"primary_theme": "AI_PCB", "theme_tags": ["AI_PCB", "HIGH_VOLATILITY"]},
     "159382": {"primary_theme": "AI_THEME_ETF", "theme_tags": ["AI_THEME_ETF", "HIGH_VOLATILITY"]},
     "159934": {"primary_theme": "GOLD", "theme_tags": ["GOLD"]},
     "000657": {
         "primary_theme": "TUNGSTEN",
-        "theme_tags": ["TUNGSTEN", "METAL_RESOURCE", "AI_PCB", "COMPOSITE_EXPOSURE"],
+        "theme_tags": ["TUNGSTEN", "METAL_RESOURCE", "AI_PCB"],
     },
 }
 

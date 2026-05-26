@@ -897,6 +897,7 @@ _THEME_LABEL_MAP = {
     "AI_THEME_ETF": "AI 主题 ETF",
     "METAL_RESOURCE": "金属资源",
     "GOLD": "黄金",
+    "COPPER": "铜",
     "TUNGSTEN": "钨",
     "CASH_EQUIVALENT": "现金等价",
     "HIGH_VOLATILITY": "高波动关联",
@@ -904,6 +905,10 @@ _THEME_LABEL_MAP = {
     "OTHER": "其他",
     "UNCLASSIFIED": "待分类",
 }
+
+_DIRECTION_TAGS = {"AI_PCB", "AI_THEME_ETF", "METAL_RESOURCE", "GOLD", "COPPER", "TUNGSTEN", "CASH_EQUIVALENT", "OTHER"}
+_RISK_TAGS = {"HIGH_VOLATILITY"}
+_EXCLUDED_FROM_COMPACT = {"COMPOSITE_EXPOSURE", "UNCLASSIFIED"}
 
 _DRIVER_LABEL_MAP = {
     "comex_copper_yahoo": "COMEX 铜参考",
@@ -940,7 +945,7 @@ _COMPACT_LLM_QUESTIONS = [
 _COMPACT_BOUNDARIES = [
     "隐私边界：本上下文由本地生成，不会自动发送给外部 AI；仅在用户主动复制、导出或提交时外传。",
     "行情时间边界：当前 A 股行情源不提供可验证市场报价时间；总资产与浮动盈亏均为系统当前取价估算。",
-    "主题口径边界：正式主题按主主题唯一加总；关联标签仅用于补充观察，不得重复统计为资产暴露。",
+    "主题口径边界：正式主题按主主题唯一加总；关联方向仅用于补充观察，不得重复统计为资产暴露。",
     "外部驱动边界：COMEX、汇率、ETF 或其他外部驱动仅作为关联背景，不构成因果结论、估值结论或买卖建议。",
 ]
 
@@ -1040,16 +1045,15 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
             "confirmed_position_role": item.get("confirmed_position_role"),
         })
 
-    # 1. Supplementary tag exposure:
+    # 1. Tag exposure split into direction_observations and risk_observations
     # Keep a tag only if at least one holding with that tag has primary_theme != tag.
-    # This preserves cross-theme linkages (e.g., GOLD on 601899 even though 159934's primary is GOLD).
     tag_aggregates: dict[str, dict[str, Any]] = {}
     for item in packet["holdings"]:
         symbol = item.get("symbol", "")
         primary = item.get("confirmed_primary_theme", "")
         mv = item.get("market_value") or 0
         for tag in item.get("confirmed_theme_tags", []):
-            if not tag or tag == "UNCLASSIFIED":
+            if not tag or tag in _EXCLUDED_FROM_COMPACT:
                 continue
             entry = tag_aggregates.setdefault(tag, {"market_value": 0.0, "symbols": [], "all_same_as_primary": True})
             entry["market_value"] += mv
@@ -1058,18 +1062,23 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
                 entry["all_same_as_primary"] = False
 
     total_assets_for_wp = metrics.total_assets or 1
-    supplementary_exposures = []
+    direction_observations = []
+    risk_observations = []
     for tag, data in sorted(tag_aggregates.items(), key=lambda x: x[1]["market_value"], reverse=True):
         if data["all_same_as_primary"]:
             continue
         mv = data["market_value"]
         wp = mv / total_assets_for_wp * 100
-        supplementary_exposures.append({
+        obs = {
             "theme": tag,
             "market_value": round(mv, 2),
             "weight_pct": round(wp, 2),
             "symbols": sorted(set(data["symbols"])),
-        })
+        }
+        if tag in _DIRECTION_TAGS:
+            direction_observations.append(obs)
+        elif tag in _RISK_TAGS:
+            risk_observations.append(obs)
 
     # Data gaps: remove broker_sync and quote_time; keep real data gaps; add fact coverage gaps
     compact_data_gaps: list[dict[str, Any]] = []
@@ -1082,7 +1091,8 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
         else:
             compact_data_gaps.append(gap)
 
-    # 3. Restore fact coverage gaps in compact
+    # 3. Restore fact coverage gaps in compact with grouped keys
+    gap_reasons: dict[str, str] = {}
     for summary_item in packet.get("auto_fact_summary", []):
         if summary_item.get("data_status") != "available" and summary_item.get("missing_reason"):
             coverage = summary_item.get("coverage", "")
@@ -1090,15 +1100,17 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
             reason = summary_item.get("missing_reason", "")
             if coverage == "etf_facts":
                 compact_data_gaps.append({
-                    "key": "ETF份额净值事实",
+                    "key": "ETF 份额 / 净值事实",
                     "symbol": symbol,
-                    "reason": f"ETF 份额/净值/价格事实因 Tushare 未配置而暂无数据：{reason}",
+                    "reason": "Tushare 未配置",
+                    "raw_reason": reason,
                 })
             elif coverage == "dragon_tiger_and_disclosure_index":
                 compact_data_gaps.append({
-                    "key": "龙虎榜与公告索引",
+                    "key": "龙虎榜 / 公告索引",
                     "symbol": symbol,
-                    "reason": f"龙虎榜/公告索引因 Tushare 未配置而暂无数据：{reason}",
+                    "reason": "Tushare 未配置",
+                    "raw_reason": reason,
                 })
 
     # External driver summary (2. groups available/unavailable without duplication; 10. hides unsupported placeholders)
@@ -1118,8 +1130,9 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
         "holdings": compact_holdings,
         "official_theme_exposure": packet["official_theme_exposure"],
         "related_theme_observations": {
-            "supplementary_tag_exposure": supplementary_exposures,
-            "boundary": "补充关联标签仅作观察用途，不得重复计入正式主题资产暴露。",
+            "direction_observations": direction_observations,
+            "risk_observations": risk_observations,
+            "boundary": "关联方向与风险观察均不得重复计入正式主题资产暴露。",
         },
         "external_driver_summary": ext_summary,
         "data_gaps": compact_data_gaps,
@@ -1284,6 +1297,8 @@ def _localize_driver_status(status: str | None, reason: str | None) -> tuple[str
         localized_reason = "Provider 符号未配置"
     elif "No verified ETF symbol" in reason_str:
         localized_reason = "ETF 符号未配置"
+    elif "Yahoo returned HTTP 403" in reason_str:
+        localized_reason = "Yahoo Finance 请求失败（HTTP 403）"
     elif "Yahoo" in reason_str and ("unavailable" in reason_str or "failed" in reason_str):
         localized_reason = "Yahoo 数据暂不可用"
     else:
@@ -1358,7 +1373,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     lines.extend([
         "## 当前持仓",
         "",
-        "| 标的 | 持仓数量 | 成本价 | 当前价 | 当前市值 | 浮动盈亏 | 权重 | 主主题 | 补充关联标签 | 角色 |",
+        "| 标的 | 持仓数量 | 成本价 | 当前价 | 当前市值 | 浮动盈亏 | 权重 | 主主题 | 关联方向 | 角色 |",
         "|---|---:|---:|---:|---:|---:|---:|---|---|---|",
     ])
     for h in holdings:
@@ -1371,7 +1386,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         pnl_pct = h.get("unrealized_pnl_pct")
         weight = h.get("portfolio_weight_pct")
         theme = _theme_label(h.get("confirmed_primary_theme") or "UNCLASSIFIED")
-        tags = [_theme_label(t) for t in (h.get("confirmed_theme_tags") or []) if t != h.get("confirmed_primary_theme")]
+        tags = [_theme_label(t) for t in (h.get("confirmed_theme_tags") or []) if t != h.get("confirmed_primary_theme") and t in _DIRECTION_TAGS]
         role = _ROLE_LABEL_MAP.get(str(h.get("confirmed_position_role", "")).lower(), h.get("confirmed_position_role", ""))
 
         qty_str = f"{qty:,.0f}" if qty is not None else "-"
@@ -1403,34 +1418,53 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         syms = _names(item.get("symbols", []))
         lines.append(f"| {theme} | {mv:,.2f} | {wp:.2f}% | {syms} |")
     lines.append("")
-    lines.append("正式主题为唯一资产归属口径，可加总；补充关联标签不得再次并入正式主题合计。")
+    lines.append("正式主题为唯一资产归属口径，可加总；关联方向不得再次并入正式主题合计。")
     lines.append("")
 
-    # Supplementary related observations
-    supp = related.get("supplementary_tag_exposure", [])
-    if supp:
+    # Direction observations
+    directions = related.get("direction_observations", [])
+    if directions:
         lines.extend([
-            "## 补充关联观察",
+            "## 关联方向观察",
             "",
-            "| 关联观察 | 当前市值 | 占总资产比例 | 关联标的 | 说明 |",
+            "| 关联方向 | 当前市值 | 占总资产比例 | 关联标的 | 说明 |",
             "|---|---:|---:|---|---|",
         ])
-        for item in supp:
+        for item in directions:
             tag = _theme_label(item.get("theme", ""))
             mv = item.get("market_value", 0)
             wp = item.get("weight_pct", 0)
             syms = _names(item.get("symbols", []))
-            note = "描述性标签，不代表阈值触发或调仓建议"
-            if item.get("theme") == "COMPOSITE_EXPOSURE":
-                note = "非加总观察，不得与正式主题重复统计"
-            elif item.get("theme") == "HIGH_VOLATILITY":
-                note = "描述性标签，不代表阈值触发或调仓建议"
-            # 1. GOLD cross-theme note
+            note = "关联方向仅作背景观察，不得重复计入正式主题资产暴露"
             if item.get("theme") == "GOLD":
                 non_gold_syms = [s for s in item.get("symbols", []) if symbol_primary_map.get(s) != "GOLD"]
                 if non_gold_syms:
                     note = f"其中 {_names(non_gold_syms)} 的正式主题仍归属其他类别"
+            elif item.get("theme") == "COPPER":
+                note = "与铜价背景相关；仅为关联观察，不构成因果或交易结论"
             lines.append(f"| {tag} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
+        lines.append("")
+        lines.append("关联方向不可与正式主题加总；仅为非加总观察。")
+        lines.append("")
+
+    # Risk observations
+    risks = related.get("risk_observations", [])
+    if risks:
+        lines.extend([
+            "## 风险观察",
+            "",
+            "| 观察项 | 当前市值 | 占总资产比例 | 关联标的 | 说明 |",
+            "|---|---:|---:|---|---|",
+        ])
+        for item in risks:
+            tag = _theme_label(item.get("theme", ""))
+            mv = item.get("market_value", 0)
+            wp = item.get("weight_pct", 0)
+            syms = _names(item.get("symbols", []))
+            note = "描述性观察，不代表阈值触发或调仓建议"
+            lines.append(f"| {tag} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
+        lines.append("")
+        lines.append("风险观察不可与正式主题或关联方向加总。")
         lines.append("")
 
     # External driver summary
@@ -1481,23 +1515,40 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             lines.append(f"| {name} | {syms} | {status} | {reason} |")
         lines.append("")
 
-    # Data gaps
+    # Data gaps: group by key and merge symbols
     if data_gaps:
         lines.extend([
             "## 数据缺口",
             "",
         ])
+        gap_groups: dict[str, dict[str, Any]] = {}
+        non_dict_gaps: list[str] = []
         for gap in data_gaps:
             if isinstance(gap, dict):
                 key = gap.get("key", "")
                 reason = gap.get("reason", "")
                 symbol = gap.get("symbol", "")
+                if key not in gap_groups:
+                    gap_groups[key] = {"reason": reason, "symbols": []}
                 if symbol:
-                    lines.append(f"- {key}（{symbol}）：{reason}")
-                else:
-                    lines.append(f"- {key}：{reason}")
+                    gap_groups[key]["symbols"].append(symbol)
             else:
-                lines.append(f"- {gap}")
+                non_dict_gaps.append(str(gap))
+
+        key_label_map = {
+            "龙虎榜与公告索引": "龙虎榜 / 公告索引",
+            "ETF份额净值事实": "ETF 份额 / 净值事实",
+        }
+        for key, info in gap_groups.items():
+            label = key_label_map.get(key, key)
+            reason = info["reason"]
+            syms = _names(info["symbols"]) if info["symbols"] else ""
+            if syms:
+                lines.append(f"- {label}：当前暂无数据；原因：{reason}；涉及标的：{syms}。")
+            else:
+                lines.append(f"- {label}：当前暂无数据；原因：{reason}。")
+        for gap_str in non_dict_gaps:
+            lines.append(f"- {gap_str}")
         lines.append("")
 
     # AI questions

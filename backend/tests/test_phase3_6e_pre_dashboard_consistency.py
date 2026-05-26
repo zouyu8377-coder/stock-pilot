@@ -31,8 +31,8 @@ def _service(tmp_path, monkeypatch) -> PortfolioService:
             PortfolioPositionInput(symbol="002463", name="Hudian", quantity=500, avg_cost=35, primary_theme="AI_PCB", theme_tags=["AI_PCB", "HIGH_VOLATILITY"], position_role="observation", semantic_classification_status="user_confirmed"),
             PortfolioPositionInput(symbol="002916", name="Shennan", quantity=500, avg_cost=28, primary_theme="AI_PCB", theme_tags=["AI_PCB", "HIGH_VOLATILITY"], position_role="observation", semantic_classification_status="user_confirmed"),
             PortfolioPositionInput(symbol="159382", name="AI ETF", quantity=10000, avg_cost=1.4, primary_theme="AI_THEME_ETF", theme_tags=["AI_THEME_ETF", "HIGH_VOLATILITY"], position_role="observation", semantic_classification_status="user_confirmed"),
-            PortfolioPositionInput(symbol="601899", name="Zijin", quantity=1000, avg_cost=18, primary_theme="METAL_RESOURCE", theme_tags=["METAL_RESOURCE", "GOLD", "COMPOSITE_EXPOSURE"], position_role="observation", semantic_classification_status="user_confirmed"),
-            PortfolioPositionInput(symbol="603993", name="CMOC", quantity=1000, avg_cost=9, primary_theme="METAL_RESOURCE", theme_tags=["METAL_RESOURCE"], position_role="observation", semantic_classification_status="user_confirmed"),
+            PortfolioPositionInput(symbol="601899", name="Zijin", quantity=1000, avg_cost=18, primary_theme="METAL_RESOURCE", theme_tags=["METAL_RESOURCE", "GOLD", "COPPER", "COMPOSITE_EXPOSURE"], position_role="observation", semantic_classification_status="user_confirmed"),
+            PortfolioPositionInput(symbol="603993", name="CMOC", quantity=1000, avg_cost=9, primary_theme="METAL_RESOURCE", theme_tags=["METAL_RESOURCE", "COPPER"], position_role="observation", semantic_classification_status="user_confirmed"),
             PortfolioPositionInput(symbol="159934", name="Gold ETF", quantity=2000, avg_cost=4.8, primary_theme="GOLD", theme_tags=["GOLD"], position_role="observation", semantic_classification_status="user_confirmed"),
         ],
     ))
@@ -245,9 +245,9 @@ def test_composite_exposure_only_from_tag_not_length(tmp_path, monkeypatch):
 def test_compact_gold_cross_theme_restored(tmp_path, monkeypatch):
     _service(tmp_path, monkeypatch)
     context = build_account_analysis_context(mode="compact")
-    supp = {item["theme"]: item for item in context["related_theme_observations"]["supplementary_tag_exposure"]}
-    assert "GOLD" in supp, "GOLD cross-theme linkage should be restored"
-    assert set(supp["GOLD"]["symbols"]) == {"601899", "159934"}
+    directions = {item["theme"]: item for item in context["related_theme_observations"]["direction_observations"]}
+    assert "GOLD" in directions, "GOLD cross-theme linkage should be restored"
+    assert set(directions["GOLD"]["symbols"]) == {"601899", "159934"}
 
     md = render_compact_markdown(context)
     assert "黄金" in md
@@ -308,7 +308,7 @@ def test_compact_data_gaps_restored(tmp_path, monkeypatch):
     context = build_account_analysis_context(mode="compact")
     assert context["data_gaps"], "Compact data_gaps should be restored"
     gap_keys = {g["key"] for g in context["data_gaps"] if isinstance(g, dict)}
-    assert "ETF份额净值事实" in gap_keys or "龙虎榜与公告索引" in gap_keys
+    assert "ETF 份额 / 净值事实" in gap_keys or "龙虎榜 / 公告索引" in gap_keys
 
     md = render_compact_markdown(context)
     assert "## 数据缺口" in md
@@ -374,3 +374,59 @@ def test_unsupported_placeholder_hidden_in_compact(tmp_path, monkeypatch):
         u["factor_id"] for u in summary.get("unavailable_drivers", [])
     }
     assert "cobalt_moly_price_placeholder" not in all_factor_ids
+
+
+def test_compact_direction_and_risk_separated(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    related = context["related_theme_observations"]
+
+    directions = {item["theme"]: item for item in related["direction_observations"]}
+    risks = {item["theme"]: item for item in related["risk_observations"]}
+
+    assert "HIGH_VOLATILITY" not in directions, "HIGH_VOLATILITY must not appear in direction_observations"
+    assert "HIGH_VOLATILITY" in risks, "HIGH_VOLATILITY must appear in risk_observations"
+    assert set(risks["HIGH_VOLATILITY"]["symbols"]) == {"002463", "002916", "159382"}
+
+    md = render_compact_markdown(context)
+    assert "## 关联方向观察" in md
+    assert "## 风险观察" in md
+    assert "高波动" in md
+
+
+def test_compact_copper_direction_present(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    directions = {item["theme"]: item for item in context["related_theme_observations"]["direction_observations"]}
+
+    assert "COPPER" in directions, "COPPER direction should be present"
+    assert set(directions["COPPER"]["symbols"]) == {"601899", "603993"}
+
+    md = render_compact_markdown(context)
+    assert "铜" in md
+
+
+def test_compact_composite_exposure_hidden(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    directions = {item["theme"]: item for item in context["related_theme_observations"]["direction_observations"]}
+    risks = {item["theme"]: item for item in context["related_theme_observations"]["risk_observations"]}
+
+    assert "COMPOSITE_EXPOSURE" not in directions, "COMPOSITE_EXPOSURE must not appear in direction_observations"
+    assert "COMPOSITE_EXPOSURE" not in risks, "COMPOSITE_EXPOSURE must not appear in risk_observations"
+
+    md = render_compact_markdown(context)
+    assert "多重逻辑关联" not in md, "COMPOSITE_EXPOSURE should not be rendered in compact markdown"
+
+
+def test_compact_data_gaps_grouped(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    md = render_compact_markdown(context)
+
+    # Gaps should be grouped by key, not repeated per symbol
+    assert "当前暂无数据" in md
+    assert "涉及标的" in md
+    # Per-symbol repetition pattern like "（601899）" should not appear
+    assert "（601899）" not in md
+    assert "（603993）" not in md
