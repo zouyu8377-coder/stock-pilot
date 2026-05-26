@@ -206,6 +206,9 @@ def _compact_external_driver_summary(summary: list[dict[str, Any]]) -> dict[str,
             "associated_symbols": item.get("associated_symbols", []),
             "data_status": payload.get("data_status") or evidence.get("data_status") or "unavailable",
             "reason": payload.get("reason"),
+            "close": payload.get("close"),
+            "currency": payload.get("currency"),
+            "returns_pct": payload.get("returns_pct"),
         })
     return {
         "shared_external_driver_observations": observations,
@@ -955,6 +958,57 @@ def _evidence_markdown(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_portfolio_external_drivers_markdown(summary: list[dict[str, Any]]) -> str:
+    shared = [item for item in summary if item.get("type") == "shared_driver"]
+    mappings = [item for item in summary if item.get("type") == "symbol_mapping"]
+
+    lines = ["## External Driver Summary", ""]
+
+    if shared:
+        lines.append("### Shared Drivers")
+        lines.append("")
+        for item in shared:
+            evidence = item.get("evidence") or {}
+            payload = evidence.get("payload") or {}
+            lines.append(f"- **{item.get('display_name', item.get('factor_id'))}** (`{item.get('factor_id')}`)")
+            lines.append(f"  - factor_type: `{item.get('factor_type', 'unknown')}`")
+            lines.append(f"  - associated_symbols: {', '.join(item.get('associated_symbols', []))}")
+            if payload.get("trade_date"):
+                lines.append(f"  - trade_date: {payload['trade_date']}")
+            if payload.get("close") is not None:
+                currency = payload.get("currency", "")
+                lines.append(f"  - close: {payload['close']} {currency}".strip())
+            returns = payload.get("returns_pct") or {}
+            if returns:
+                ret_parts = []
+                for k in ["1d", "5d", "20d"]:
+                    v = returns.get(k)
+                    if v is not None:
+                        ret_parts.append(f"{k}: {v:+.4f}%")
+                if ret_parts:
+                    lines.append(f"  - returns_pct: {' | '.join(ret_parts)}")
+            if evidence.get("interpretation_limit"):
+                lines.append(f"  - boundary: {evidence['interpretation_limit']}")
+            lines.append("")
+    else:
+        lines.append("- No shared external drivers in current portfolio.")
+        lines.append("")
+
+    if mappings:
+        lines.append("### Per-Symbol Mapping Status")
+        lines.append("")
+        for item in mappings:
+            mapping = item.get("mapping") or {}
+            lines.append(
+                f"- {item.get('symbol')} → profile_id: `{mapping.get('profile_id', '-')}` | "
+                f"status: `{mapping.get('mapping_status', '-')}`"
+            )
+        lines.append("")
+
+    lines.append("External-driver observations are contextual only and do not establish causal effects or trading conclusions.")
+    return "\n".join(lines)
+
+
 def render_packet_markdown(packet: dict[str, Any]) -> str:
     meta = packet["meta"]
     lines = [
@@ -1019,9 +1073,7 @@ def render_packet_markdown(packet: dict[str, Any]) -> str:
             "## Auto Fact Summary",
             f"```json\n{json.dumps(packet['auto_fact_summary'], ensure_ascii=False, indent=2, default=str)}\n```",
             "",
-            "## External Driver Summary",
-            "Symbol-level external-driver observations only; not macro scoring or trading advice.",
-            f"```json\n{json.dumps(packet['external_driver_summary'], ensure_ascii=False, indent=2, default=str)}\n```",
+            _render_portfolio_external_drivers_markdown(packet["external_driver_summary"]),
         ])
 
     lines.extend([

@@ -8,7 +8,6 @@ import {
   getStockQuote,
   savePortfolio,
   searchStocks,
-  updateHoldingSemantics,
   type HoldingSemanticSuggestion,
   type PortfolioPosition,
   type PortfolioState,
@@ -43,7 +42,6 @@ const positionRoles = ['core', 'trend', 'defensive', 'short_term', 'observation'
 const expanded = ref(false)
 const loading = ref(false)
 const saving = ref(false)
-const semanticSaving = ref(false)
 const state = ref<PortfolioState | null>(null)
 const manualRows = ref<ManualRow[]>([])
 const suggestions = ref<Record<string, HoldingSemanticSuggestion>>({})
@@ -60,6 +58,8 @@ const packetMarkdown = ref('')
 const packetJson = ref('')
 const packetCopied = ref(false)
 const packetLoading = ref(false)
+
+const editingTagsRowId = ref('')
 
 const accountDraft = ref({
   cash_available: 0,
@@ -105,6 +105,13 @@ const themeLabelMap: Record<string, string> = {
   COMPOSITE_EXPOSURE: '复合关联',
 }
 const themeLabel = (key: string) => themeLabelMap[key] || key
+
+const marketBadge = (symbol: string) => {
+  const code = symbol.split('.')[0]
+  if (code.startsWith('6')) return '沪'
+  if (code.startsWith('0') || code.startsWith('3')) return '深'
+  return ''
+}
 
 const quotePrice = (row: ManualRow) => row.quote?.price ?? null
 const suggestionFor = (row: ManualRow) => suggestions.value[compactSymbol(row.symbol)]
@@ -159,6 +166,14 @@ const loadSuggestions = async () => {
   suggestions.value = Object.fromEntries(items.map((item) => [compactSymbol(item.symbol), item]))
 }
 
+const applySuggestionToRow = (row: ManualRow) => {
+  const suggestion = suggestionFor(row)
+  if (!suggestion) return
+  row.primary_theme = suggestion.suggested_primary_theme || 'UNCLASSIFIED'
+  row.theme_tags = [...(suggestion.suggested_theme_tags || [])]
+  row.position_role = suggestion.suggested_position_role || 'observation'
+}
+
 const load = async () => {
   loading.value = true
   try {
@@ -170,6 +185,11 @@ const load = async () => {
     accountDraft.value.max_theme_weight = state.value.snapshot.risk_limits.max_theme_weight
     accountDraft.value.min_cash_ratio = state.value.snapshot.risk_limits.min_cash_ratio
     manualRows.value = state.value.snapshot.positions.length ? state.value.snapshot.positions.map(newRow) : [newRow()]
+    manualRows.value.forEach((row) => {
+      if (!row.primary_theme && row.symbol) {
+        applySuggestionToRow(row)
+      }
+    })
     await Promise.all(manualRows.value.filter((row) => row.symbol).map(loadQuoteForRow))
   } finally {
     loading.value = false
@@ -214,6 +234,7 @@ const chooseMatch = async (row: ManualRow, match: StockSearchItem) => {
   activeRowId.value = ''
   await loadQuoteForRow(row)
   await loadSuggestions()
+  applySuggestionToRow(row)
 }
 
 const addRow = () => {
@@ -231,37 +252,8 @@ const toggleTag = (row: ManualRow, tag: string) => {
     : [...row.theme_tags, tag]
 }
 
-const applySuggestion = (row: ManualRow) => {
-  const suggestion = suggestionFor(row)
-  if (!suggestion) return
-  row.primary_theme = suggestion.suggested_primary_theme || 'UNCLASSIFIED'
-  row.theme_tags = [...suggestion.suggested_theme_tags]
-  row.position_role = suggestion.suggested_position_role || 'observation'
-}
-
-const semanticPayload = () => ({
-  updates: validRows.value.map((row) => ({
-    symbol: row.symbol,
-    primary_theme: row.primary_theme || 'UNCLASSIFIED',
-    theme_tags: row.theme_tags,
-    position_role: row.position_role || 'observation',
-  })),
-})
-
-const saveSemanticConfirmations = async () => {
-  saveError.value = ''
-  saveNotice.value = ''
-  semanticSaving.value = true
-  try {
-    state.value = await updateHoldingSemantics(semanticPayload())
-    await loadSuggestions()
-    manualRows.value = state.value.snapshot.positions.length ? state.value.snapshot.positions.map(newRow) : [newRow()]
-    saveNotice.value = '持仓主题与角色已保存为用户确认语义。'
-  } catch (error: any) {
-    saveError.value = error?.response?.data?.detail || error?.message || '保存持仓语义失败'
-  } finally {
-    semanticSaving.value = false
-  }
+const toggleTagEdit = (rowId: string) => {
+  editingTagsRowId.value = editingTagsRowId.value === rowId ? '' : rowId
 }
 
 const saveManualPortfolio = async () => {
@@ -304,6 +296,11 @@ const saveManualPortfolio = async () => {
     })
     await loadSuggestions()
     manualRows.value = state.value.snapshot.positions.length ? state.value.snapshot.positions.map(newRow) : [newRow()]
+    manualRows.value.forEach((row) => {
+      if (!row.primary_theme && row.symbol) {
+        applySuggestionToRow(row)
+      }
+    })
     saveNotice.value = '已保存为正式本地组合快照。'
   } catch (error: any) {
     saveError.value = error?.response?.data?.detail || error?.message || '保存失败'
@@ -388,44 +385,30 @@ onMounted(load)
           当前估算 = 系统最新取价持仓市值 + 快照现金/逆回购；不等同于券商实时总资产。
         </div>
 
-        <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+        <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
           <label class="space-y-1">
             <span class="text-muted-foreground">可用现金</span>
             <input v-model.number="accountDraft.cash_available" class="h-9 w-full rounded bg-input px-2" type="number" />
           </label>
-          <label class="space-y-1">
-            <span class="text-muted-foreground">逆回购金额</span>
-            <input v-model.number="accountDraft.repo_amount" class="h-9 w-full rounded bg-input px-2" type="number" />
-          </label>
-          <div class="flex items-end">
-            <button class="h-9 w-full rounded bg-secondary px-3 text-xs font-medium" :disabled="semanticSaving" @click="saveSemanticConfirmations">
-              {{ semanticSaving ? '保存中...' : '保存主题/角色确认' }}
-            </button>
-          </div>
-          <div class="flex items-end">
+          <div class="flex items-end md:col-start-3">
             <button class="h-9 w-full rounded bg-primary px-3 text-xs font-medium" :disabled="saving" @click="saveManualPortfolio">
               {{ saving ? '保存中...' : '保存组合快照' }}
             </button>
           </div>
         </div>
 
-        <div class="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
-          保存后主题与角色才生效；主主题决定正式资产归属，关联标签仅作风险观察。
-        </div>
-
         <div class="overflow-x-auto rounded border border-border/60">
-          <table class="w-full min-w-[1420px] table-fixed text-xs">
+          <table class="w-full min-w-[1250px] table-fixed text-xs">
             <colgroup>
-              <col class="w-[250px]" />
+              <col class="w-[260px]" />
               <col class="w-[90px]" />
               <col class="w-[90px]" />
               <col class="w-[90px]" />
               <col class="w-[120px]" />
-              <col class="w-[120px]" />
+              <col class="w-[110px]" />
               <col class="w-[100px]" />
               <col class="w-[160px]" />
-              <col class="w-[170px]" />
-              <col class="w-[250px]" />
+              <col class="w-[260px]" />
               <col class="w-[120px]" />
               <col class="w-[56px]" />
             </colgroup>
@@ -438,9 +421,8 @@ onMounted(load)
                 <th class="px-2 py-2 text-right">现价 / 涨跌</th>
                 <th class="px-2 py-2 text-right">市值</th>
                 <th class="px-2 py-2 text-right">账户权重</th>
-                <th class="px-2 py-2">系统建议</th>
-                <th class="px-2 py-2">确认主主题</th>
-                <th class="px-2 py-2">确认关联标签</th>
+                <th class="px-2 py-2">主主题</th>
+                <th class="px-2 py-2">关联标签</th>
                 <th class="px-2 py-2">角色</th>
                 <th class="px-2 py-2"></th>
               </tr>
@@ -456,8 +438,9 @@ onMounted(load)
                       @focus="scheduleSearch(row)"
                       @input="scheduleSearch(row)"
                     />
-                    <div v-if="row.quote && row.quote.provider && row.quote.provider !== '本地标的'" class="-mt-1 truncate px-2 pb-1 text-[11px] text-muted-foreground">
-                      {{ row.quote.provider }}
+                    <div v-if="row.symbol" class="-mt-1 flex items-center gap-1 truncate px-2 pb-1 text-[11px]">
+                      <span v-if="marketBadge(row.symbol)" class="rounded bg-secondary px-1 text-muted-foreground">{{ marketBadge(row.symbol) }}</span>
+                      <span class="text-muted-foreground">{{ row.name }}</span>
                     </div>
                   </div>
                   <div v-if="activeRowId === row.row_id && rowMatches.length" class="absolute left-2 right-2 top-12 z-30 overflow-hidden rounded border border-border bg-card shadow-xl">
@@ -485,13 +468,6 @@ onMounted(load)
                 <td class="p-2 text-right font-mono">{{ fmt(rowMarketValue(row)) }}</td>
                 <td class="p-2 text-right font-mono">{{ fmt(computedTotalAssets ? rowMarketValue(row) / computedTotalAssets * 100 : 0, '%') }}</td>
                 <td class="p-2">
-                  <div class="space-y-1">
-                    <div class="font-mono">{{ suggestionFor(row)?.suggested_primary_theme || '—' }}</div>
-                    <div class="text-[11px] text-muted-foreground">{{ (suggestionFor(row)?.suggested_theme_tags?.length ? suggestionFor(row)?.suggested_theme_tags?.join(', ') : '') }}</div>
-                    <button class="rounded bg-secondary px-2 py-1 text-[11px]" type="button" @click="applySuggestion(row)">采用建议</button>
-                  </div>
-                </td>
-                <td class="p-2">
                   <select v-model="row.primary_theme" class="h-9 w-full rounded bg-input px-2">
                     <option value="">未确认</option>
                     <option v-for="theme in primaryThemes" :key="theme" :value="theme">{{ themeLabel(theme) }}</option>
@@ -500,6 +476,21 @@ onMounted(load)
                 </td>
                 <td class="p-2">
                   <div class="flex flex-wrap gap-1">
+                    <span
+                      v-for="tag in row.theme_tags"
+                      :key="tag"
+                      class="rounded border border-primary bg-primary/20 px-2 py-1 text-[11px] text-foreground"
+                    >
+                      {{ themeLabel(tag) }}
+                    </span>
+                    <button
+                      class="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground"
+                      @click="toggleTagEdit(row.row_id)"
+                    >
+                      {{ editingTagsRowId === row.row_id ? '完成' : (row.theme_tags.length ? '编辑' : '+ 标签') }}
+                    </button>
+                  </div>
+                  <div v-if="editingTagsRowId === row.row_id" class="mt-2 flex flex-wrap gap-1 rounded border border-border/60 bg-secondary/20 p-2">
                     <button
                       v-for="tag in themeTags"
                       :key="tag"
@@ -524,7 +515,6 @@ onMounted(load)
 
         <div class="flex flex-wrap items-center gap-2 text-xs">
           <button class="rounded bg-secondary px-3 py-2" @click="addRow">新增一行</button>
-          <span class="text-muted-foreground">保存主题/角色确认不会修改数量、成本或现金；保存组合快照会写入完整手动账户快照。</span>
           <span v-if="saveNotice" class="text-positive">{{ saveNotice }}</span>
           <span v-if="saveError" class="text-negative">{{ saveError }}</span>
         </div>

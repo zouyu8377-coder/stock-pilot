@@ -164,6 +164,7 @@ def fetch_yahoo_comex_series(
 def get_comex_fact(
     factor_id: str,
     range_days: str = "30d",
+    include_series: bool = False,
 ) -> dict[str, Any]:
     """Return a standardized COMEX external driver fact dict."""
     try:
@@ -205,7 +206,7 @@ def get_comex_fact(
             return None
         return round((curr / past - 1) * 100, 4)
 
-    return {
+    result = {
         "factor_id": factor_id,
         "display_name": FACTOR_CONFIG[factor_id]["display_name"],
         "provider": "yahoo_finance",
@@ -238,6 +239,8 @@ def get_comex_fact(
             "not realtime, not a causal conclusion, and not trading advice. "
             "Does not replace domestic futures prices."
         ),
-        "series": df.head(30).to_dict("records"),
         "meta": {k: v for k, v in meta.items() if k not in {"series"}},
     }
+    if include_series:
+        result["series"] = df.head(30).to_dict("records")
+    return result

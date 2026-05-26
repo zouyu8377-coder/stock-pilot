@@ -28,7 +28,7 @@ def test_unmapped_external_driver_context_is_explicit_default():
 def test_configured_daily_driver_builds_fact_and_weak_signal(monkeypatch):
     monkeypatch.setattr(service, "TushareLowFrequencyClient", FakeTushareClient)
     monkeypatch.setattr(service, "get_etf_facts", lambda symbol: {"evidence": [], "message": "skipped in unit test"})
-    monkeypatch.setattr(service, "get_comex_fact", lambda factor_id, range_days="30d": {
+    monkeypatch.setattr(service, "get_comex_fact", lambda factor_id, range_days="30d", include_series=False, **kw: {
         "factor_id": factor_id,
         "data_status": "unavailable",
         "reason": "Mocked unavailable for unit test",
@@ -54,7 +54,7 @@ def test_configured_daily_driver_builds_fact_and_weak_signal(monkeypatch):
 def test_unsupported_placeholder_stays_missing_without_fact(monkeypatch):
     monkeypatch.setattr(service, "TushareLowFrequencyClient", FakeTushareClient)
     monkeypatch.setattr(service, "get_etf_facts", lambda symbol: {"evidence": [], "message": "ETF unavailable"})
-    monkeypatch.setattr(service, "get_comex_fact", lambda factor_id, range_days="30d": {
+    monkeypatch.setattr(service, "get_comex_fact", lambda factor_id, range_days="30d", include_series=False, **kw: {
         "factor_id": factor_id,
         "data_status": "unavailable",
         "reason": "Mocked unavailable for unit test",

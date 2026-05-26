@@ -61,7 +61,7 @@ def _pct_change(values: list[float | None], offset: int) -> float | None:
     return round((values[0] / values[offset] - 1) * 100, 4)
 
 
-def _daily_payload(driver: ExternalDriver, df: pd.DataFrame, meta: dict[str, Any]) -> dict[str, Any]:
+def _daily_payload(driver: ExternalDriver, df: pd.DataFrame, meta: dict[str, Any], include_series: bool = False) -> dict[str, Any]:
     if df is not None and not df.empty and "trade_date" in df.columns:
         df = df.copy()
         df["trade_date"] = df["trade_date"].astype(str)
@@ -73,7 +73,7 @@ def _daily_payload(driver: ExternalDriver, df: pd.DataFrame, meta: dict[str, Any
         bid = safe_float(latest.get("bid_close"))
         ask = safe_float(latest.get("ask_close"))
         close = round((bid + ask) / 2, 4) if bid is not None and ask is not None else None
-    return {
+    payload: dict[str, Any] = {
         "factor_id": driver.factor_id,
         "display_name": driver.display_name,
         "factor_type": driver.factor_type,
@@ -90,10 +90,12 @@ def _daily_payload(driver: ExternalDriver, df: pd.DataFrame, meta: dict[str, Any
             "5d": _pct_change(values, 5),
             "20d": _pct_change(values, 20),
         },
-        "series": records_from_df(df, 75),
         "cache": meta,
         "interpretation_limit": driver.interpretation_limit,
     }
+    if include_series:
+        payload["series"] = records_from_df(df, 75)
+    return payload
 
 
 def _unavailable_evidence(symbol: str, driver: ExternalDriver, reason: str) -> EvidenceItem:
@@ -150,7 +152,7 @@ def _fetch_daily_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceIte
     except (TushareConfigError, TushareRequestError) as exc:
         return [_unavailable_evidence(symbol, driver, str(exc))]
 
-    payload = _daily_payload(driver, df, meta)
+    payload = _daily_payload(driver, df, meta, include_series=False)
     as_of = parse_yyyymmdd(payload.get("trade_date"))
     fact = EvidenceItem(
         symbol=to_ts_code(symbol),
@@ -192,13 +194,14 @@ def _fetch_daily_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceIte
 
 def _fetch_yahoo_comex_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceItem]:
     try:
-        result = get_comex_fact(driver.factor_id, range_days="30d")
+        result = get_comex_fact(driver.factor_id, range_days="30d", include_series=False)
     except YahooComexError as exc:
         return [_unavailable_evidence(symbol, driver, str(exc))]
 
     if result.get("data_status") != "available":
         return [_unavailable_evidence(symbol, driver, result.get("reason") or "Yahoo COMEX data unavailable.")]
 
+    result["factor_type"] = driver.factor_type
     as_of = parse_yyyymmdd(result.get("trade_date"))
     fact = EvidenceItem(
         symbol=to_ts_code(symbol),
