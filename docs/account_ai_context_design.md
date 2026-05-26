@@ -6,6 +6,15 @@ Account-level analysis belongs to the future personal investment dashboard. Sing
 
 `AccountAnalysisContext` is a local structured input derived from the saved portfolio snapshot and Portfolio Packet. It does not call an external LLM.
 
+## Valuation Basis
+
+Account facts separate saved snapshot valuation from current quote estimate:
+
+- `snapshot_valuation`: saved local account values at snapshot time.
+- `current_quote_estimate`: current system-enriched holding market value plus cash/repo carried from the saved snapshot.
+
+Current portfolio weights, official theme exposure weights, related tag observation weights, cash ratio, and repo ratio use `current_quote_estimate.estimated_total_assets_using_current_quotes` as the denominator. This estimate is not broker-verified realtime total assets.
+
 ## Input Structure
 
 - `meta`: generation time, portfolio snapshot id, portfolio time, quote-time boundary, and privacy boundary.
@@ -13,7 +22,7 @@ Account-level analysis belongs to the future personal investment dashboard. Sing
 - `holdings`: symbol, name, quantity, average cost, market value, unrealized PnL, weight, confirmed `primary_theme`, confirmed `theme_tags`, confirmed `position_role`, external driver profile id, and data status.
 - `official_theme_exposure`: additive exposure using only confirmed `primary_theme`.
 - `related_theme_observations`: non-additive observations from `theme_tags`, including composite exposure notes.
-- `external_driver_summary`: shared external-driver summary and de-duplicated driver facts.
+- `external_driver_summary`: compact shared driver observations with factor id, display name, associated symbols, data status, reason, and boundary.
 - `data_gaps`: unclassified holdings, unconfirmed roles, unavailable quote/fact/driver data, and other missing information.
 - `ai_analysis_boundary`: intended use, inactive rules, privacy boundary, and no-execution limits.
 
@@ -23,16 +32,20 @@ Hard facts, account facts, external drivers, user-confirmed semantics, and missi
 
 System suggestions are not account facts. They become user-confirmed semantics only after the user saves them.
 
+Related tag observations are calculated strictly from user-confirmed `theme_tags`. `AI_THEME_ETF` is not implicitly merged into `AI_PCB`. A broader `AI_RELATED` concept may be offered later only as a suggestion requiring user confirmation.
+
 ## Inactive Rules
 
 The following are not current AI decision rules:
 
 - Single-position limit.
-- Theme exposure limit.
+- Primary-theme limit.
 - Cash floor.
 - Repo cash-equivalent policy.
 
-If existing Portfolio Packet placeholder reminders remain, they must be marked as system placeholders, unconfirmed by the user, and inactive for AI reasoning.
+The structured inactive rule ids are `single_position_limit`, `primary_theme_limit`, `cash_floor`, and `repo_cash_equivalent_policy`. Until the user confirms those rules, downstream AI must not treat them as verified discipline or use them to judge concentration, cash sufficiency, repo cash-equivalent treatment, or trade action validity.
+
+Confirmed `position_role = observation` is a valid user role. It means the user marked the holding as observational context; the system must not infer a trade plan, offensive/defensive intent, or missing role from it.
 
 ## Privacy Boundary
 

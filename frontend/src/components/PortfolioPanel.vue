@@ -337,11 +337,11 @@ onMounted(load)
       <template v-else>
         <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
           <div class="rounded bg-secondary/40 p-3">
-            <div class="text-muted-foreground">总资产</div>
+            <div class="text-muted-foreground">当前估算总资产</div>
             <div class="font-mono text-base font-semibold">{{ fmt(computedTotalAssets) }}</div>
           </div>
           <div class="rounded bg-secondary/40 p-3">
-            <div class="text-muted-foreground">总市值</div>
+            <div class="text-muted-foreground">当前行情持仓市值</div>
             <div class="font-mono text-base font-semibold">{{ fmt(totalMarketValue) }}</div>
           </div>
           <div class="rounded bg-secondary/40 p-3">
@@ -358,6 +358,10 @@ onMounted(load)
             <div class="text-muted-foreground">仓位</div>
             <div class="font-mono text-base font-semibold">{{ fmt(investedRatio, '%') }}</div>
           </div>
+        </div>
+
+        <div class="rounded border border-border/60 bg-secondary/20 p-2 text-xs text-muted-foreground">
+          当前估算 = 系统最新取价持仓市值 + 快照现金/逆回购；不等同于券商实时总资产。
         </div>
 
         <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">

@@ -273,7 +273,8 @@ def test_portfolio_packet_keeps_primary_theme_unique_and_risk_tags_non_additive(
     assert "related_theme_observations" in first["packet"]
     assert first["packet"]["ai_analysis_boundary"]["external_llm_called"] is False
     assert "single_position_limit" in first["packet"]["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]
-    assert all(item.get("unconfirmed_by_user") is True for item in first["packet"]["system_hypothesis"])
+    assert "primary_theme_limit" in first["packet"]["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]
+    assert any(item.get("risk_parameter_source") == "user_confirmed_theme_tags" for item in first["packet"]["system_hypothesis"])
     assert all(item.get("inactive_for_ai_reasoning") is True for item in first["packet"]["system_hypothesis"])
     assert first["packet"]["manual_evidence"][0]["title"] == "Portfolio level evidence"
     assert first["packet"]["meta"]["packet_id"] != second["packet"]["meta"]["packet_id"]
@@ -321,6 +322,7 @@ def test_account_analysis_context_uses_confirmed_semantics_without_ai_call(tmp_p
     assert context["related_theme_observations"]["boundary"].startswith("primary_theme")
     assert context["ai_analysis_boundary"]["external_llm_called"] is False
     assert "cash_floor" in context["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]
+    assert "shared_external_driver_observations" in context["external_driver_summary"]
 
 
 def test_manual_evidence_include_update_controls_packet_export(tmp_path, monkeypatch):

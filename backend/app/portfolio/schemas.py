@@ -150,6 +150,14 @@ class PortfolioMetrics(BaseModel):
     total_market_value: float
     cash_available: float
     repo_amount: float
+    snapshot_total_assets: float | None = None
+    snapshot_cash_available: float | None = None
+    snapshot_repo_amount: float | None = None
+    estimated_total_assets_using_current_quotes: float
+    estimated_position_weight_pct: float
+    estimated_cash_weight_pct: float
+    estimated_repo_weight_pct: float
+    valuation_basis: str = "current_quote_estimate"
     cash_ratio_pct: float
     repo_ratio_pct: float
     invested_ratio_pct: float

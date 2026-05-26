@@ -38,15 +38,6 @@ from app.portfolio.schemas import (
 )
 
 
-THEME_GROUPS = {
-    "AI_PCB": {"AI_PCB", "AI_THEME_ETF"},
-    "METAL_RESOURCE": {"METAL_RESOURCE", "TUNGSTEN"},
-    "GOLD": {"GOLD"},
-    "BROAD_INDEX": {"BROAD_INDEX"},
-    "CASH_REPO": {"CASH", "REPO"},
-    "HIGH_VOLATILITY": {"HIGH_VOLATILITY"},
-}
-
 SEMANTIC_SUGGESTIONS: dict[str, dict[str, Any]] = {
     "601899": {
         "primary_theme": "METAL_RESOURCE",
@@ -231,7 +222,8 @@ class PortfolioService:
 
     def compute_metrics(self, snapshot: PortfolioSnapshot) -> PortfolioMetrics:
         total_market_value = sum(p.market_value or 0 for p in snapshot.positions)
-        total_assets = snapshot.total_assets or (total_market_value + snapshot.cash_available + snapshot.repo_amount)
+        current_quote_total_assets = total_market_value + snapshot.cash_available + snapshot.repo_amount
+        total_assets = current_quote_total_assets
         total_assets = max(total_assets, 0.01)
         position_weights = []
         pnl_contributors = []
@@ -251,11 +243,12 @@ class PortfolioService:
             entry = primary.setdefault(primary_theme, {"market_value": 0.0, "symbols": []})
             entry["market_value"] += market_value
             entry["symbols"].append(p.symbol)
-            for group, tags in THEME_GROUPS.items():
-                if tags.intersection(set(p.theme_tags)):
-                    risk_entry = risk_tags.setdefault(group, {"market_value": 0.0, "symbols": []})
-                    risk_entry["market_value"] += market_value
-                    risk_entry["symbols"].append(p.symbol)
+            for tag in _dedupe_tags(p.theme_tags):
+                if tag == "UNCLASSIFIED":
+                    continue
+                risk_entry = risk_tags.setdefault(tag, {"market_value": 0.0, "symbols": []})
+                risk_entry["market_value"] += market_value
+                risk_entry["symbols"].append(p.symbol)
             if len(set(p.theme_tags)) > 1:
                 composite_notes.append(
                     f"{p.symbol} 同时暴露于 {', '.join(p.theme_tags)}，主题占比不可简单相加。"
@@ -299,6 +292,13 @@ class PortfolioService:
             total_market_value=_round(total_market_value),
             cash_available=_round(snapshot.cash_available),
             repo_amount=_round(snapshot.repo_amount),
+            snapshot_total_assets=_round(snapshot.total_assets) if snapshot.total_assets is not None else None,
+            snapshot_cash_available=_round(snapshot.cash_available),
+            snapshot_repo_amount=_round(snapshot.repo_amount),
+            estimated_total_assets_using_current_quotes=_round(total_assets),
+            estimated_position_weight_pct=_round(total_market_value / total_assets * 100),
+            estimated_cash_weight_pct=_round(cash_ratio),
+            estimated_repo_weight_pct=_round(snapshot.repo_amount / total_assets * 100),
             cash_ratio_pct=_round(cash_ratio),
             repo_ratio_pct=_round(snapshot.repo_amount / total_assets * 100),
             invested_ratio_pct=_round(total_market_value / total_assets * 100),

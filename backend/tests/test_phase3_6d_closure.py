@@ -71,7 +71,7 @@ def test_closure_account_analysis_context_is_local_and_rule_limited(tmp_path, mo
     assert context["ai_analysis_boundary"]["external_llm_called"] is False
     assert set(context["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]) == {
         "single_position_limit",
-        "theme_exposure_limit",
+        "primary_theme_limit",
         "cash_floor",
         "repo_cash_equivalent_policy",
     }

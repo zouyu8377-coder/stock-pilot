@@ -38,7 +38,6 @@ GLOBAL_BOUNDARIES = [
     "Realtime quote data and low-frequency facts may have different timestamps.",
     "Daily K OHLC, volume, amount, and daily change are local daily-K facts; 5/20/60-day returns are derived observations from daily closes, not trend causality or buy/sell conclusions.",
     "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
-    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
     "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",
 ]
 
@@ -60,12 +59,11 @@ SINGLE_LLM_QUESTIONS = [
 ]
 
 PORTFOLIO_LLM_QUESTIONS = [
-    "Is the portfolio overly concentrated by single position or primary theme?",
-    "Which theme tags indicate overlapping risk, and why should they not be added as asset weights?",
-    "Does the cash and repo structure preserve enough optionality?",
-    "Are the recorded plans and invalid conditions consistent with the actual portfolio structure?",
-    "If a proposed trade is executed, how would concentration, cash ratio, and theme overlap change?",
-    "What is the most important missing information before making a decision?",
+    "Please summarize the official exposure structure under confirmed primary_theme and state that theme_tags are non-additive related observations only.",
+    "Please identify holdings that share the same or related external-driver context, and state that these links are contextual observations rather than causal conclusions.",
+    "Please list missing account records, holding plans, role notes, or external facts that would materially affect further review.",
+    "Please organize observations into focus areas, information to supplement, and items without enough basis for judgment; do not output buy, sell, or position-adjustment instructions.",
+    "Please state which conclusions are contextual assumptions rather than verified facts.",
 ]
 
 
@@ -193,6 +191,39 @@ def _portfolio_external_driver_summary(positions: list[dict[str, Any]]) -> list[
         })
 
     return result
+
+
+def _compact_external_driver_summary(summary: list[dict[str, Any]]) -> dict[str, Any]:
+    observations: list[dict[str, Any]] = []
+    for item in summary:
+        if item.get("type") != "shared_driver":
+            continue
+        evidence = item.get("evidence") or {}
+        payload = evidence.get("payload") or {}
+        observations.append({
+            "factor_id": item.get("factor_id"),
+            "display_name": item.get("display_name"),
+            "associated_symbols": item.get("associated_symbols", []),
+            "data_status": payload.get("data_status") or evidence.get("data_status") or "unavailable",
+            "reason": payload.get("reason"),
+        })
+    return {
+        "shared_external_driver_observations": observations,
+        "boundary": "External-driver observations are contextual only and do not establish causal effects or trading conclusions.",
+    }
+
+
+def _is_user_confirmed_role(item: dict[str, Any]) -> bool:
+    return item.get("semantic_classification_status") == "user_confirmed" or bool(item.get("semantic_classification_confirmed_at"))
+
+
+def _is_missing_position_role(item: dict[str, Any]) -> bool:
+    role = str(item.get("confirmed_position_role") or "").strip().lower()
+    if role in ("", "unclassified"):
+        return True
+    if role == "observation" and not _is_user_confirmed_role(item):
+        return True
+    return False
 
 
 def _unavailable_fact(symbol: str, coverage: str, reason: str, endpoint: str | None = None) -> dict[str, Any]:
@@ -629,7 +660,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
     for exposure in high_volatility:
         rule_reminders.append({
             "category": "system_hypothesis",
-            "title": "High volatility asset exposure reminder",
+            "title": "High-volatility tag observation",
             "source": "Stock-Pilot portfolio rules",
             "source_endpoint": "portfolio.compute_metrics",
             "as_of_time": state.snapshot.snapshot_time.isoformat(),
@@ -638,16 +669,19 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             "llm_usage": "hypothesis_only",
             "data_status": "available",
             "payload": exposure.model_dump(mode="json"),
-            "risk_parameter_source": "system_default_placeholder",
-            "unconfirmed_by_user": True,
-            "interpretation_limit": f"System-generated risk reminder based on user tags only; verify whether the tag is appropriate before using it. {DEFAULT_RISK_BOUNDARY}",
+            "risk_parameter_source": "user_confirmed_theme_tags",
+            "unconfirmed_by_user": False,
+            "interpretation_limit": "High-volatility tag observation only. It summarizes holdings with the user-confirmed HIGH_VOLATILITY tag, does not use a threshold, and is not a buy/sell or position-adjustment conclusion.",
         })
     for reminder in rule_reminders:
         reminder.setdefault("risk_parameter_source", "system_default_placeholder")
         reminder.setdefault("unconfirmed_by_user", True)
         reminder.setdefault("inactive_for_ai_reasoning", True)
         current_limit = reminder.get("interpretation_limit") or "System-generated hypothesis only."
-        reminder["interpretation_limit"] = current_limit if DEFAULT_RISK_BOUNDARY in current_limit else f"{current_limit} {DEFAULT_RISK_BOUNDARY}"
+        if reminder.get("risk_parameter_source") == "user_confirmed_theme_tags":
+            reminder["interpretation_limit"] = current_limit
+        else:
+            reminder["interpretation_limit"] = current_limit if DEFAULT_RISK_BOUNDARY in current_limit else f"{current_limit} {DEFAULT_RISK_BOUNDARY}"
     unclassified_holdings = [
         item for item in positions
         if not item.get("confirmed_primary_theme") or str(item.get("confirmed_primary_theme")).upper() == "UNCLASSIFIED"
@@ -666,17 +700,16 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             {
                 "key": "holding_position_role",
                 "symbol": item.get("symbol"),
-                "reason": "Holding position_role is unclassified or observation only.",
+                "reason": "Holding position_role is missing, unclassified, or observation without user confirmation.",
             }
             for item in positions
-            if item.get("confirmed_position_role") in (None, "", "unclassified", "observation")
+            if _is_missing_position_role(item)
         ],
     ]
     missing_data = _clean_text([
         *data_gaps,
         {"key": "broker_sync", "reason": "Broker account sync is not implemented."},
         {"key": "quote_time", "reason": QUOTE_TIME_BOUNDARY},
-        {"key": "repo_cash_equivalent_policy", "reason": REPO_BOUNDARY},
     ])
     interpretation_boundaries = GLOBAL_BOUNDARIES.copy()
     external_driver_summary = _portfolio_external_driver_summary(positions)
@@ -702,6 +735,25 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             "total_market_value": state.metrics.total_market_value,
             "cash_available": state.metrics.cash_available,
             "repo_amount": state.metrics.repo_amount,
+            "valuation_basis": "current_quote_estimate",
+            "snapshot_valuation": {
+                "snapshot_as_of": state.snapshot.snapshot_time.isoformat(),
+                "snapshot_total_assets": state.snapshot.total_assets,
+                "snapshot_cash_available": state.snapshot.cash_available,
+                "snapshot_repo_amount": state.snapshot.repo_amount,
+                "boundary": "Snapshot values reflect the locally saved account record at snapshot time.",
+            },
+            "current_quote_estimate": {
+                "quote_retrieved_at": generated_at.isoformat(),
+                "current_enriched_market_value": state.metrics.total_market_value,
+                "cash_carried_from_snapshot": state.metrics.cash_available,
+                "repo_carried_from_snapshot": state.metrics.repo_amount,
+                "estimated_total_assets_using_current_quotes": state.metrics.estimated_total_assets_using_current_quotes,
+                "estimated_position_weight_pct": state.metrics.estimated_position_weight_pct,
+                "estimated_cash_weight_pct": state.metrics.estimated_cash_weight_pct,
+                "estimated_repo_weight_pct": state.metrics.estimated_repo_weight_pct,
+                "boundary": "Estimated total assets use system-retrieved holding prices plus cash/repo values carried from the saved snapshot; this is not broker-verified realtime total assets.",
+            },
             "repo_available_date": state.snapshot.repo_available_date.isoformat() if state.snapshot.repo_available_date else None,
             "total_position_weight": state.metrics.invested_ratio_pct,
             "cash_weight": state.metrics.cash_ratio_pct,
@@ -757,11 +809,17 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             "external_llm_called": False,
             "inactive_rules_for_ai_reasoning": [
                 "single_position_limit",
-                "theme_exposure_limit",
+                "primary_theme_limit",
                 "cash_floor",
                 "repo_cash_equivalent_policy",
             ],
-            "boundary": "Do not output discipline violations or buy/sell requirements from unconfigured limits. theme_tags do not participate in official exposure sums.",
+            "inactive_decision_rules": [
+                "single_position_limit",
+                "primary_theme_limit",
+                "cash_floor",
+                "repo_cash_equivalent_policy",
+            ],
+            "boundary": "Current context is only for account fact summary, theme-structure observation, shared external-driver organization, and data-gap identification. Disabled position, cash, and repo rules must not be used as AI action or discipline-violation grounds. theme_tags do not participate in official exposure sums.",
         },
         "missing_data": missing_data,
         "interpretation_boundaries": interpretation_boundaries,
@@ -811,9 +869,10 @@ def build_account_analysis_context() -> dict[str, Any]:
         ],
         "official_theme_exposure": packet["official_theme_exposure"],
         "related_theme_observations": packet["related_theme_observations"],
-        "external_driver_summary": packet["external_driver_summary"],
+        "external_driver_summary": _compact_external_driver_summary(packet["external_driver_summary"]),
         "data_gaps": packet["data_gaps"],
         "ai_analysis_boundary": packet["ai_analysis_boundary"],
+        "suggested_questions_for_external_llm": packet["suggested_questions_for_external_llm"],
     }
 
 
