@@ -204,6 +204,8 @@ export interface PortfolioPosition {
   position_role: string
   theme_tags: string[]
   primary_theme?: string | null
+  directions: string[]
+  risk_flags: string[]
   semantic_classification_status?: string
   semantic_classification_source?: string | null
   semantic_classification_confirmed_at?: string | null
@@ -274,6 +276,8 @@ export interface PortfolioState {
     composite_exposure_notes: string[]
     missing_data: Array<Record<string, any>>
   }
+  supported_directions: string[]
+  supported_risk_flags: string[]
   supported_theme_tags: string[]
   supported_primary_themes: string[]
   supported_position_roles: string[]
@@ -283,6 +287,8 @@ export interface HoldingSemanticSuggestion {
   symbol: string
   suggested_primary_theme?: string | null
   suggested_theme_tags: string[]
+  suggested_directions: string[]
+  suggested_risk_flags: string[]
   suggested_position_role: string
   source: string
   source_detail?: string | null
@@ -435,9 +441,12 @@ export async function createSingleAnalysisPacket(symbol: string, userQuestion = 
   return response.data
 }
 
-export async function createPortfolioAnalysisPacket(userQuestion = ''): Promise<AnalysisPacketResponse> {
+export async function createPortfolioAnalysisPacket(userQuestion = '', options: { staleDraft?: boolean } = {}): Promise<AnalysisPacketResponse> {
   const response = await client.post<AnalysisPacketResponse>('/api/analysis-packet/portfolio', null, {
-    params: userQuestion ? { user_question: userQuestion } : undefined,
+    params: {
+      ...(userQuestion ? { user_question: userQuestion } : {}),
+      ...(options.staleDraft ? { stale_draft: true } : {}),
+    },
   })
   return response.data
 }

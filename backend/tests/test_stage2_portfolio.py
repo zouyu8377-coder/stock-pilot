@@ -57,19 +57,19 @@ def test_portfolio_snapshot_valuation_and_exposures(tmp_path, monkeypatch):
     assert state.metrics.total_assets == 220000
     assert state.metrics.cash_ratio_pct == 13.64
     primary = {item.theme: item.weight_pct for item in state.metrics.primary_theme_exposures}
-    assert primary["AI_PCB"] == 45.45
-    assert primary["METAL_RESOURCE"] == 18.18
+    assert primary["PCB"] == 45.45
+    assert primary["TUNGSTEN"] == 18.18
     assert sum(primary.values()) <= 100
     assert any("000657" in note for note in state.metrics.composite_exposure_notes)
 
 
-def test_unconfirmed_theme_tags_do_not_become_official_exposure(tmp_path, monkeypatch):
+def test_unconfirmed_directions_do_not_become_official_exposure(tmp_path, monkeypatch):
     monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
     service = PortfolioService(tmp_path)
     state = service.save_snapshot(PortfolioSnapshotInput(
         cash_available=10000,
         positions=[
-            PortfolioPositionInput(symbol="002463", name="HD", quantity=100, avg_cost=80, theme_tags=["AI_PCB"]),
+            PortfolioPositionInput(symbol="002463", name="HD", quantity=100, avg_cost=80),
         ],
     ))
 
@@ -77,7 +77,7 @@ def test_unconfirmed_theme_tags_do_not_become_official_exposure(tmp_path, monkey
 
     assert "AI_PCB" not in primary
     assert "UNCLASSIFIED" in primary
-    assert any("without confirmed primary_theme" in warning for warning in state.metrics.warnings)
+    assert any("without confirmed directions" in warning for warning in state.metrics.warnings)
 
 
 def test_holding_semantic_suggestions_require_user_confirmation_and_persist(tmp_path, monkeypatch):
@@ -95,19 +95,21 @@ def test_holding_semantic_suggestions_require_user_confirmation_and_persist(tmp_
     after = service.update_holding_semantics(HoldingSemanticBatchUpdate(updates=[
         HoldingSemanticUpdate(
             symbol="002463.SZ",
-            primary_theme=suggestion.suggested_primary_theme,
-            theme_tags=suggestion.suggested_theme_tags,
+            directions=suggestion.suggested_directions,
+            risk_flags=suggestion.suggested_risk_flags,
             position_role="trend",
         )
     ])).snapshot.positions[0]
 
     assert suggestion.requires_user_confirmation is True
-    assert before.primary_theme is None
-    assert after.primary_theme == "AI_PCB"
-    assert after.theme_tags == ["AI_PCB", "HIGH_VOLATILITY"]
+    assert before.directions == []
+    assert after.directions == ["PCB"]
+    assert after.risk_flags == ["HIGH_VOLATILITY"]
+    assert after.primary_theme == "PCB"
+    assert after.theme_tags == ["PCB", "HIGH_VOLATILITY"]
     assert after.position_role == "trend"
     assert after.semantic_classification_status == "user_confirmed"
-    assert service.load_snapshot().positions[0].primary_theme == "AI_PCB"
+    assert service.load_snapshot().positions[0].directions == ["PCB"]
 
 
 def test_missing_price_does_not_fabricate_market_value_or_pnl(tmp_path, monkeypatch):

@@ -13,9 +13,11 @@ from app.api.facts import router as facts_router
 from app.api.portfolio import router as portfolio_router
 from app.core.config import settings
 
+APP_VERSION = "v3.6I.1"
+
 app = FastAPI(
     title="Stock Copilot API",
-    version="0.1.0",
+    version=APP_VERSION,
 )
 
 # 允许前端访问
@@ -50,5 +52,6 @@ async def startup_event():
 def health():
     return {
         "status": "ok",
-        "service": "stock-copilot-backend"
+        "service": "stock-copilot-backend",
+        "version": APP_VERSION,
     }

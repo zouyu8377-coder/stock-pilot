@@ -127,7 +127,17 @@ def _filter_evidence(snapshot: AnalysisSnapshot, category: EvidenceCategory) -> 
 
 
 def _external_driver_sections(symbol: str, holding: dict[str, Any] | None = None) -> dict[str, Any]:
-    context = build_external_driver_context(symbol, primary_theme=(holding or {}).get("primary_theme"))
+    try:
+        context = build_external_driver_context(
+            symbol,
+            primary_theme=(holding or {}).get("primary_theme"),
+            directions=(holding or {}).get("directions"),
+        )
+    except TypeError:
+        context = build_external_driver_context(
+            symbol,
+            primary_theme=(holding or {}).get("primary_theme"),
+        )
     evidence = [_clean_text(item) for item in context.evidence]
     return {
         "mapping": {
@@ -706,8 +716,10 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         data["quote_market_time"] = None
         data["quote_time_status"] = "unavailable"
         data["quote_time_boundary"] = QUOTE_TIME_BOUNDARY
-        data["confirmed_primary_theme"] = data.get("primary_theme")
+        data["confirmed_primary_theme"] = data.get("directions", [])[0] if data.get("directions") else data.get("primary_theme")
         data["confirmed_theme_tags"] = data.get("theme_tags", [])
+        data["confirmed_directions"] = data.get("directions", [])
+        data["confirmed_risk_flags"] = data.get("risk_flags", [])
         data["confirmed_position_role"] = data.get("position_role")
         positions.append(data)
     rule_reminders = [_evidence_dict(item) for item in snapshot.system_hypotheses]
@@ -742,7 +754,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             reminder["interpretation_limit"] = current_limit if DEFAULT_RISK_BOUNDARY in current_limit else f"{current_limit} {DEFAULT_RISK_BOUNDARY}"
     unclassified_holdings = [
         item for item in positions
-        if not item.get("confirmed_primary_theme") or str(item.get("confirmed_primary_theme")).upper() == "UNCLASSIFIED"
+        if not item.get("confirmed_directions") or str(item.get("confirmed_directions", [])[0] if item.get("confirmed_directions") else "").upper() == "UNCLASSIFIED"
     ]
     data_gaps = [
         *state.metrics.missing_data,
@@ -750,7 +762,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             {
                 "key": "holding_semantics",
                 "symbol": item.get("symbol"),
-                "reason": "Holding primary_theme is not confirmed; account theme analysis is incomplete.",
+                "reason": "Holding directions are not confirmed; account direction analysis is incomplete.",
             }
             for item in unclassified_holdings
         ],
@@ -893,22 +905,20 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
 
 
 _THEME_LABEL_MAP = {
-    "AI_PCB": "AI / PCB",
-    "AI_THEME_ETF": "AI 主题 ETF",
-    "METAL_RESOURCE": "金属资源",
+    "AI": "AI",
     "GOLD": "黄金",
     "COPPER": "铜",
     "TUNGSTEN": "钨",
-    "CASH_EQUIVALENT": "现金等价",
-    "HIGH_VOLATILITY": "高波动关联",
-    "COMPOSITE_EXPOSURE": "多重逻辑关联",
+    "PCB": "PCB",
+    "SEMICONDUCTOR_EQUIPMENT": "半导体设备",
+    "HIGH_VOLATILITY": "高波动",
     "OTHER": "其他",
     "UNCLASSIFIED": "待分类",
 }
 
-_DIRECTION_TAGS = {"AI_PCB", "AI_THEME_ETF", "METAL_RESOURCE", "GOLD", "COPPER", "TUNGSTEN", "CASH_EQUIVALENT", "OTHER"}
+_DIRECTION_TAGS = {"AI", "GOLD", "COPPER", "TUNGSTEN", "PCB", "SEMICONDUCTOR_EQUIPMENT", "OTHER"}
 _RISK_TAGS = {"HIGH_VOLATILITY"}
-_EXCLUDED_FROM_COMPACT = {"COMPOSITE_EXPOSURE", "UNCLASSIFIED"}
+_EXCLUDED_FROM_COMPACT = {"COMPOSITE_EXPOSURE", "AI_PCB", "AI_THEME_ETF", "METAL_RESOURCE", "CASH_EQUIVALENT"}
 
 _DRIVER_LABEL_MAP = {
     "comex_copper_yahoo": "COMEX 铜参考",
@@ -931,21 +941,24 @@ _ROLE_LABEL_MAP = {
     "core": "核心",
     "trend": "趋势",
     "defensive": "防御",
+    "short_term": "短线",
     "unclassified": "待分类",
 }
 
 _COMPACT_LLM_QUESTIONS = [
-    "请总结当前持仓在正式主主题下的资产暴露结构，并明确正式主题为唯一可加总口径；请分别识别关联方向与风险观察，两者均不得与正式主题重复加总。",
-    "请识别共享相同或相关外部驱动上下文的持仓，并说明这些关联仅为背景观察而非因果结论。",
-    "请列出缺失的账户记录、持仓计划、角色备注或外部事实，这些因素可能显著影响后续复核。",
-    "请将观察整理为关注区域、待补充信息，以及尚无足够依据做出判断的条目；不输出买入、卖出或调仓指令。",
-    "请说明哪些结论是情境假设而非已验证事实。",
+    "请总结当前账户的关联方向与风险观察，并明确主要方向归组按首个关联方向唯一可加总。",
+    "请识别全部关联方向中的交叉背景，例如同时关联铜与黄金的持仓；全部方向观察不可重复加总。",
+    "请单独整理风险观察，不将高波动等风险标记混同为产业或资源方向。",
+    "请识别共享外部驱动背景的持仓，并说明这些关联仅为背景观察，不构成因果结论。",
+    "请列出当前缺少的账户记录、持仓计划或外部事实，并按“重点跟踪 / 需补信息 / 暂不足判断”整理观察。",
+    "不输出买入、卖出、加仓、减仓或调仓指令。",
 ]
 
 _COMPACT_BOUNDARIES = [
     "隐私边界：本上下文由本地生成，不会自动发送给外部 AI；仅在用户主动复制、导出或提交时外传。",
     "行情时间边界：当前 A 股行情源不提供可验证市场报价时间；总资产与浮动盈亏均为系统当前取价估算。",
-    "主题口径边界：正式主题按主主题唯一加总；关联方向仅用于补充观察，不得重复统计为资产暴露。",
+    "方向口径边界：每只持仓按首个关联方向进行唯一归组；全部关联方向仅用于非加总观察，不得重复统计为资产暴露。",
+    "风险观察边界：高波动等风险标记独立于关联方向，仅作描述性观察，不构成调仓或交易建议。",
     "外部驱动边界：COMEX、汇率、ETF 或其他外部驱动仅作为关联背景，不构成因果结论、估值结论或买卖建议。",
 ]
 
@@ -962,9 +975,10 @@ def _driver_label(key: str) -> str:
     return _DRIVER_LABEL_MAP.get(key, key)
 
 
-def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
+def build_account_analysis_context(mode: str = "compact", snapshot_status_note: str | None = None) -> dict[str, Any]:
     result = build_portfolio_packet(user_question=None, persist=False)
     packet = result["packet"]
+    state = portfolio_service.get_state()
 
     if mode == "audit":
         return {
@@ -991,12 +1005,17 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
                     "portfolio_weight_pct": item.get("portfolio_weight_pct"),
                     "confirmed_primary_theme": item.get("confirmed_primary_theme"),
                     "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
+                    "confirmed_directions": item.get("confirmed_directions", []),
+                    "confirmed_risk_flags": item.get("confirmed_risk_flags", []),
                     "confirmed_position_role": item.get("confirmed_position_role"),
                     "external_driver_profile_id": None,
                     "data_status": item.get("data_status"),
                 }
                 for item in packet["holdings"]
             ],
+            "primary_direction_grouping": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
+            "all_direction_observations": packet["related_theme_observations"],
+            "risk_observations": packet["related_risk_observations"],
             "official_theme_exposure": packet["official_theme_exposure"],
             "related_theme_observations": packet["related_theme_observations"],
             "external_driver_summary": _compact_external_driver_summary(packet["external_driver_summary"]),
@@ -1032,8 +1051,9 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
     for item in packet["holdings"]:
         symbol = item.get("symbol", "")
         name = item.get("name") or symbol
+        directions = item.get("confirmed_directions", []) or ["UNCLASSIFIED"]
         symbol_name_map[symbol] = name
-        symbol_primary_map[symbol] = item.get("confirmed_primary_theme") or ""
+        symbol_primary_map[symbol] = directions[0] if directions else ""
         compact_holdings.append({
             "symbol": symbol,
             "name": name,
@@ -1046,43 +1066,75 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
             "portfolio_weight_pct": item.get("portfolio_weight_pct"),
             "confirmed_primary_theme": item.get("confirmed_primary_theme"),
             "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
+            "confirmed_directions": directions,
+            "confirmed_risk_flags": item.get("confirmed_risk_flags", []),
             "confirmed_position_role": item.get("confirmed_position_role"),
         })
 
-    # 1. Tag exposure split into direction_observations and risk_observations
-    # Keep a tag only if at least one holding with that tag has primary_theme != tag.
-    tag_aggregates: dict[str, dict[str, Any]] = {}
+    # Build primary direction grouping (additive, by directions[0])
+    primary_direction_aggregates: dict[str, dict[str, Any]] = {}
+    all_direction_aggregates: dict[str, dict[str, Any]] = {}
+    risk_flag_aggregates: dict[str, dict[str, Any]] = {}
     for item in packet["holdings"]:
         symbol = item.get("symbol", "")
-        primary = item.get("confirmed_primary_theme", "")
         mv = item.get("market_value") or 0
-        for tag in item.get("confirmed_theme_tags", []):
-            if not tag or tag in _EXCLUDED_FROM_COMPACT:
-                continue
-            entry = tag_aggregates.setdefault(tag, {"market_value": 0.0, "symbols": [], "all_same_as_primary": True})
-            entry["market_value"] += mv
-            entry["symbols"].append(symbol)
-            if tag != primary:
-                entry["all_same_as_primary"] = False
+        directions = item.get("confirmed_directions", []) or ["UNCLASSIFIED"]
+        risk_flags = item.get("confirmed_risk_flags", [])
+        # Primary grouping by directions[0]
+        if directions:
+            primary_dir = directions[0]
+            if primary_dir and primary_dir not in _EXCLUDED_FROM_COMPACT:
+                entry = primary_direction_aggregates.setdefault(primary_dir, {"market_value": 0.0, "symbols": []})
+                entry["market_value"] += mv
+                entry["symbols"].append(symbol)
+        # All directions (non-additive observation)
+        for d in directions:
+            if d and d not in _EXCLUDED_FROM_COMPACT:
+                entry = all_direction_aggregates.setdefault(d, {"market_value": 0.0, "symbols": []})
+                entry["market_value"] += mv
+                entry["symbols"].append(symbol)
+        # Risk flags
+        for flag in risk_flags:
+            if flag and flag not in _EXCLUDED_FROM_COMPACT:
+                entry = risk_flag_aggregates.setdefault(flag, {"market_value": 0.0, "symbols": []})
+                entry["market_value"] += mv
+                entry["symbols"].append(symbol)
 
     total_assets_for_wp = metrics.total_assets or 1
-    direction_observations = []
-    risk_observations = []
-    for tag, data in sorted(tag_aggregates.items(), key=lambda x: x[1]["market_value"], reverse=True):
-        if data["all_same_as_primary"]:
-            continue
+    primary_direction_grouping = []
+    for direction, data in sorted(primary_direction_aggregates.items(), key=lambda x: x[1]["market_value"], reverse=True):
         mv = data["market_value"]
         wp = mv / total_assets_for_wp * 100
-        obs = {
-            "theme": tag,
+        primary_direction_grouping.append({
+            "direction": direction,
             "market_value": round(mv, 2),
             "weight_pct": round(wp, 2),
             "symbols": sorted(set(data["symbols"])),
-        }
-        if tag in _RISK_TAGS:
-            risk_observations.append(obs)
-        elif _is_direction_tag(tag):
-            direction_observations.append(obs)
+        })
+
+    all_direction_observations = []
+    for direction, data in sorted(all_direction_aggregates.items(), key=lambda x: x[1]["market_value"], reverse=True):
+        mv = data["market_value"]
+        wp = mv / total_assets_for_wp * 100
+        all_direction_observations.append({
+            "theme": direction,
+            "direction": direction,
+            "market_value": round(mv, 2),
+            "weight_pct": round(wp, 2),
+            "symbols": sorted(set(data["symbols"])),
+        })
+
+    risk_observations = []
+    for flag, data in sorted(risk_flag_aggregates.items(), key=lambda x: x[1]["market_value"], reverse=True):
+        mv = data["market_value"]
+        wp = mv / total_assets_for_wp * 100
+        risk_observations.append({
+            "theme": flag,
+            "risk_flag": flag,
+            "market_value": round(mv, 2),
+            "weight_pct": round(wp, 2),
+            "symbols": sorted(set(data["symbols"])),
+        })
 
     # Data gaps: remove broker_sync and quote_time; keep real data gaps; add fact coverage gaps
     compact_data_gaps: list[dict[str, Any]] = []
@@ -1126,24 +1178,33 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
             "portfolio_snapshot_id": packet["meta"]["source_snapshot_id"],
             "portfolio_as_of": _iso_z(packet["meta"]["portfolio_as_of"]),
             "quote_retrieved_at": _iso_z(packet["account_overview"]["current_quote_estimate"]["quote_retrieved_at"]),
-            "symbol_name_map": symbol_name_map,
-            "symbol_primary_map": symbol_primary_map,
-            "analysis_boundaries": _COMPACT_BOUNDARIES,
-        },
+                "symbol_name_map": symbol_name_map,
+                "symbol_primary_map": symbol_primary_map,
+                "analysis_boundaries": _COMPACT_BOUNDARIES,
+                "snapshot_status_note": snapshot_status_note,
+            },
         "account_facts": account_facts,
         "holdings": compact_holdings,
-        "official_theme_exposure": packet["official_theme_exposure"],
+        "primary_direction_grouping": primary_direction_grouping,
+        "all_direction_observations": {
+            "direction_observations": all_direction_observations,
+            "boundary": "全部方向观察允许同一持仓出现在多个方向中，因此不可相互加总，也不可与主要方向归组重复加总。",
+        },
         "related_theme_observations": {
-            "direction_observations": direction_observations,
+            "direction_observations": all_direction_observations,
             "risk_observations": risk_observations,
-            "boundary": "关联方向与风险观察均不得重复计入正式主题资产暴露。",
+            "boundary": "全部方向观察允许同一持仓出现在多个方向中，因此不可相互加总，也不可与主要方向归组重复加总。",
+        },
+        "risk_observations": {
+            "risk_observations": risk_observations,
+            "boundary": "风险观察独立于关联方向，仅作描述性观察，不构成调仓或交易建议。",
         },
         "external_driver_summary": ext_summary,
         "data_gaps": compact_data_gaps,
         "ai_analysis_boundary": {
             "external_llm_called": packet["ai_analysis_boundary"]["external_llm_called"],
             "inactive_decision_rules": packet["ai_analysis_boundary"]["inactive_decision_rules"],
-            "boundary": "当前上下文仅用于账户事实汇总、主题结构观察与数据缺口识别；不输出买卖或调仓指令。",
+            "boundary": "当前上下文仅用于账户事实汇总、方向结构观察与数据缺口识别；不输出买卖或调仓指令。",
         },
         "suggested_questions_for_external_llm": _COMPACT_LLM_QUESTIONS,
     }
@@ -1317,8 +1378,9 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     meta = context["meta"]
     account = context["account_facts"]
     holdings = context["holdings"]
-    official_themes = context["official_theme_exposure"]
-    related = context["related_theme_observations"]
+    primary_direction_grouping = context.get("primary_direction_grouping", [])
+    all_directions = context.get("all_direction_observations", {})
+    risk_obs = context.get("risk_observations", {})
     ext_summary = context["external_driver_summary"]
     data_gaps = context["data_gaps"]
     questions = context["suggested_questions_for_external_llm"]
@@ -1337,17 +1399,29 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         except (TypeError, ValueError):
             return str(value)
 
+    def _fmt_signed_amount(value: Any) -> str:
+        if value is None:
+            return "-"
+        try:
+            return f"{float(value):+,.2f}"
+        except (TypeError, ValueError):
+            return str(value)
+
     lines = [
         "# Stock-Pilot 账户分析上下文",
         "",
         f"生成时间：{meta['generated_at']}",
         f"持仓快照时间：{meta.get('portfolio_as_of', '-')}",
         f"行情取数时间：{meta.get('quote_retrieved_at', '-')}",
+    ]
+    if meta.get("snapshot_status_note"):
+        lines.append(f"快照状态：{meta['snapshot_status_note']}")
+    lines.extend([
         "",
         "> 注意：系统取数时间不是可验证市场报价时间。",
         "",
         "## 分析边界",
-    ]
+    ])
     for b in meta.get("analysis_boundaries", []):
         lines.append(f"- {b}")
     lines.append("")
@@ -1368,7 +1442,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         lines.append(f"| 持仓总成本 | {_fmt_amount(account['total_cost_basis'])} |")
         pnl = account.get("total_unrealized_pnl")
         pnl_pct = account.get("total_unrealized_pnl_pct")
-        pnl_str = _fmt_amount(pnl)
+        pnl_str = _fmt_signed_amount(pnl)
         pnl_pct_str = f" ({pnl_pct:+.2f}%)" if pnl_pct is not None else ""
         lines.append(f"| 持仓累计浮动盈亏 | {pnl_str}{pnl_pct_str} |")
     if account.get("repo_amount") is not None:
@@ -1379,8 +1453,8 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     lines.extend([
         "## 当前持仓",
         "",
-        "| 标的 | 持仓数量 | 成本价 | 当前价 | 当前市值 | 浮动盈亏 | 权重 | 主主题 | 关联方向 | 角色 |",
-        "|---|---:|---:|---:|---:|---:|---:|---|---|---|",
+        "| 标的 | 持仓数量 | 成本价 | 当前价 | 当前市值 | 浮动盈亏 | 权重 | 关联方向 | 角色 |",
+        "|---|---:|---:|---:|---:|---:|---:|---|---|",
     ])
     for h in holdings:
         name = h.get("name") or h.get("symbol", "")
@@ -1391,12 +1465,8 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         pnl = h.get("unrealized_pnl")
         pnl_pct = h.get("unrealized_pnl_pct")
         weight = h.get("portfolio_weight_pct")
-        theme = _theme_label(h.get("confirmed_primary_theme") or "UNCLASSIFIED")
-        tags = [
-            _theme_label(t)
-            for t in (h.get("confirmed_theme_tags") or [])
-            if t != h.get("confirmed_primary_theme") and _is_direction_tag(t)
-        ]
+        directions = h.get("confirmed_directions", [])
+        dir_labels = [_theme_label(d) for d in directions if d and d not in _EXCLUDED_FROM_COMPACT]
         role = _ROLE_LABEL_MAP.get(str(h.get("confirmed_position_role", "")).lower(), h.get("confirmed_position_role", ""))
 
         qty_str = f"{qty:,.0f}" if qty is not None else "-"
@@ -1404,61 +1474,61 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         price_str = f"{price:,.3f}" if price is not None else "-"
         mv_str = _fmt_amount(mv)
         if pnl is not None and pnl_pct is not None:
-            pnl_str = f"{pnl:+.2f} ({pnl_pct:+.2f}%)"
+            pnl_str = f"{pnl:+,.2f} ({pnl_pct:+.2f}%)"
         elif pnl is not None:
-            pnl_str = f"{pnl:+.2f}"
+            pnl_str = f"{pnl:+,.2f}"
         else:
             pnl_str = "-"
         weight_str = f"{weight:.2f}%" if weight is not None else "-"
-        tags_str = ", ".join(tags) if tags else "-"
-        lines.append(f"| {name} | {qty_str} | {cost_str} | {price_str} | {mv_str} | {pnl_str} | {weight_str} | {theme} | {tags_str} | {role} |")
+        dir_str = ", ".join(dir_labels) if dir_labels else "-"
+        lines.append(f"| {name} | {qty_str} | {cost_str} | {price_str} | {mv_str} | {pnl_str} | {weight_str} | {dir_str} | {role} |")
     lines.append("")
 
-    # Official theme exposure
+    # Primary direction grouping
     lines.extend([
-        "## 正式主题暴露",
+        "## 主要方向归组",
         "",
-        "| 正式主题 | 当前市值 | 占总资产比例 | 组成标的 |",
+        "| 主要方向 | 当前市值 | 占总资产比例 | 组成标的 |",
         "|---|---:|---:|---|",
     ])
-    for item in official_themes:
-        theme = _theme_label(item.get("theme", ""))
+    for item in primary_direction_grouping:
+        direction = _theme_label(item.get("direction", ""))
         mv = item.get("market_value", 0)
         wp = item.get("weight_pct", 0)
         syms = _names(item.get("symbols", []))
-        lines.append(f"| {theme} | {mv:,.2f} | {wp:.2f}% | {syms} |")
+        lines.append(f"| {direction} | {mv:,.2f} | {wp:.2f}% | {syms} |")
     lines.append("")
-    lines.append("正式主题为唯一资产归属口径，可加总；关联方向不得再次并入正式主题合计。")
+    lines.append("每只持仓仅按首个关联方向进行唯一归组，因此本表可加总；其他方向仅作为关联观察。")
     lines.append("")
 
-    # Direction observations
-    directions = related.get("direction_observations", [])
-    if directions:
+    # All direction observations
+    direction_obs = all_directions.get("direction_observations", [])
+    if direction_obs:
         lines.extend([
-            "## 关联方向观察",
+            "## 全部方向观察",
             "",
-            "| 关联方向 | 当前市值 | 占总资产比例 | 关联标的 | 说明 |",
+            "| 方向 | 当前市值 | 占总资产比例 | 关联标的 | 说明 |",
             "|---|---:|---:|---|---|",
         ])
-        for item in directions:
-            tag = _theme_label(item.get("theme", ""))
+        for item in direction_obs:
+            direction = _theme_label(item.get("direction", ""))
             mv = item.get("market_value", 0)
             wp = item.get("weight_pct", 0)
             syms = _names(item.get("symbols", []))
-            note = "关联方向仅作背景观察，不得重复计入正式主题资产暴露"
-            if item.get("theme") == "GOLD":
+            note = "与方向背景相关；仅为关联观察，不构成因果或交易结论"
+            if item.get("direction") == "GOLD":
                 non_gold_syms = [s for s in item.get("symbols", []) if symbol_primary_map.get(s) != "GOLD"]
                 if non_gold_syms:
-                    note = f"其中 {_names(non_gold_syms)} 的正式主题仍归属其他类别"
-            elif item.get("theme") == "COPPER":
+                    note = f"其中 {_names(non_gold_syms)} 的主要方向归组仍归属其他类别"
+            elif item.get("direction") == "COPPER":
                 note = "与铜价背景相关；仅为关联观察，不构成因果或交易结论"
-            lines.append(f"| {tag} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
+            lines.append(f"| {direction} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
         lines.append("")
-        lines.append("关联方向不可与正式主题加总；仅为非加总观察。")
+        lines.append("全部方向观察允许同一持仓出现在多个方向中，因此不可相互加总，也不可与主要方向归组重复加总。")
         lines.append("")
 
     # Risk observations
-    risks = related.get("risk_observations", [])
+    risks = risk_obs.get("risk_observations", [])
     if risks:
         lines.extend([
             "## 风险观察",
@@ -1467,14 +1537,14 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             "|---|---:|---:|---|---|",
         ])
         for item in risks:
-            tag = _theme_label(item.get("theme", ""))
+            flag = _theme_label(item.get("risk_flag", ""))
             mv = item.get("market_value", 0)
             wp = item.get("weight_pct", 0)
             syms = _names(item.get("symbols", []))
             note = "描述性观察，不代表阈值触发或调仓建议"
-            lines.append(f"| {tag} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
+            lines.append(f"| {flag} | {mv:,.2f} | {wp:.2f}% | {syms} | {note} |")
         lines.append("")
-        lines.append("风险观察不可与正式主题或关联方向加总。")
+        lines.append("风险观察不可与主要方向归组或全部方向观察加总。")
         lines.append("")
 
     # External driver summary

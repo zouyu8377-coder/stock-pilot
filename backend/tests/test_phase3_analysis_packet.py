@@ -109,7 +109,7 @@ def _fake_stock_snapshot(symbol: str, user_question=None, persist=True):
     )
 
 
-def _unmapped_external_context(symbol: str, primary_theme=None):
+def _unmapped_external_context(symbol: str, primary_theme=None, directions=None):
     return SimpleNamespace(
         mapping_status="not_configured",
         profile_id="DEFAULT_UNMAPPED_V1",
@@ -267,7 +267,7 @@ def test_portfolio_packet_keeps_primary_theme_unique_and_risk_tags_non_additive(
     assert "system retrieval time is not market quote time" in first["markdown"]
     assert first["packet"]["account_overview"]["repo_policy"]["cash_equivalent_treatment"] == "unconfirmed"
     themes = {item["theme"] for item in first["packet"]["primary_theme_exposure"]}
-    assert themes == {"AI_PCB", "AI_THEME_ETF"}
+    assert themes == {"PCB", "AI"}
     assert "non-additive" in first["packet"]["related_risk_observations"]["boundary"]
     assert first["packet"]["official_theme_exposure"] == first["packet"]["primary_theme_exposure"]
     assert "related_theme_observations" in first["packet"]
@@ -317,9 +317,9 @@ def test_account_analysis_context_uses_confirmed_semantics_without_ai_call(tmp_p
     context = packet_service.build_account_analysis_context(mode="audit")
 
     assert context["account_facts"]["holdings_count"] == 2
-    assert {item["confirmed_primary_theme"] for item in context["holdings"]} == {"AI_PCB", "AI_THEME_ETF"}
+    assert {item["confirmed_primary_theme"] for item in context["holdings"]} == {"PCB", "AI"}
     assert context["official_theme_exposure"]
-    assert context["related_theme_observations"]["boundary"].startswith("primary_theme")
+    assert "non-additive" in context["related_theme_observations"]["boundary"]
     assert context["ai_analysis_boundary"]["external_llm_called"] is False
     assert "cash_floor" in context["ai_analysis_boundary"]["inactive_rules_for_ai_reasoning"]
     assert "shared_external_driver_observations" in context["external_driver_summary"]
@@ -400,7 +400,7 @@ def test_unmapped_symbol_gets_explicit_external_driver_default(tmp_path, monkeyp
 def test_configured_external_driver_enters_fact_and_signal_layers(tmp_path, monkeypatch):
     fetched_at = datetime(2026, 5, 24, 11, 0, 0).isoformat()
 
-    def configured_context(symbol: str, primary_theme=None):
+    def configured_context(symbol: str, primary_theme=None, directions=None):
         return SimpleNamespace(
             mapping_status="configured",
             profile_id="ZIJIN_RESOURCE_METALS_V1",

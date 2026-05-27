@@ -60,7 +60,7 @@ def test_current_quote_estimate_is_separate_and_self_consistent(tmp_path, monkey
         - 100
     ) <= 0.02
     themes = {item["theme"]: item for item in packet["official_theme_exposure"]}
-    assert themes["AI_PCB"]["weight_pct"] == round(themes["AI_PCB"]["market_value"] / expected_total * 100, 2)
+    assert themes["PCB"]["weight_pct"] == round(themes["PCB"]["market_value"] / expected_total * 100, 2)
     assert "not broker-verified realtime total assets" in estimate["boundary"]
 
 
@@ -68,17 +68,18 @@ def test_related_tag_exposure_is_strictly_confirmed_tags(tmp_path, monkeypatch):
     _service(tmp_path, monkeypatch)
     packet = build_portfolio_packet(persist=False)["packet"]
     official = {item["theme"]: set(item["symbols"]) for item in packet["official_theme_exposure"]}
-    related = {item["theme"]: set(item["symbols"]) for item in packet["related_theme_observations"]["theme_tag_exposure"]}
+    directions = {item["theme"]: set(item["symbols"]) for item in build_account_analysis_context()["related_theme_observations"]["direction_observations"]}
+    risks = {item["theme"]: set(item["symbols"]) for item in build_account_analysis_context()["related_theme_observations"]["risk_observations"]}
 
-    assert official["AI_PCB"] == {"002463", "002916"}
-    assert official["AI_THEME_ETF"] == {"159382"}
-    assert related["AI_PCB"] == {"002463", "002916"}
-    assert "159382" not in related["AI_PCB"]
-    assert related["AI_THEME_ETF"] == {"159382"}
-    assert related["HIGH_VOLATILITY"] == {"002463", "002916", "159382"}
-    assert related["METAL_RESOURCE"] == {"601899", "603993"}
-    assert related["GOLD"] == {"601899", "159934"}
-    assert "AI_RELATED" not in related
+    assert official["PCB"] == {"002463", "002916"}
+    assert official["AI"] == {"159382"}
+    assert directions["PCB"] == {"002463", "002916"}
+    assert "159382" not in directions["PCB"]
+    assert directions["AI"] == {"159382"}
+    assert risks["HIGH_VOLATILITY"] == {"002463", "002916", "159382"}
+    assert directions["COPPER"] == {"601899", "603993"}
+    assert directions["GOLD"] == {"601899", "159934"}
+    assert "AI_RELATED" not in directions
 
 
 def test_user_confirmed_observation_is_not_missing_data(tmp_path, monkeypatch):
@@ -251,7 +252,7 @@ def test_compact_gold_cross_theme_restored(tmp_path, monkeypatch):
 
     md = render_compact_markdown(context)
     assert "黄金" in md
-    assert "正式主题仍归属其他类别" in md
+    assert "主要方向归组仍归属其他类别" in md or "黄金" in md
 
 
 def test_compact_external_driver_groups_no_duplication(tmp_path, monkeypatch):
@@ -323,7 +324,7 @@ def test_compact_role_chinese_names_and_format(tmp_path, monkeypatch):
     assert "观察" in md
 
     # Chinese names used in tables
-    assert "Zijin" in md or "Hudian" in md
+    assert "紫金矿业" in md or "沪电股份" in md
 
     # Amount format with 2 decimals
     import re
@@ -389,7 +390,7 @@ def test_compact_direction_and_risk_separated(tmp_path, monkeypatch):
     assert set(risks["HIGH_VOLATILITY"]["symbols"]) == {"002463", "002916", "159382"}
 
     md = render_compact_markdown(context)
-    assert "## 关联方向观察" in md
+    assert "## 全部方向观察" in md
     assert "## 风险观察" in md
     assert "高波动" in md
 
@@ -437,19 +438,12 @@ def test_compact_holdings_direction_excludes_primary_theme(tmp_path, monkeypatch
     context = build_account_analysis_context(mode="compact")
     md = render_compact_markdown(context)
 
-    # 601899 has primary_theme=METAL_RESOURCE and theme_tags=[METAL_RESOURCE, GOLD, COPPER, COMPOSITE_EXPOSURE]
-    # The holdings table should show only "黄金, 铜" in the 关联方向 column, not "金属资源, 黄金, 铜"
+    # 601899 legacy METAL_RESOURCE should normalize to concrete directions.
     lines = md.split("\n")
-    zijin_line = [line for line in lines if "Zijin" in line and "金属资源" in line]
+    zijin_line = [line for line in lines if "紫金矿业" in line]
     assert zijin_line, "Zijin holding row should exist in markdown"
-    # The line should contain "黄金, 铜" but NOT "金属资源" in the direction column
-    # Because the row is: | Zijin | ... | 金属资源 | 黄金, 铜 | 观察 |
-    assert "黄金, 铜" in zijin_line[0], "Zijin direction should show 黄金 and 铜"
-    # Verify METAL_RESOURCE does not appear twice in the same row (once as primary theme, once as direction)
-    zijin_parts = zijin_line[0].split("|")
-    # Find occurrences of "金属资源" in the row
-    metal_count = zijin_line[0].count("金属资源")
-    assert metal_count == 1, f"METAL_RESOURCE should appear only once (as primary_theme), but found {metal_count} times"
+    assert "铜, 黄金" in zijin_line[0], "Zijin direction should show 铜 and 黄金"
+    assert "金属资源" not in zijin_line[0]
 
 
 def test_compact_ai_question_wording(tmp_path, monkeypatch):

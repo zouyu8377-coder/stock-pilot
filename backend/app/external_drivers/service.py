@@ -298,8 +298,8 @@ def _fetch_etf_driver(symbol: str, driver: ExternalDriver) -> list[EvidenceItem]
     return evidence
 
 
-def build_external_driver_context(symbol: str, primary_theme: str | None = None) -> ExternalDriverContext:
-    profile = find_profile(symbol, primary_theme)
+def build_external_driver_context(symbol: str, primary_theme: str | None = None, directions: list[str] | None = None) -> ExternalDriverContext:
+    profile = find_profile(symbol, primary_theme=primary_theme, directions=directions)
     ts_code = to_ts_code(symbol)
     if profile is None:
         return ExternalDriverContext(symbol=ts_code, **DEFAULT_UNMAPPED)

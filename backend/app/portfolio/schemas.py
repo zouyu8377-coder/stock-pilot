@@ -35,6 +35,69 @@ DEFAULT_PRIMARY_THEMES = [
     "UNCLASSIFIED",
 ]
 
+DEFAULT_DIRECTIONS = [
+    "AI",
+    "GOLD",
+    "COPPER",
+    "TUNGSTEN",
+    "PCB",
+    "SEMICONDUCTOR_EQUIPMENT",
+    "OTHER",
+    "UNCLASSIFIED",
+]
+DEFAULT_RISK_FLAGS = ["HIGH_VOLATILITY"]
+_RISK_FLAG_SET = set(DEFAULT_RISK_FLAGS)
+_LEGACY_DIRECTION_MIGRATION = {
+    "AI_PCB": ["PCB"],
+    "AI_THEME_ETF": ["AI"],
+    "METAL_RESOURCE": [],
+    "GOLD": ["GOLD"],
+    "COPPER": ["COPPER"],
+    "TUNGSTEN": ["TUNGSTEN"],
+    "PCB": ["PCB"],
+    "AI": ["AI"],
+    "SEMICONDUCTOR_EQUIPMENT": ["SEMICONDUCTOR_EQUIPMENT"],
+}
+_DEPRECATED_DIRECTION_TAGS = {"COMPOSITE_EXPOSURE", "CASH_EQUIVALENT"}
+
+
+def _migrate_directions_risk_flags(data: dict) -> dict:
+    """Populate directions/risk_flags from legacy primary_theme/theme_tags if missing."""
+    if data.get("directions"):
+        data["directions"] = [
+            direction
+            for tag in data.get("directions", [])
+            for direction in _LEGACY_DIRECTION_MIGRATION.get(str(tag).strip().upper(), [str(tag).strip().upper()])
+            if direction and direction not in _DEPRECATED_DIRECTION_TAGS
+        ]
+        data["risk_flags"] = [
+            str(flag).strip().upper()
+            for flag in data.get("risk_flags", [])
+            if str(flag).strip().upper() in _RISK_FLAG_SET
+        ]
+        return data
+    directions: list[str] = []
+    risk_flags: list[str] = []
+
+    def add_direction(tag: str) -> None:
+        for direction in _LEGACY_DIRECTION_MIGRATION.get(tag, [tag]):
+            if direction and direction not in directions and direction not in _DEPRECATED_DIRECTION_TAGS:
+                directions.append(direction)
+
+    primary = (data.get("primary_theme") or "").strip().upper()
+    if primary and primary not in {"UNCLASSIFIED", ""}:
+        add_direction(primary)
+    for tag in data.get("theme_tags", []):
+        tag = str(tag).strip().upper()
+        if tag in _RISK_FLAG_SET:
+            if tag not in risk_flags:
+                risk_flags.append(tag)
+        elif tag not in directions and tag not in {"UNCLASSIFIED", ""}:
+            add_direction(tag)
+    data["directions"] = directions
+    data["risk_flags"] = risk_flags
+    return data
+
 
 class PositionRole(str, Enum):
     CORE = "core"
@@ -94,6 +157,8 @@ class PortfolioPositionInput(BaseModel):
     position_role: PositionRole = PositionRole.OBSERVATION
     theme_tags: list[str] = Field(default_factory=list)
     primary_theme: str | None = None
+    directions: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
     semantic_classification_status: str = "unconfirmed"
     semantic_classification_source: str | None = None
     semantic_classification_confirmed_at: datetime | None = None
@@ -178,6 +243,8 @@ class PortfolioMetrics(BaseModel):
 class PortfolioState(BaseModel):
     snapshot: PortfolioSnapshot
     metrics: PortfolioMetrics
+    supported_directions: list[str] = Field(default_factory=lambda: DEFAULT_DIRECTIONS.copy())
+    supported_risk_flags: list[str] = Field(default_factory=lambda: DEFAULT_RISK_FLAGS.copy())
     supported_theme_tags: list[str] = Field(default_factory=lambda: DEFAULT_THEME_TAGS.copy())
     supported_primary_themes: list[str] = Field(default_factory=lambda: DEFAULT_PRIMARY_THEMES.copy())
     supported_position_roles: list[str] = Field(default_factory=lambda: [item.value for item in PositionRole])
@@ -187,6 +254,8 @@ class HoldingSemanticSuggestion(BaseModel):
     symbol: str
     suggested_primary_theme: str | None = None
     suggested_theme_tags: list[str] = Field(default_factory=list)
+    suggested_directions: list[str] = Field(default_factory=list)
+    suggested_risk_flags: list[str] = Field(default_factory=list)
     suggested_position_role: PositionRole = PositionRole.OBSERVATION
     source: str = "system_symbol_mapping"
     source_detail: str | None = None
@@ -198,6 +267,8 @@ class HoldingSemanticUpdate(BaseModel):
     symbol: str
     primary_theme: str | None = None
     theme_tags: list[str] = Field(default_factory=list)
+    directions: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
     position_role: PositionRole = PositionRole.OBSERVATION
 
 
@@ -250,6 +321,8 @@ class TradeSimulationRequest(BaseModel):
     position_role: PositionRole = PositionRole.OBSERVATION
     theme_tags: list[str] = Field(default_factory=list)
     primary_theme: str | None = None
+    directions: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
 
 
 class TradeSimulationResult(BaseModel):

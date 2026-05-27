@@ -56,9 +56,9 @@ def test_closure_synthetic_primary_theme_exposure_is_unique(tmp_path, monkeypatc
     packet = build_portfolio_packet(persist=False)["packet"]
     exposure = {item["theme"]: set(item["symbols"]) for item in packet["official_theme_exposure"]}
 
-    assert exposure["METAL_RESOURCE"] == {"601899", "603993"}
-    assert exposure["AI_PCB"] == {"002463", "002916"}
-    assert exposure["AI_THEME_ETF"] == {"159382"}
+    assert exposure["COPPER"] == {"601899", "603993"}
+    assert exposure["PCB"] == {"002463", "002916"}
+    assert exposure["AI"] == {"159382"}
     assert exposure["GOLD"] == {"159934"}
     assert "601899" not in exposure["GOLD"]
     assert packet["related_theme_observations"]["theme_tag_exposure"]

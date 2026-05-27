@@ -35,27 +35,34 @@ from app.portfolio.schemas import (
     TradeSide,
     TradeSimulationRequest,
     TradeSimulationResult,
+    _migrate_directions_risk_flags,
 )
 
 
 SEMANTIC_SUGGESTIONS: dict[str, dict[str, Any]] = {
     "601899": {
-        "primary_theme": "METAL_RESOURCE",
-        "theme_tags": ["METAL_RESOURCE", "GOLD", "COPPER"],
-        "note": (
-            "Zijin Mining is associated with both resource metals and gold. primary_theme is used only for "
-            "one official account attribution; keep the other association in theme_tags."
-        ),
+        "directions": ["COPPER", "GOLD"],
+        "risk_flags": [],
+        "note": "Zijin Mining: directions ordered as [COPPER, GOLD].",
     },
-    "603993": {"primary_theme": "METAL_RESOURCE", "theme_tags": ["METAL_RESOURCE", "COPPER"]},
-    "002463": {"primary_theme": "AI_PCB", "theme_tags": ["AI_PCB", "HIGH_VOLATILITY"]},
-    "002916": {"primary_theme": "AI_PCB", "theme_tags": ["AI_PCB", "HIGH_VOLATILITY"]},
-    "159382": {"primary_theme": "AI_THEME_ETF", "theme_tags": ["AI_THEME_ETF", "HIGH_VOLATILITY"]},
-    "159934": {"primary_theme": "GOLD", "theme_tags": ["GOLD"]},
-    "000657": {
-        "primary_theme": "TUNGSTEN",
-        "theme_tags": ["TUNGSTEN", "METAL_RESOURCE", "AI_PCB"],
-    },
+    "603993": {"directions": ["COPPER"], "risk_flags": []},
+    "002463": {"directions": ["PCB"], "risk_flags": ["HIGH_VOLATILITY"]},
+    "002916": {"directions": ["PCB"], "risk_flags": ["HIGH_VOLATILITY"]},
+    "159382": {"directions": ["AI"], "risk_flags": ["HIGH_VOLATILITY"]},
+    "159934": {"directions": ["GOLD"], "risk_flags": []},
+    "159516": {"directions": ["SEMICONDUCTOR_EQUIPMENT"], "risk_flags": []},
+    "000657": {"directions": ["TUNGSTEN"], "risk_flags": []},
+}
+
+CANONICAL_SECURITY_NAMES: dict[str, str] = {
+    "601899": "紫金矿业",
+    "603993": "洛阳钼业",
+    "002463": "沪电股份",
+    "002916": "深南电路",
+    "159382": "创业板人工智能 ETF",
+    "159934": "黄金 ETF",
+    "159516": "半导体设备 ETF",
+    "000657": "中钨高新",
 }
 
 
@@ -76,6 +83,41 @@ def _dedupe_tags(tags: list[str]) -> list[str]:
             seen.add(clean)
             result.append(clean)
     return result
+
+
+def _sync_legacy_fields(data: dict) -> dict:
+    """Populate legacy primary_theme/theme_tags from directions/risk_flags."""
+    directions = data.get("directions", [])
+    risk_flags = data.get("risk_flags", [])
+    deprecated_tags = [
+        tag for tag in data.get("theme_tags", [])
+        if str(tag).strip().upper() == "COMPOSITE_EXPOSURE"
+    ]
+    data["primary_theme"] = directions[0] if directions else None
+    data["theme_tags"] = [*directions, *risk_flags, *deprecated_tags]
+    return data
+
+
+def _canonical_name(symbol: str, current: str = "") -> str:
+    return CANONICAL_SECURITY_NAMES.get(_compact_symbol(symbol), current or "")
+
+
+def _normalize_position_semantics(data: dict) -> dict:
+    legacy_primary = str(data.get("primary_theme") or "").strip().upper()
+    legacy_tags = {str(tag).strip().upper() for tag in data.get("theme_tags", [])}
+    had_new_directions = bool(data.get("directions"))
+    _migrate_directions_risk_flags(data)
+    compact = _compact_symbol(data.get("symbol", ""))
+    suggestion = SEMANTIC_SUGGESTIONS.get(compact)
+    if suggestion and (
+        not had_new_directions
+        and (legacy_primary in {"AI_PCB", "AI_THEME_ETF", "METAL_RESOURCE"} or legacy_tags & {"AI_PCB", "AI_THEME_ETF", "METAL_RESOURCE", "COMPOSITE_EXPOSURE"})
+    ):
+        data["directions"] = suggestion.get("directions", [])
+        data["risk_flags"] = suggestion.get("risk_flags", data.get("risk_flags", []))
+    data["name"] = _canonical_name(data.get("symbol", ""), data.get("name", ""))
+    _sync_legacy_fields(data)
+    return data
 
 
 class PortfolioService:
@@ -102,10 +144,15 @@ class PortfolioService:
         data = self._read_json(self.portfolio_path, None)
         if not data:
             return PortfolioSnapshot(portfolio_id=DEFAULT_PORTFOLIO_ID, cash_available=0, positions=[])
+        for p in data.get("positions", []):
+            _normalize_position_semantics(p)
         return PortfolioSnapshot(**data)
 
     def save_snapshot(self, payload: PortfolioSnapshotInput) -> PortfolioState:
-        snapshot = PortfolioSnapshot(**payload.model_dump())
+        dumped = payload.model_dump()
+        for p in dumped.get("positions", []):
+            _normalize_position_semantics(p)
+        snapshot = PortfolioSnapshot(**dumped)
         self._write_json(self.portfolio_path, snapshot.model_dump(mode="json"))
         self._write_json(self.snapshots_dir / f"{snapshot.snapshot_id}.json", snapshot.model_dump(mode="json"))
         return self.get_state()
@@ -122,13 +169,17 @@ class PortfolioService:
                 symbol=symbol,
                 suggested_primary_theme=None,
                 suggested_theme_tags=[],
+                suggested_directions=[],
+                suggested_risk_flags=[],
                 source_detail="No reviewed account semantic mapping for this symbol.",
                 note="Please classify this holding manually before relying on account-level theme exposure.",
             )
         return HoldingSemanticSuggestion(
             symbol=symbol,
-            suggested_primary_theme=suggestion["primary_theme"],
-            suggested_theme_tags=suggestion["theme_tags"],
+            suggested_primary_theme=suggestion.get("primary_theme"),
+            suggested_theme_tags=suggestion.get("theme_tags", []),
+            suggested_directions=suggestion.get("directions", []),
+            suggested_risk_flags=suggestion.get("risk_flags", []),
             source_detail=f"Reviewed static mapping for {compact}.",
             note=suggestion.get("note"),
         )
@@ -148,8 +199,9 @@ class PortfolioService:
             data = position.model_dump()
             update = updates.get(_compact_symbol(position.symbol))
             if update:
-                data["primary_theme"] = (update.primary_theme or "UNCLASSIFIED").strip().upper()
-                data["theme_tags"] = _dedupe_tags(update.theme_tags)
+                data["directions"] = _dedupe_tags(update.directions)
+                data["risk_flags"] = _dedupe_tags(update.risk_flags)
+                _sync_legacy_fields(data)
                 data["position_role"] = update.position_role
                 data["semantic_classification_status"] = "user_confirmed"
                 data["semantic_classification_source"] = "manual_confirmed_from_system_suggestion"
@@ -202,7 +254,7 @@ class PortfolioService:
             pnl = (price - base.avg_cost) * base.quantity if can_pnl else None
             pnl_pct = ((price / base.avg_cost - 1) * 100) if can_pnl else None
             data = base.model_dump()
-            data["name"] = base.name or quote_name
+            data["name"] = _canonical_name(base.symbol, base.name or quote_name)
             positions.append(PortfolioPosition(
                 **data,
                 market_price=_round(price, 4) if price is not None else None,
@@ -221,7 +273,10 @@ class PortfolioService:
         return snapshot
 
     def compute_metrics(self, snapshot: PortfolioSnapshot) -> PortfolioMetrics:
-        total_market_value = sum(p.market_value or 0 for p in snapshot.positions)
+        # Filter positions with positive quantity for asset-metric aggregations
+        active_positions = [p for p in snapshot.positions if p.quantity is not None and p.quantity > 0]
+
+        total_market_value = sum(p.market_value or 0 for p in active_positions)
         current_quote_total_assets = total_market_value + snapshot.cash_available + snapshot.repo_amount
         total_assets = current_quote_total_assets
         total_assets = max(total_assets, 0.01)
@@ -239,18 +294,21 @@ class PortfolioService:
         for p in snapshot.positions:
             if p.missing_data:
                 missing_data.append({"symbol": p.symbol, "fields": p.missing_data, "data_status": p.data_status})
+            # Only active positions participate in weight/exposure/cost aggregations
+            if p.quantity is None or p.quantity <= 0:
+                continue
             market_value = p.market_value or 0
             weight = market_value / total_assets * 100
             position_weights.append({"symbol": p.symbol, "name": p.name, "weight_pct": _round(weight), "market_value": p.market_value, "data_status": p.data_status})
             pnl_contributors.append({"symbol": p.symbol, "name": p.name, "unrealized_pnl": p.unrealized_pnl, "unrealized_pnl_pct": p.unrealized_pnl_pct, "data_status": p.data_status})
-            primary_theme = (p.primary_theme or "UNCLASSIFIED").strip().upper()
-            entry = primary.setdefault(primary_theme, {"market_value": 0.0, "symbols": []})
+            primary_direction = (p.directions[0] if p.directions else "UNCLASSIFIED").strip().upper()
+            entry = primary.setdefault(primary_direction, {"market_value": 0.0, "symbols": []})
             entry["market_value"] += market_value
             entry["symbols"].append(p.symbol)
-            for tag in _dedupe_tags(p.theme_tags):
-                if tag == "UNCLASSIFIED":
+            for flag in _dedupe_tags(p.risk_flags):
+                if flag == "UNCLASSIFIED":
                     continue
-                risk_entry = risk_tags.setdefault(tag, {"market_value": 0.0, "symbols": []})
+                risk_entry = risk_tags.setdefault(flag, {"market_value": 0.0, "symbols": []})
                 risk_entry["market_value"] += market_value
                 risk_entry["symbols"].append(p.symbol)
             if "COMPOSITE_EXPOSURE" in set(p.theme_tags):
@@ -278,7 +336,7 @@ class PortfolioService:
         ]
 
         warnings = []
-        for p in snapshot.positions:
+        for p in active_positions:
             limit = p.target_max_weight or snapshot.risk_limits.max_position_weight
             weight = (p.market_value or 0) / total_assets * 100
             if weight > limit:
@@ -292,12 +350,12 @@ class PortfolioService:
 
         unclassified = [
             p.symbol for p in snapshot.positions
-            if not p.primary_theme or str(p.primary_theme).strip().upper() == "UNCLASSIFIED"
+            if not p.directions or str(p.directions[0]).strip().upper() == "UNCLASSIFIED"
         ]
         warnings = []
         if unclassified:
             warnings.append(
-                "There are holdings without confirmed primary_theme; account theme exposure is incomplete. "
+                "There are holdings without confirmed directions; account direction exposure is incomplete. "
                 f"Please confirm holding semantics first: {', '.join(unclassified)}."
             )
 
@@ -399,6 +457,8 @@ class PortfolioService:
                         position_role=p.position_role,
                         theme_tags=request.theme_tags or p.theme_tags,
                         primary_theme=request.primary_theme or p.primary_theme,
+                        directions=request.directions or p.directions,
+                        risk_flags=request.risk_flags or p.risk_flags,
                         user_plan=p.user_plan,
                         invalid_condition=p.invalid_condition,
                         target_max_weight=p.target_max_weight,
@@ -416,6 +476,8 @@ class PortfolioService:
                 position_role=request.position_role,
                 theme_tags=request.theme_tags,
                 primary_theme=request.primary_theme,
+                directions=request.directions,
+                risk_flags=request.risk_flags,
                 user_plan=request.reason,
             ))
         if not found and request.side == TradeSide.SELL:
@@ -426,8 +488,8 @@ class PortfolioService:
         after = self.compute_metrics(after_snapshot)
         risk_notes = []
         matching = [p for p in after_snapshot.positions if _compact_symbol(p.symbol) == _compact_symbol(request.symbol)]
-        if matching and len(set(matching[0].theme_tags)) > 1:
-            risk_notes.append(f"{request.symbol} 同时具有 {', '.join(matching[0].theme_tags)} 相关性，该操作不是分散风险，而是在已有主题交叉处增加弹性。")
+        if matching and len(set(matching[0].directions)) > 1:
+            risk_notes.append(f"{request.symbol} 同时具有 {', '.join(matching[0].directions)} 相关性，该操作不是分散风险，而是在已有主题交叉处增加弹性。")
         if request.side == TradeSide.BUY and trade_value > state.snapshot.cash_available:
             risk_notes.append("Buy simulation amount exceeds current cash_available; this is a risk reminder only and does not change the saved portfolio.")
         if request.planned:

@@ -360,29 +360,36 @@ class PortfolioImportService:
             if row_errors:
                 errors.extend(row_errors)
                 continue
-            positions.append(PortfolioPositionInput(
-                symbol=row.normalized_symbol or "",
-                name=row.normalized_name or row.raw_name_text,
-                quantity=float(row.quantity or 0),
-                available_quantity=row.available_quantity,
-                avg_cost=float(row.avg_cost or 0),
-                broker_screenshot_price=row.broker_screenshot_price,
-                broker_screenshot_price_source=confirmed_source_name,
-                broker_screenshot_price_time=None,
-                broker_screenshot_market_value=row.broker_screenshot_market_value,
-                broker_screenshot_unrealized_pnl=row.broker_screenshot_unrealized_pnl,
-                broker_screenshot_unrealized_pnl_pct=row.broker_screenshot_unrealized_pnl_pct,
-                source_type="manual_account",
-                source_name=confirmed_source_name,
-                import_draft_id=draft.draft_id,
-                confirmed_by_user=True,
-                position_role=row.position_role or "observation",
-                primary_theme=row.primary_theme,
-                theme_tags=row.theme_tags,
-                user_plan=row.user_plan or "",
-                invalid_condition=row.invalid_condition,
-                target_max_weight=row.target_max_weight,
-            ))
+            directions = row.directions or row.theme_tags or []
+            risk_flags = row.risk_flags or []
+            pos_data = {
+                "symbol": row.normalized_symbol or "",
+                "name": row.normalized_name or row.raw_name_text,
+                "quantity": float(row.quantity or 0),
+                "available_quantity": row.available_quantity,
+                "avg_cost": float(row.avg_cost or 0),
+                "broker_screenshot_price": row.broker_screenshot_price,
+                "broker_screenshot_price_source": confirmed_source_name,
+                "broker_screenshot_price_time": None,
+                "broker_screenshot_market_value": row.broker_screenshot_market_value,
+                "broker_screenshot_unrealized_pnl": row.broker_screenshot_unrealized_pnl,
+                "broker_screenshot_unrealized_pnl_pct": row.broker_screenshot_unrealized_pnl_pct,
+                "source_type": "manual_account",
+                "source_name": confirmed_source_name,
+                "import_draft_id": draft.draft_id,
+                "confirmed_by_user": True,
+                "position_role": row.position_role or "observation",
+                "primary_theme": row.primary_theme,
+                "theme_tags": row.theme_tags,
+                "directions": directions,
+                "risk_flags": risk_flags,
+                "user_plan": row.user_plan or "",
+                "invalid_condition": row.invalid_condition,
+                "target_max_weight": row.target_max_weight,
+            }
+            from app.portfolio.service import _sync_legacy_fields
+            _sync_legacy_fields(pos_data)
+            positions.append(PortfolioPositionInput(**pos_data))
         if errors:
             raise ValueError("；".join(errors))
         now = datetime.utcnow()

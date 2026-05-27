@@ -26,6 +26,8 @@ type ManualRow = {
   position_role: string
   primary_theme: string
   theme_tags: string[]
+  directions: string[]
+  risk_flags: string[]
   user_plan: string
   invalid_condition: string
   target_max_weight: number | null
@@ -35,9 +37,7 @@ type ManualRow = {
   quoteLoading: boolean
 }
 
-const primaryThemes = ['AI_PCB', 'AI_THEME_ETF', 'METAL_RESOURCE', 'GOLD', 'TUNGSTEN', 'CASH_EQUIVALENT', 'OTHER', 'UNCLASSIFIED']
-const directionTags = ['AI_PCB', 'AI_THEME_ETF', 'METAL_RESOURCE', 'GOLD', 'COPPER', 'TUNGSTEN', 'CASH_EQUIVALENT', 'OTHER', 'UNCLASSIFIED']
-const nonDirectionTags = new Set(['HIGH_VOLATILITY', 'COMPOSITE_EXPOSURE', 'UNCLASSIFIED'])
+const supportedDirections = ['COPPER', 'GOLD', 'PCB', 'AI', 'SEMICONDUCTOR_EQUIPMENT', 'TUNGSTEN', 'OTHER', 'UNCLASSIFIED']
 const positionRoles = ['core', 'trend', 'defensive', 'short_term', 'observation', 'unclassified']
 
 const expanded = ref(false)
@@ -59,6 +59,8 @@ const packetMarkdown = ref('')
 const packetJson = ref('')
 const packetCopied = ref(false)
 const packetLoading = ref(false)
+const contextDirtyPrompt = ref(false)
+const savedDraftFingerprint = ref('')
 
 const editingTagsRowId = ref('')
 const tagDrafts = ref<Record<string, string>>({})
@@ -95,39 +97,43 @@ const roleLabelMap: Record<string, string> = {
 const roleLabel = (key: string) => roleLabelMap[key] || key
 
 const themeLabelMap: Record<string, string> = {
-  AI_PCB: 'AI / PCB',
-  AI_THEME_ETF: 'AI 主题 ETF',
-  METAL_RESOURCE: '金属资源',
+  AI: 'AI',
   GOLD: '黄金',
   COPPER: '铜',
   TUNGSTEN: '钨',
-  CASH_EQUIVALENT: '现金等价',
+  PCB: 'PCB',
+  SEMICONDUCTOR_EQUIPMENT: '半导体设备',
   OTHER: '其他',
   UNCLASSIFIED: '待分类',
   HIGH_VOLATILITY: '高波动',
-  COMPOSITE_EXPOSURE: '复合关联',
 }
 const themeLabel = (key: string) => themeLabelMap[key] || key
 const normalizeTag = (value: string) => value.trim().replace(/\s+/g, '_').toUpperCase()
-const isDirectionTagForRow = (row: ManualRow, tag: string) =>
-  Boolean(tag) && tag !== row.primary_theme && !nonDirectionTags.has(tag)
-const directionTagsForRow = (row: ManualRow) =>
-  row.theme_tags.filter((tag) => isDirectionTagForRow(row, tag))
-const selectableDirectionTagsForRow = (row: ManualRow) =>
-  Array.from(new Set([...directionTags, ...directionTagsForRow(row)])).filter((tag) => tag !== row.primary_theme)
+const selectableDirectionsForRow = (row: ManualRow) =>
+  Array.from(new Set([...supportedDirections, ...row.directions])).filter((d) => !row.directions.includes(d))
+
+const canonicalNames: Record<string, string> = {
+  '601899': '紫金矿业',
+  '603993': '洛阳钼业',
+  '002463': '沪电股份',
+  '002916': '深南电路',
+  '159382': '创业板人工智能 ETF',
+  '159934': '黄金 ETF',
+  '159516': '半导体设备 ETF',
+  '000657': '中钨高新',
+}
 
 const marketBadge = (symbol: string) => {
   const code = symbol.split('.')[0]
   if (code.startsWith('6')) return '沪'
-  if (code.startsWith('0') || code.startsWith('3')) return '深'
+  if (code.startsWith('0') || code.startsWith('1') || code.startsWith('3')) return '深'
   return ''
 }
 
 const rowShortName = (row: ManualRow) => {
-  const name = row.name || ''
-  if (name.includes('创业板人工智能ETF')) return '创业板人工智能 ETF'
-  if (name.includes('黄金ETF')) return '黄金 ETF'
-  return name
+  const code = compactSymbol(row.symbol)
+  const name = canonicalNames[code] || row.name || ''
+  return name.replace(/^(XD|XR|DR)/i, '')
 }
 
 const quotePrice = (row: ManualRow) => row.quote?.price ?? null
@@ -149,9 +155,32 @@ const computedTotalAssets = computed(() =>
 const cashRatio = computed(() => computedTotalAssets.value ? Number(accountDraft.value.cash_available || 0) / computedTotalAssets.value * 100 : 0)
 const investedRatio = computed(() => computedTotalAssets.value ? totalMarketValue.value / computedTotalAssets.value * 100 : 0)
 const validRows = computed(() => manualRows.value.filter((row) => row.symbol && rowQuantity(row) > 0 && rowAvgCost(row) > 0))
+const draftFingerprint = computed(() => JSON.stringify({
+  cash_available: Number(accountDraft.value.cash_available || 0),
+  repo_amount: Number(accountDraft.value.repo_amount || 0),
+  risk_limits: {
+    max_position_weight: Number(accountDraft.value.max_position_weight || 35),
+    max_theme_weight: Number(accountDraft.value.max_theme_weight || 50),
+    min_cash_ratio: Number(accountDraft.value.min_cash_ratio || 5),
+  },
+  positions: validRows.value.map((row) => ({
+    symbol: compactSymbol(row.symbol),
+    name: rowShortName(row),
+    quantity: Number(row.quantity || 0),
+    available_quantity: row.available_quantity ?? null,
+    avg_cost: Number(row.avg_cost || 0),
+    directions: row.directions,
+    risk_flags: row.risk_flags,
+    position_role: row.position_role || 'observation',
+    user_plan: row.user_plan || '',
+    invalid_condition: row.invalid_condition || null,
+    target_max_weight: row.target_max_weight ?? null,
+  })),
+}))
+const isDirty = computed(() => Boolean(savedDraftFingerprint.value) && draftFingerprint.value !== savedDraftFingerprint.value)
 
 const riskObservationSummary = computed(() => {
-  const highVolRows = manualRows.value.filter((row) => row.theme_tags.includes('HIGH_VOLATILITY'))
+  const highVolRows = manualRows.value.filter((row) => row.risk_flags.includes('HIGH_VOLATILITY'))
   if (!highVolRows.length) return ''
   const names = highVolRows.map((row) => rowShortName(row) || compactSymbol(row.symbol)).join('、')
   return `风险观察：高波动关联持仓包括 ${names}。`
@@ -160,14 +189,16 @@ const riskObservationSummary = computed(() => {
 const newRow = (position?: PortfolioPosition): ManualRow => ({
   row_id: rowKey(),
   symbol: position?.symbol || '',
-  name: position?.name || '',
-  query: position?.symbol ? `${position.symbol} ${position.name || ''}`.trim() : '',
+  name: position?.symbol ? (canonicalNames[compactSymbol(position.symbol)] || position?.name || '') : '',
+  query: position?.symbol ? `${compactSymbol(position.symbol)} ${canonicalNames[compactSymbol(position.symbol)] || position.name || ''}`.trim() : '',
   quantity: position?.quantity ?? null,
   available_quantity: position?.available_quantity ?? position?.quantity ?? null,
   avg_cost: position?.avg_cost ?? null,
   position_role: position?.position_role || 'observation',
   primary_theme: position?.primary_theme || '',
   theme_tags: [...(position?.theme_tags || [])],
+  directions: [...(position?.directions || [])],
+  risk_flags: [...(position?.risk_flags || [])],
   user_plan: position?.user_plan || '',
   invalid_condition: position?.invalid_condition || '',
   target_max_weight: position?.target_max_weight ?? null,
@@ -185,9 +216,6 @@ const newRow = (position?: PortfolioPosition): ManualRow => ({
   quoteLoading: false,
 })
 
-const hasValidDirection = (row: ManualRow) =>
-  row.theme_tags.some((t) => isDirectionTagForRow(row, t))
-
 const loadSuggestions = async () => {
   const items = await getPortfolioSemanticSuggestions()
   suggestions.value = Object.fromEntries(items.map((item) => [compactSymbol(item.symbol), item]))
@@ -196,11 +224,11 @@ const loadSuggestions = async () => {
 const applySuggestionToRow = (row: ManualRow) => {
   const suggestion = suggestionFor(row)
   if (!suggestion) return
-  if (!row.primary_theme) {
-    row.primary_theme = suggestion.suggested_primary_theme || 'UNCLASSIFIED'
+  if (!row.directions.length) {
+    row.directions = [...(suggestion.suggested_directions || [])]
   }
-  if (!hasValidDirection(row)) {
-    row.theme_tags = [...(suggestion.suggested_theme_tags || [])]
+  if (!row.risk_flags.length) {
+    row.risk_flags = [...(suggestion.suggested_risk_flags || [])]
   }
   if (!row.position_role) {
     row.position_role = suggestion.suggested_position_role || 'observation'
@@ -223,6 +251,8 @@ const load = async () => {
       applySuggestionToRow(row)
     })
     await Promise.all(manualRows.value.filter((row) => row.symbol).map(loadQuoteForRow))
+    savedDraftFingerprint.value = draftFingerprint.value
+    contextDirtyPrompt.value = false
   } finally {
     loading.value = false
   }
@@ -251,8 +281,8 @@ const loadQuoteForRow = async (row: ManualRow) => {
   row.quoteLoading = true
   try {
     row.quote = await getStockQuote(row.symbol)
-    row.name = row.quote.name || row.name
-    row.query = `${row.name || ''}`.trim()
+    row.name = canonicalNames[compactSymbol(row.symbol)] || row.quote.name || row.name
+    row.query = `${compactSymbol(row.symbol)} ${rowShortName(row)}`.trim()
   } finally {
     row.quoteLoading = false
   }
@@ -260,8 +290,8 @@ const loadQuoteForRow = async (row: ManualRow) => {
 
 const chooseMatch = async (row: ManualRow, match: StockSearchItem) => {
   row.symbol = match.symbol
-  row.name = match.name
-  row.query = `${match.name}`
+  row.name = canonicalNames[compactSymbol(match.symbol)] || match.name
+  row.query = `${compactSymbol(match.symbol)} ${row.name}`
   rowMatches.value = []
   activeRowId.value = ''
   await loadQuoteForRow(row)
@@ -278,19 +308,37 @@ const removeRow = (rowId: string) => {
   if (!manualRows.value.length) addRow()
 }
 
-const toggleTag = (row: ManualRow, tag: string) => {
-  row.theme_tags = row.theme_tags.includes(tag)
-    ? row.theme_tags.filter((item) => item !== tag)
-    : [...row.theme_tags, tag]
+const toggleDirection = (row: ManualRow, tag: string) => {
+  row.directions = row.directions.includes(tag)
+    ? row.directions.filter((item) => item !== tag)
+    : [...row.directions, tag]
 }
 
-const addCustomTag = (row: ManualRow) => {
+const moveDirection = (row: ManualRow, index: number, delta: number) => {
+  const newIndex = index + delta
+  if (newIndex < 0 || newIndex >= row.directions.length) return
+  const arr = [...row.directions]
+  ;[arr[index], arr[newIndex]] = [arr[newIndex], arr[index]]
+  row.directions = arr
+}
+
+const removeDirection = (row: ManualRow, tag: string) => {
+  row.directions = row.directions.filter((t) => t !== tag)
+}
+
+const addCustomDirection = (row: ManualRow) => {
   const tag = normalizeTag(tagDrafts.value[row.row_id] || '')
-  if (!tag || tag === row.primary_theme) return
-  if (!row.theme_tags.includes(tag)) {
-    row.theme_tags = [...row.theme_tags, tag]
+  if (!tag) return
+  if (!row.directions.includes(tag)) {
+    row.directions = [...row.directions, tag]
   }
   tagDrafts.value[row.row_id] = ''
+}
+
+const toggleRiskFlag = (row: ManualRow, flag: string) => {
+  row.risk_flags = row.risk_flags.includes(flag)
+    ? row.risk_flags.filter((f) => f !== flag)
+    : [...row.risk_flags, flag]
 }
 
 const toggleTagEdit = (rowId: string) => {
@@ -316,8 +364,8 @@ const saveManualPortfolio = async () => {
         min_cash_ratio: Number(accountDraft.value.min_cash_ratio || 5),
       },
       positions: validRows.value.map((row) => ({
-        symbol: row.symbol,
-        name: row.name,
+        symbol: compactSymbol(row.symbol),
+        name: rowShortName(row),
         quantity: Number(row.quantity || 0),
         available_quantity: row.available_quantity ?? null,
         avg_cost: Number(row.avg_cost || 0),
@@ -325,11 +373,13 @@ const saveManualPortfolio = async () => {
         source_name: 'user_manual_entry',
         confirmed_by_user: true,
         position_role: row.position_role || 'observation',
-        theme_tags: row.theme_tags,
-        primary_theme: row.primary_theme || null,
-        semantic_classification_status: row.primary_theme ? 'user_confirmed' : 'unconfirmed',
-        semantic_classification_source: row.primary_theme ? 'manual_confirmed_from_system_suggestion' : null,
-        semantic_classification_confirmed_at: row.primary_theme ? new Date().toISOString() : null,
+        theme_tags: [...row.directions, ...row.risk_flags],
+        primary_theme: row.directions[0] || null,
+        directions: row.directions,
+        risk_flags: row.risk_flags,
+        semantic_classification_status: row.directions.length ? 'user_confirmed' : 'unconfirmed',
+        semantic_classification_source: row.directions.length ? 'manual_confirmed_from_system_suggestion' : null,
+        semantic_classification_confirmed_at: row.directions.length ? new Date().toISOString() : null,
         user_plan: row.user_plan || '',
         invalid_condition: row.invalid_condition || null,
         target_max_weight: row.target_max_weight ?? null,
@@ -338,10 +388,13 @@ const saveManualPortfolio = async () => {
     await loadSuggestions()
     manualRows.value = state.value.snapshot.positions.length ? state.value.snapshot.positions.map(newRow) : [newRow()]
     manualRows.value.forEach((row) => {
-      if (!row.primary_theme && row.symbol) {
+      if (!row.directions.length && row.symbol) {
         applySuggestionToRow(row)
       }
     })
+    await Promise.all(manualRows.value.filter((row) => row.symbol).map(loadQuoteForRow))
+    savedDraftFingerprint.value = draftFingerprint.value
+    contextDirtyPrompt.value = false
     saveNotice.value = '已保存为正式本地组合快照。'
   } catch (error: any) {
     saveError.value = error?.response?.data?.detail || error?.message || '保存失败'
@@ -362,15 +415,35 @@ const buildSnapshot = async () => {
   }, null, 2)
 }
 
-const buildPortfolioPacket = async () => {
+const generatePortfolioPacket = async (staleDraft = false) => {
   packetLoading.value = true
   packetCopied.value = false
   try {
-    const result = await createPortfolioAnalysisPacket()
+    const result = await createPortfolioAnalysisPacket('', { staleDraft })
     packetMarkdown.value = result.markdown
     packetJson.value = JSON.stringify(result.packet, null, 2)
+    contextDirtyPrompt.value = false
   } finally {
     packetLoading.value = false
+  }
+}
+
+const buildPortfolioPacket = async () => {
+  if (isDirty.value) {
+    contextDirtyPrompt.value = true
+    return
+  }
+  await generatePortfolioPacket(false)
+}
+
+const generateSavedSnapshotPacket = async () => {
+  await generatePortfolioPacket(true)
+}
+
+const saveAndGeneratePacket = async () => {
+  await saveManualPortfolio()
+  if (!saveError.value) {
+    await generatePortfolioPacket(false)
   }
 }
 
@@ -437,20 +510,25 @@ onMounted(load)
             </button>
           </div>
         </div>
+        <div v-if="isDirty" class="rounded border border-warning/50 bg-warning/10 p-2 text-xs text-warning">
+          存在未保存修改；账户上下文将基于最近一次已保存快照生成。
+        </div>
+        <div v-else-if="savedDraftFingerprint" class="text-xs text-muted-foreground">
+          已保存
+        </div>
 
         <div class="overflow-x-auto rounded border border-border/60">
-          <table class="w-full min-w-[1250px] table-fixed text-xs">
+          <table class="w-full min-w-[1050px] table-fixed text-xs">
             <colgroup>
-              <col class="w-[260px]" />
+              <col class="w-[220px]" />
               <col class="w-[90px]" />
               <col class="w-[90px]" />
               <col class="w-[90px]" />
               <col class="w-[120px]" />
               <col class="w-[110px]" />
               <col class="w-[100px]" />
-              <col class="w-[160px]" />
-              <col class="w-[260px]" />
-              <col class="w-[120px]" />
+              <col class="w-[280px]" />
+              <col class="w-[100px]" />
               <col class="w-[56px]" />
             </colgroup>
             <thead class="bg-secondary/40 text-muted-foreground">
@@ -462,7 +540,6 @@ onMounted(load)
                 <th class="px-2 py-2 text-right">现价 / 涨跌</th>
                 <th class="px-2 py-2 text-right">市值</th>
                 <th class="px-2 py-2 text-right">账户权重</th>
-                <th class="px-2 py-2">主主题</th>
                 <th class="px-2 py-2">关联方向</th>
                 <th class="px-2 py-2">角色</th>
                 <th class="px-2 py-2"></th>
@@ -480,8 +557,6 @@ onMounted(load)
                       @input="scheduleSearch(row)"
                     />
                     <div v-if="row.symbol" class="-mt-1 flex items-center gap-1 truncate px-2 pb-1 text-[11px]">
-                      <span class="font-mono text-foreground">{{ compactSymbol(row.symbol) }}</span>
-                      <span>{{ rowShortName(row) }}</span>
                       <span v-if="marketBadge(row.symbol)" class="rounded bg-secondary px-1 text-muted-foreground">{{ marketBadge(row.symbol) }}</span>
                     </div>
                   </div>
@@ -510,18 +585,11 @@ onMounted(load)
                 <td class="p-2 text-right font-mono">{{ fmt(rowMarketValue(row)) }}</td>
                 <td class="p-2 text-right font-mono">{{ fmt(computedTotalAssets ? rowMarketValue(row) / computedTotalAssets * 100 : 0, '%') }}</td>
                 <td class="p-2">
-                  <select v-model="row.primary_theme" class="h-9 w-full rounded bg-input px-2">
-                    <option value="">未确认</option>
-                    <option v-for="theme in primaryThemes" :key="theme" :value="theme">{{ themeLabel(theme) }}</option>
-                  </select>
-                  <div v-if="row.semantic_classification_status === 'unconfirmed'" class="mt-1 text-[11px] text-warning">待确认</div>
-                </td>
-                <td class="p-2">
-                  <div class="flex flex-wrap gap-1">
+                  <div class="flex flex-wrap items-center gap-1">
                     <span
-                      v-for="tag in directionTagsForRow(row)"
+                      v-for="(tag, idx) in row.directions"
                       :key="tag"
-                      class="rounded border border-primary bg-primary/20 px-2 py-1 text-[11px] text-foreground"
+                      :class="['rounded border px-2 py-1 text-[11px]', idx === 0 ? 'border-primary bg-primary/20 font-semibold text-foreground' : 'border-border/80 bg-secondary/30 text-muted-foreground']"
                     >
                       {{ themeLabel(tag) }}
                     </span>
@@ -529,33 +597,78 @@ onMounted(load)
                       class="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground"
                       @click="toggleTagEdit(row.row_id)"
                     >
-                      {{ editingTagsRowId === row.row_id ? '完成' : (row.theme_tags.length ? '编辑' : '+ 方向') }}
+                      {{ editingTagsRowId === row.row_id ? '完成' : (row.directions.length ? '编辑' : '+ 方向') }}
                     </button>
                   </div>
-                  <div v-if="editingTagsRowId === row.row_id" class="mt-2 flex flex-wrap gap-1 rounded border border-border/60 bg-secondary/20 p-2">
-                    <button
-                      v-for="tag in selectableDirectionTagsForRow(row)"
-                      :key="tag"
-                      type="button"
-                      :class="['rounded border px-2 py-1 text-[11px]', row.theme_tags.includes(tag) ? 'border-primary bg-primary/20 text-foreground' : 'border-border text-muted-foreground']"
-                      @click="toggleTag(row, tag)"
-                    >
-                      {{ themeLabel(tag) }}
-                    </button>
+                  <div v-if="editingTagsRowId === row.row_id" class="mt-2 space-y-2 rounded border border-border/60 bg-secondary/20 p-2">
+                    <div class="text-[11px] text-muted-foreground">第一个方向用于主要归组统计</div>
+                    <div class="flex flex-wrap gap-1">
+                      <div
+                        v-for="(tag, idx) in row.directions"
+                        :key="tag"
+                        class="flex items-center gap-1 rounded border border-primary bg-primary/20 px-2 py-1 text-[11px] text-foreground"
+                      >
+                        <span>{{ themeLabel(tag) }}</span>
+                        <button
+                          type="button"
+                          class="text-[10px] text-muted-foreground hover:text-foreground"
+                          :disabled="idx === 0"
+                          @click="moveDirection(row, idx, -1)"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          class="text-[10px] text-muted-foreground hover:text-foreground"
+                          :disabled="idx === row.directions.length - 1"
+                          @click="moveDirection(row, idx, 1)"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          class="text-[10px] text-negative hover:text-negative"
+                          @click="removeDirection(row, tag)"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                    <div class="flex flex-wrap gap-1">
+                      <button
+                        v-for="tag in selectableDirectionsForRow(row)"
+                        :key="tag"
+                        type="button"
+                        class="rounded border px-2 py-1 text-[11px] border-border text-muted-foreground hover:border-primary hover:bg-primary/10"
+                        @click="toggleDirection(row, tag)"
+                      >
+                        + {{ themeLabel(tag) }}
+                      </button>
+                    </div>
                     <div class="flex min-w-[180px] flex-1 gap-1">
                       <input
                         v-model="tagDrafts[row.row_id]"
                         class="h-7 min-w-0 flex-1 rounded bg-input px-2 text-[11px]"
                         placeholder="NEW_TAG"
-                        @keydown.enter.prevent="addCustomTag(row)"
+                        @keydown.enter.prevent="addCustomDirection(row)"
                       />
                       <button
                         type="button"
                         class="rounded border border-primary px-2 py-1 text-[11px] text-foreground"
-                        @click="addCustomTag(row)"
+                        @click="addCustomDirection(row)"
                       >
                         Add
                       </button>
+                    </div>
+                    <div class="flex items-center gap-2 pt-1">
+                      <label class="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          :checked="row.risk_flags.includes('HIGH_VOLATILITY')"
+                          @change="toggleRiskFlag(row, 'HIGH_VOLATILITY')"
+                        />
+                        <span>高波动</span>
+                      </label>
                     </div>
                   </div>
                 </td>
@@ -602,6 +715,14 @@ onMounted(load)
               <button class="rounded bg-primary px-3 py-1 text-xs" :disabled="packetLoading" @click="buildPortfolioPacket">
                 {{ packetLoading ? 'Generating...' : '生成组合证据包 / Generate Portfolio Packet' }}
               </button>
+            </div>
+          </div>
+          <div v-if="contextDirtyPrompt" class="mb-2 rounded border border-warning/50 bg-warning/10 p-2 text-xs text-warning">
+            <div class="mb-2">当前存在未保存修改。账户上下文默认基于最近一次已保存快照生成。</div>
+            <div class="flex flex-wrap gap-2">
+              <button class="rounded bg-secondary px-3 py-1" @click="contextDirtyPrompt = false">取消</button>
+              <button class="rounded bg-secondary px-3 py-1" :disabled="packetLoading" @click="generateSavedSnapshotPacket">仍按已保存快照生成</button>
+              <button class="rounded bg-primary px-3 py-1" :disabled="saving || packetLoading" @click="saveAndGeneratePacket">先保存并生成</button>
             </div>
           </div>
           <pre v-if="packetMarkdown" class="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-black/30 p-2 text-[11px]">{{ packetMarkdown }}</pre>

@@ -75,6 +75,8 @@ class HoldingRowDraft(BaseModel):
     primary_theme: str | None = None
     theme_tags: list[str] = Field(default_factory=list)
     suggested_theme_tags: list[str] = Field(default_factory=list)
+    directions: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
     user_plan: str = ""
     invalid_condition: str | None = None
     target_max_weight: float | None = None

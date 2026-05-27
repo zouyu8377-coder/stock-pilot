@@ -268,7 +268,7 @@ PROFILES = [
         description="ETF share, NAV, and price facts for the gold ETF itself plus COMEX gold reference.",
         applies_to_symbols=["159934.SZ"],
         applies_to_primary_themes=["GOLD"],
-        drivers=[GOLD_ETF, COMEX_GOLD],
+        drivers=[GOLD_FUTURE, GOLD_ETF, COMEX_GOLD],
         boundary=MAPPING_BOUNDARY,
     ),
     ExternalDriverProfile(
@@ -283,7 +283,7 @@ PROFILES = [
 ]
 
 
-def find_profile(symbol: str, primary_theme: str | None = None) -> ExternalDriverProfile | None:
+def find_profile(symbol: str, primary_theme: str | None = None, directions: list[str] | None = None) -> ExternalDriverProfile | None:
     ts_code = to_ts_code(symbol)
     compact = compact_symbol(symbol)
     for profile in PROFILES:
