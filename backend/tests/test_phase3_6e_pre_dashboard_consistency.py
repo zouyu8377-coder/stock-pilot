@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pandas as pd
+
 from app.analysis_packet import packet_service
 from app.analysis_packet.packet_service import build_account_analysis_context, build_portfolio_packet, render_compact_markdown
 from app.portfolio.schemas import PortfolioPositionInput, PortfolioSnapshotInput
@@ -19,8 +21,35 @@ def _fake_quote(symbol: str):
     return {"price": prices[code], "name": code, "provider": "synthetic"}
 
 
+def _fake_history(symbol: str, limit: int = 5000):
+    code = symbol.split(".", 1)[0].zfill(6)
+    base = {
+        "002463": 30,
+        "002916": 24,
+        "159382": 1.2,
+        "601899": 16,
+        "603993": 8,
+        "159934": 4.6,
+    }.get(code, 10)
+    rows = []
+    for idx in range(80):
+        close = base + idx * 0.08
+        rows.append({
+            "date": f"2026-03-{(idx % 28) + 1:02d}",
+            "open": close - 0.03,
+            "high": close + 0.05,
+            "low": close - 0.06,
+            "close": close,
+            "volume": 100000 + idx,
+            "amount": 1000000 + idx,
+            "pctChg": 0.5,
+        })
+    return pd.DataFrame(rows).tail(limit)
+
+
 def _service(tmp_path, monkeypatch) -> PortfolioService:
     monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    monkeypatch.setattr(packet_service.collector, "get_history", _fake_history)
     service = PortfolioService(tmp_path)
     monkeypatch.setattr(packet_service, "portfolio_service", service)
     service.save_snapshot(PortfolioSnapshotInput(
@@ -234,6 +263,26 @@ def test_compact_context_uses_one_valuation_snapshot(tmp_path, monkeypatch):
     assert holdings_market_value == facts["total_market_value"]
     assert primary_market_value == facts["total_market_value"]
     assert holdings_pnl == facts["current_holding_unrealized_pnl"]
+
+
+def test_compact_context_includes_holding_trend_evidence(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    trend = {item["symbol"]: item for item in context["holding_trend_evidence"]}
+
+    assert trend["002463"]["data_status"] == "available"
+    assert trend["002463"]["ma5"] is not None
+    assert trend["002463"]["ma10"] is not None
+    assert trend["002463"]["ma20"] is not None
+    assert trend["002463"]["ma30"] is not None
+    assert trend["002463"]["return_5d_pct"] is not None
+    assert trend["002463"]["trend_state"] in {"短期强势排列", "偏强观察", "震荡偏稳"}
+
+    md = render_compact_markdown(context)
+    assert "持仓近期走势证据" in md
+    assert "MA5" in md
+    assert "MA30" in md
+    assert "不构成买卖、加仓、减仓或止盈止损指令" in md
 
 
 def test_compact_context_excludes_audit_fields(tmp_path, monkeypatch):

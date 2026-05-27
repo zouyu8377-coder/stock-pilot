@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 
@@ -13,14 +13,13 @@ from app.api.facts import router as facts_router
 from app.api.portfolio import router as portfolio_router
 from app.core.config import settings
 
-APP_VERSION = "v3.6I.2"
+APP_VERSION = "v3.6I.3"
 
 app = FastAPI(
     title="Stock Copilot API",
     version=APP_VERSION,
 )
 
-# 允许前端访问
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -29,7 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册接口
 app.include_router(analyze_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(deep_analyze_router, prefix="/api")
@@ -43,7 +41,7 @@ app.include_router(portfolio_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时自动检查并后台更新冷数据"""
+    """Run the background cold-data refresh check on startup."""
     from app.core.data_updater import check_and_update
     asyncio.create_task(check_and_update())
 

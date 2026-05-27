@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import pandas as pd
+
+from app.analysis.indicators import compute_indicators
 from app.analysis_packet.snapshot_builder import build_basic_stock_snapshot
+from app.collector.router import collector
 from app.core.config import settings
 from app.evidence.schemas import AnalysisSnapshot, EvidenceCategory, EvidenceItem
 from app.evidence.schemas import AnalysisScope, DataStatus, EvidenceReliability, EvidenceType, LlmUsage
@@ -722,6 +726,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         data["confirmed_risk_flags"] = data.get("risk_flags", [])
         data["confirmed_position_role"] = data.get("position_role")
         positions.append(data)
+    holding_trend_evidence = _build_holding_trend_evidence(positions, generated_at)
     rule_reminders = [_evidence_dict(item) for item in snapshot.system_hypotheses]
     high_volatility = [
         item for item in state.metrics.risk_tag_exposures
@@ -774,6 +779,15 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             }
             for item in positions
             if _is_missing_position_role(item)
+        ],
+        *[
+            {
+                "key": "holding_trend_evidence",
+                "symbol": item.get("symbol"),
+                "reason": item.get("reason") or "Holding daily-K trend evidence is unavailable.",
+            }
+            for item in holding_trend_evidence
+            if item.get("data_status") != "available"
         ],
     ]
     missing_data = _clean_text([
@@ -857,6 +871,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         },
         "holdings": positions,
         "positions": positions,
+        "holding_trend_evidence": holding_trend_evidence,
         "primary_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
         "primary_direction_grouping": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
         "official_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
@@ -966,6 +981,7 @@ _ROLE_LABEL_MAP = {
 
 _COMPACT_LLM_QUESTIONS = [
     "请总结当前账户的关联方向与风险观察，并明确主要方向归组按首个关联方向唯一可加总。",
+    "请结合持仓近期走势证据，区分哪些持仓仅有结构性观察基础，哪些持仓出现转强、转弱、利润保护或修复观察信号；不得输出交易指令。",
     "请识别全部关联方向中的交叉背景，例如同时关联铜与黄金的持仓；全部方向观察不可重复加总。",
     "请单独整理风险观察，不将高波动等风险标记混同为产业或资源方向。",
     "请识别共享外部驱动背景的持仓，并说明这些关联仅为背景观察，不构成因果结论。",
@@ -977,6 +993,7 @@ _COMPACT_BOUNDARIES = [
     "隐私边界：本上下文由本地生成，不会自动发送给外部 AI；仅在用户主动复制、导出或提交时外传。",
     "行情时间边界：当前 A 股行情源不提供可验证市场报价时间；当前估算总资产与持仓市值均基于系统本次冻结取价结果。",
     "账户盈亏边界：账户总盈亏基于用户手动维护的账户实际总成本与当前估算总资产计算；当前持仓浮动盈亏仅反映尚持有证券的浮动结果，两者口径不同。",
+    "走势证据边界：持仓近期走势证据来自本地日K与MA5/10/20/30等派生指标，仅作弱信号观察，不构成买卖、加仓、减仓或止盈止损指令。",
     "方向口径边界：每只持仓按首个关联方向进行唯一归组；全部关联方向仅用于非加总观察，不得重复统计为资产暴露。",
     "风险观察边界：高波动等风险标记独立于关联方向，仅作描述性观察，不构成调仓或交易建议。",
     "外部驱动边界：COMEX、汇率、ETF 或其他外部驱动仅作为关联背景，不构成因果结论、估值结论或买卖建议。",
@@ -993,6 +1010,144 @@ def _is_direction_tag(tag: str | None) -> bool:
 
 def _driver_label(key: str) -> str:
     return _DRIVER_LABEL_MAP.get(key, key)
+
+
+def _history_col(df: pd.DataFrame, *names: str) -> str | None:
+    for name in names:
+        if name in df.columns:
+            return name
+    return None
+
+
+def _pct(value: float | None) -> float | None:
+    return round(float(value), 2) if value is not None else None
+
+
+def _interval_return(closes: pd.Series, days: int) -> float | None:
+    if len(closes) <= days:
+        return None
+    base = closes.iloc[-days - 1]
+    if not base:
+        return None
+    return round((closes.iloc[-1] / base - 1) * 100, 2)
+
+
+def _price_vs_ma(price: float | None, ma: float | None) -> float | None:
+    if price is None or ma in (None, 0):
+        return None
+    return round((float(price) / float(ma) - 1) * 100, 2)
+
+
+def _trend_state(price: float | None, indicators: dict[str, Any]) -> str:
+    ma5 = indicators.get("ma5")
+    ma10 = indicators.get("ma10")
+    ma20 = indicators.get("ma20")
+    ma30 = indicators.get("ma30")
+    macd = indicators.get("macd")
+    if not all(v is not None for v in [price, ma5, ma10, ma20, ma30]):
+        return "数据不足"
+    if price > ma5 > ma10 > ma20 > ma30:
+        return "短期强势排列"
+    if price > ma5 and ma5 >= ma10 >= ma20:
+        return "偏强观察"
+    if price < ma5 < ma10 < ma20:
+        return "短期转弱"
+    if price < ma20 and macd is not None and macd < 0:
+        return "中期均线下方"
+    if price >= ma20:
+        return "震荡偏稳"
+    return "震荡偏弱"
+
+
+def _strategy_observation(position: dict[str, Any], price: float | None, indicators: dict[str, Any], trend_state: str) -> str:
+    pnl = position.get("unrealized_pnl")
+    ma5 = indicators.get("ma5")
+    ma20 = indicators.get("ma20")
+    rsi = indicators.get("rsi14")
+    notes: list[str] = []
+    if pnl is not None and pnl > 0:
+        if price is not None and ma5 is not None and price < ma5:
+            notes.append("盈利持仓已低于MA5，适合进入利润保护观察")
+        else:
+            notes.append("盈利持仓仍保持短线观察基础")
+    elif pnl is not None and pnl < 0:
+        if price is not None and ma20 is not None and price < ma20:
+            notes.append("亏损持仓仍在MA20下方，修复证据不足")
+        else:
+            notes.append("亏损持仓出现均线修复观察点")
+    if rsi is not None and rsi >= 70:
+        notes.append("RSI偏高，后续关注冲高回落风险")
+    elif rsi is not None and rsi <= 30:
+        notes.append("RSI偏低，后续关注技术修复是否成立")
+    notes.append(f"走势状态：{trend_state}")
+    return "；".join(notes)
+
+
+def _build_holding_trend_evidence(positions: list[dict[str, Any]], generated_at: datetime) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    for position in positions:
+        symbol = position.get("symbol")
+        if not symbol:
+            continue
+        try:
+            history = collector.get_history(symbol, 160)
+            if history is None or history.empty:
+                raise ValueError("local daily K history is empty")
+            close_col = _history_col(history, "close", "收盘")
+            date_col = _history_col(history, "date", "日期")
+            pct_col = _history_col(history, "pctChg", "pct_chg", "涨跌幅")
+            if not close_col:
+                raise ValueError("daily K close column missing")
+            indicators, _ma_series = compute_indicators(history)
+            closes = pd.to_numeric(history[close_col], errors="coerce").dropna()
+            if closes.empty:
+                raise ValueError("daily K close values are empty")
+            latest = history.iloc[-1]
+            latest_close = round(float(closes.iloc[-1]), 4)
+            current_price = position.get("market_price") or position.get("system_quote_price") or latest_close
+            trend_state = _trend_state(current_price, indicators)
+            latest_pct = None
+            if pct_col:
+                pct_value = pd.to_numeric(pd.Series([latest[pct_col]]), errors="coerce").iloc[0]
+                latest_pct = None if pd.isna(pct_value) else round(float(pct_value), 2)
+            evidence.append({
+                "symbol": symbol,
+                "name": position.get("name") or symbol,
+                "data_status": "available",
+                "source": "local_daily_k_and_compute_indicators",
+                "source_endpoint": "collector.get_history + compute_indicators",
+                "daily_k_as_of": str(latest[date_col])[:10] if date_col else None,
+                "generated_at": generated_at.isoformat(),
+                "current_price": round(float(current_price), 4) if current_price is not None else None,
+                "latest_close": latest_close,
+                "latest_pct_chg": latest_pct,
+                "return_5d_pct": _interval_return(closes, 5),
+                "return_10d_pct": _interval_return(closes, 10),
+                "return_20d_pct": _interval_return(closes, 20),
+                "return_60d_pct": _interval_return(closes, 60),
+                "ma5": indicators.get("ma5"),
+                "ma10": indicators.get("ma10"),
+                "ma20": indicators.get("ma20"),
+                "ma30": indicators.get("ma30"),
+                "ma60": indicators.get("ma60"),
+                "rsi14": indicators.get("rsi14"),
+                "macd": indicators.get("macd"),
+                "price_vs_ma5_pct": _price_vs_ma(current_price, indicators.get("ma5")),
+                "price_vs_ma20_pct": _price_vs_ma(current_price, indicators.get("ma20")),
+                "trend_state": trend_state,
+                "strategy_observation": _strategy_observation(position, current_price, indicators, trend_state),
+                "interpretation_limit": "近期走势证据来自本地日K和派生技术指标，仅作弱信号观察，不构成买卖、加仓、减仓或止盈止损指令。",
+            })
+        except Exception as exc:
+            evidence.append({
+                "symbol": symbol,
+                "name": position.get("name") or symbol,
+                "data_status": "unavailable",
+                "reason": str(exc),
+                "generated_at": generated_at.isoformat(),
+                "interpretation_limit": "近期走势证据不可用；不得据此补造趋势结论。",
+            })
+    return evidence
 
 
 def build_account_analysis_context(mode: str = "compact", snapshot_status_note: str | None = None) -> dict[str, Any]:
@@ -1036,6 +1191,7 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
                 }
                 for item in packet["holdings"]
             ],
+            "holding_trend_evidence": packet.get("holding_trend_evidence", []),
             "primary_direction_grouping": packet.get("primary_direction_grouping", packet.get("primary_theme_exposure", [])),
             "all_direction_observations": packet["related_theme_observations"],
             "risk_observations": packet["related_risk_observations"],
@@ -1103,6 +1259,35 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
         })
 
     # Build primary direction grouping (additive, by directions[0])
+    compact_trend_evidence = [
+        {
+            "symbol": item.get("symbol"),
+            "name": item.get("name"),
+            "data_status": item.get("data_status"),
+            "daily_k_as_of": item.get("daily_k_as_of"),
+            "current_price": item.get("current_price"),
+            "latest_close": item.get("latest_close"),
+            "latest_pct_chg": item.get("latest_pct_chg"),
+            "return_5d_pct": item.get("return_5d_pct"),
+            "return_10d_pct": item.get("return_10d_pct"),
+            "return_20d_pct": item.get("return_20d_pct"),
+            "return_60d_pct": item.get("return_60d_pct"),
+            "ma5": item.get("ma5"),
+            "ma10": item.get("ma10"),
+            "ma20": item.get("ma20"),
+            "ma30": item.get("ma30"),
+            "ma60": item.get("ma60"),
+            "rsi14": item.get("rsi14"),
+            "macd": item.get("macd"),
+            "price_vs_ma5_pct": item.get("price_vs_ma5_pct"),
+            "price_vs_ma20_pct": item.get("price_vs_ma20_pct"),
+            "trend_state": item.get("trend_state"),
+            "strategy_observation": item.get("strategy_observation"),
+            "interpretation_limit": item.get("interpretation_limit"),
+            "reason": item.get("reason"),
+        }
+        for item in packet.get("holding_trend_evidence", [])
+    ]
     primary_direction_aggregates: dict[str, dict[str, Any]] = {}
     all_direction_aggregates: dict[str, dict[str, Any]] = {}
     risk_flag_aggregates: dict[str, dict[str, Any]] = {}
@@ -1226,6 +1411,7 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
             },
         "account_facts": account_facts,
         "holdings": compact_holdings,
+        "holding_trend_evidence": compact_trend_evidence,
         "primary_direction_grouping": primary_direction_grouping,
         "all_direction_observations": {
             "direction_observations": all_direction_observations,
@@ -1419,6 +1605,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     meta = context["meta"]
     account = context["account_facts"]
     holdings = context["holdings"]
+    holding_trend_evidence = context.get("holding_trend_evidence", [])
     primary_direction_grouping = context.get("primary_direction_grouping", [])
     all_directions = context.get("all_direction_observations", {})
     risk_obs = context.get("risk_observations", {})
@@ -1536,6 +1723,30 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         dir_str = ", ".join(dir_labels) if dir_labels else "-"
         lines.append(f"| {name} | {qty_str} | {cost_str} | {price_str} | {mv_str} | {pnl_str} | {weight_str} | {dir_str} | {role} |")
     lines.append("")
+
+    if holding_trend_evidence:
+        lines.extend([
+            "## 持仓近期走势证据",
+            "",
+            "| 标的 | 日K日期 | 当前价 | 5日 | 20日 | MA5 | MA10 | MA20 | MA30 | 相对MA20 | 走势状态 | 策略观察 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|",
+        ])
+        for item in holding_trend_evidence:
+            if item.get("data_status") != "available":
+                lines.append(
+                    f"| {item.get('name') or item.get('symbol')} | - | - | - | - | - | - | - | - | - | 不可用 | {item.get('reason', '-')} |"
+                )
+                continue
+            name = item.get("name") or item.get("symbol", "")
+            lines.append(
+                f"| {name} | {item.get('daily_k_as_of') or '-'} | {_fmt_amount(item.get('current_price'))} | "
+                f"{_fmt_amount(item.get('return_5d_pct'))}% | {_fmt_amount(item.get('return_20d_pct'))}% | "
+                f"{_fmt_amount(item.get('ma5'))} | {_fmt_amount(item.get('ma10'))} | {_fmt_amount(item.get('ma20'))} | {_fmt_amount(item.get('ma30'))} | "
+                f"{_fmt_amount(item.get('price_vs_ma20_pct'))}% | {item.get('trend_state') or '-'} | {item.get('strategy_observation') or '-'} |"
+            )
+        lines.append("")
+        lines.append("近期走势证据来自本地日K和派生技术指标，仅作弱信号观察，不构成买卖、加仓、减仓或止盈止损指令。")
+        lines.append("")
 
     # Primary direction grouping
     lines.extend([
@@ -1743,6 +1954,10 @@ def render_packet_markdown(packet: dict[str, Any], mode: str = "audit") -> str:
             "",
             "## Current Holdings",
             f"```json\n{json.dumps(packet['holdings'], ensure_ascii=False, indent=2, default=str)}\n```",
+            "",
+            "## Holding Recent Trend Evidence",
+            "Daily-K trend evidence and technical indicators are weak auxiliary signals only.",
+            f"```json\n{json.dumps(packet.get('holding_trend_evidence', []), ensure_ascii=False, indent=2, default=str)}\n```",
             "",
             "## Primary Theme Exposure",
             "Unique attribution by `primary_theme`; this is the additive theme exposure view.",
