@@ -37,6 +37,7 @@ type ManualRow = {
 
 const primaryThemes = ['AI_PCB', 'AI_THEME_ETF', 'METAL_RESOURCE', 'GOLD', 'TUNGSTEN', 'CASH_EQUIVALENT', 'OTHER', 'UNCLASSIFIED']
 const directionTags = ['AI_PCB', 'AI_THEME_ETF', 'METAL_RESOURCE', 'GOLD', 'COPPER', 'TUNGSTEN', 'CASH_EQUIVALENT', 'OTHER', 'UNCLASSIFIED']
+const nonDirectionTags = new Set(['HIGH_VOLATILITY', 'COMPOSITE_EXPOSURE', 'UNCLASSIFIED'])
 const positionRoles = ['core', 'trend', 'defensive', 'short_term', 'observation', 'unclassified']
 
 const expanded = ref(false)
@@ -60,6 +61,7 @@ const packetCopied = ref(false)
 const packetLoading = ref(false)
 
 const editingTagsRowId = ref('')
+const tagDrafts = ref<Record<string, string>>({})
 
 const accountDraft = ref({
   cash_available: 0,
@@ -106,6 +108,13 @@ const themeLabelMap: Record<string, string> = {
   COMPOSITE_EXPOSURE: '复合关联',
 }
 const themeLabel = (key: string) => themeLabelMap[key] || key
+const normalizeTag = (value: string) => value.trim().replace(/\s+/g, '_').toUpperCase()
+const isDirectionTagForRow = (row: ManualRow, tag: string) =>
+  Boolean(tag) && tag !== row.primary_theme && !nonDirectionTags.has(tag)
+const directionTagsForRow = (row: ManualRow) =>
+  row.theme_tags.filter((tag) => isDirectionTagForRow(row, tag))
+const selectableDirectionTagsForRow = (row: ManualRow) =>
+  Array.from(new Set([...directionTags, ...directionTagsForRow(row)])).filter((tag) => tag !== row.primary_theme)
 
 const marketBadge = (symbol: string) => {
   const code = symbol.split('.')[0]
@@ -177,7 +186,7 @@ const newRow = (position?: PortfolioPosition): ManualRow => ({
 })
 
 const hasValidDirection = (row: ManualRow) =>
-  row.theme_tags.some((t) => directionTags.includes(t) && t !== row.primary_theme)
+  row.theme_tags.some((t) => isDirectionTagForRow(row, t))
 
 const loadSuggestions = async () => {
   const items = await getPortfolioSemanticSuggestions()
@@ -273,6 +282,15 @@ const toggleTag = (row: ManualRow, tag: string) => {
   row.theme_tags = row.theme_tags.includes(tag)
     ? row.theme_tags.filter((item) => item !== tag)
     : [...row.theme_tags, tag]
+}
+
+const addCustomTag = (row: ManualRow) => {
+  const tag = normalizeTag(tagDrafts.value[row.row_id] || '')
+  if (!tag || tag === row.primary_theme) return
+  if (!row.theme_tags.includes(tag)) {
+    row.theme_tags = [...row.theme_tags, tag]
+  }
+  tagDrafts.value[row.row_id] = ''
 }
 
 const toggleTagEdit = (rowId: string) => {
@@ -501,7 +519,7 @@ onMounted(load)
                 <td class="p-2">
                   <div class="flex flex-wrap gap-1">
                     <span
-                      v-for="tag in row.theme_tags.filter((t) => directionTags.includes(t) && t !== row.primary_theme)"
+                      v-for="tag in directionTagsForRow(row)"
                       :key="tag"
                       class="rounded border border-primary bg-primary/20 px-2 py-1 text-[11px] text-foreground"
                     >
@@ -516,7 +534,7 @@ onMounted(load)
                   </div>
                   <div v-if="editingTagsRowId === row.row_id" class="mt-2 flex flex-wrap gap-1 rounded border border-border/60 bg-secondary/20 p-2">
                     <button
-                      v-for="tag in directionTags.filter((t) => t !== row.primary_theme)"
+                      v-for="tag in selectableDirectionTagsForRow(row)"
                       :key="tag"
                       type="button"
                       :class="['rounded border px-2 py-1 text-[11px]', row.theme_tags.includes(tag) ? 'border-primary bg-primary/20 text-foreground' : 'border-border text-muted-foreground']"
@@ -524,6 +542,21 @@ onMounted(load)
                     >
                       {{ themeLabel(tag) }}
                     </button>
+                    <div class="flex min-w-[180px] flex-1 gap-1">
+                      <input
+                        v-model="tagDrafts[row.row_id]"
+                        class="h-7 min-w-0 flex-1 rounded bg-input px-2 text-[11px]"
+                        placeholder="NEW_TAG"
+                        @keydown.enter.prevent="addCustomTag(row)"
+                      />
+                      <button
+                        type="button"
+                        class="rounded border border-primary px-2 py-1 text-[11px] text-foreground"
+                        @click="addCustomTag(row)"
+                      >
+                        Add
+                      </button>
+                    </div>
                   </div>
                 </td>
                 <td class="p-2">

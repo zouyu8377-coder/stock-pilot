@@ -954,6 +954,10 @@ def _theme_label(key: str) -> str:
     return _THEME_LABEL_MAP.get(key, key)
 
 
+def _is_direction_tag(tag: str | None) -> bool:
+    return bool(tag) and tag not in _RISK_TAGS and tag not in _EXCLUDED_FROM_COMPACT
+
+
 def _driver_label(key: str) -> str:
     return _DRIVER_LABEL_MAP.get(key, key)
 
@@ -1075,10 +1079,10 @@ def build_account_analysis_context(mode: str = "compact") -> dict[str, Any]:
             "weight_pct": round(wp, 2),
             "symbols": sorted(set(data["symbols"])),
         }
-        if tag in _DIRECTION_TAGS:
-            direction_observations.append(obs)
-        elif tag in _RISK_TAGS:
+        if tag in _RISK_TAGS:
             risk_observations.append(obs)
+        elif _is_direction_tag(tag):
+            direction_observations.append(obs)
 
     # Data gaps: remove broker_sync and quote_time; keep real data gaps; add fact coverage gaps
     compact_data_gaps: list[dict[str, Any]] = []
@@ -1388,7 +1392,11 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         pnl_pct = h.get("unrealized_pnl_pct")
         weight = h.get("portfolio_weight_pct")
         theme = _theme_label(h.get("confirmed_primary_theme") or "UNCLASSIFIED")
-        tags = [_theme_label(t) for t in (h.get("confirmed_theme_tags") or []) if t != h.get("confirmed_primary_theme") and t in _DIRECTION_TAGS]
+        tags = [
+            _theme_label(t)
+            for t in (h.get("confirmed_theme_tags") or [])
+            if t != h.get("confirmed_primary_theme") and _is_direction_tag(t)
+        ]
         role = _ROLE_LABEL_MAP.get(str(h.get("confirmed_position_role", "")).lower(), h.get("confirmed_position_role", ""))
 
         qty_str = f"{qty:,.0f}" if qty is not None else "-"
