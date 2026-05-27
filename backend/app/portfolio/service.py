@@ -150,6 +150,15 @@ class PortfolioService:
 
     def save_snapshot(self, payload: PortfolioSnapshotInput) -> PortfolioState:
         dumped = payload.model_dump()
+        actual_cost = dumped.get("account_actual_total_cost")
+        if actual_cost is not None and float(actual_cost or 0) > 0:
+            dumped["account_actual_total_cost"] = _round(actual_cost)
+            dumped["account_actual_total_cost_source"] = "user_manual_entry"
+            dumped["account_actual_total_cost_confirmed_at"] = datetime.now(timezone.utc)
+        else:
+            dumped["account_actual_total_cost"] = None
+            dumped["account_actual_total_cost_source"] = None
+            dumped["account_actual_total_cost_confirmed_at"] = None
         for p in dumped.get("positions", []):
             _normalize_position_semantics(p)
         snapshot = PortfolioSnapshot(**dumped)
@@ -158,8 +167,12 @@ class PortfolioService:
         return self.get_state()
 
     def get_state(self) -> PortfolioState:
-        snapshot = self.enrich_snapshot(self.load_snapshot())
-        return PortfolioState(snapshot=snapshot, metrics=self.compute_metrics(snapshot))
+        valuation_generated_at = datetime.now(timezone.utc)
+        snapshot = self.enrich_snapshot(self.load_snapshot(), valuation_generated_at=valuation_generated_at)
+        return PortfolioState(
+            snapshot=snapshot,
+            metrics=self.compute_metrics(snapshot, valuation_generated_at=valuation_generated_at),
+        )
 
     def semantic_suggestion_for_symbol(self, symbol: str) -> HoldingSemanticSuggestion:
         compact = _compact_symbol(symbol)
@@ -223,7 +236,8 @@ class PortfolioService:
             pass
         return None, "missing_quote", ""
 
-    def enrich_snapshot(self, snapshot: PortfolioSnapshot) -> PortfolioSnapshot:
+    def enrich_snapshot(self, snapshot: PortfolioSnapshot, valuation_generated_at: datetime | None = None) -> PortfolioSnapshot:
+        quote_retrieved_at = valuation_generated_at or datetime.now(timezone.utc)
         positions: list[PortfolioPosition] = []
         for item in snapshot.positions:
             base = PortfolioPositionInput(**item.model_dump(exclude={
@@ -240,7 +254,7 @@ class PortfolioService:
                 "missing_data",
             }))
             price, source, quote_name = self._quote_price(base.symbol)
-            retrieved_at = datetime.now(timezone.utc) if price is not None else None
+            retrieved_at = quote_retrieved_at if price is not None else None
             missing_data: list[str] = []
             if price is None:
                 missing_data.append("market_price")
@@ -272,7 +286,9 @@ class PortfolioService:
         snapshot.positions = positions
         return snapshot
 
-    def compute_metrics(self, snapshot: PortfolioSnapshot) -> PortfolioMetrics:
+    def compute_metrics(self, snapshot: PortfolioSnapshot, valuation_generated_at: datetime | None = None) -> PortfolioMetrics:
+        valuation_generated_at = valuation_generated_at or datetime.now(timezone.utc)
+        valuation_snapshot_id = f"valuation_{valuation_generated_at.strftime('%Y%m%d%H%M%S%f')}"
         # Filter positions with positive quantity for asset-metric aggregations
         active_positions = [p for p in snapshot.positions if p.quantity is not None and p.quantity > 0]
 
@@ -363,10 +379,39 @@ class PortfolioService:
         if excluded_symbols:
             pnl_status = "partial" if total_cost_basis > 0 else "unavailable"
 
+        actual_cost = snapshot.account_actual_total_cost if snapshot.account_actual_total_cost and snapshot.account_actual_total_cost > 0 else None
+        account_total_pnl = (total_assets - actual_cost) if actual_cost else None
+        account_total_pnl_pct = (account_total_pnl / actual_cost * 100) if actual_cost and account_total_pnl is not None else None
+        account_pnl_status = "available" if actual_cost else "unavailable"
+
+        primary_sum = sum(exposure.market_value for exposure in primary_exposures)
+        holding_pnl_sum = sum(p.unrealized_pnl or 0 for p in active_positions)
+        total_assets_components = total_market_value + snapshot.cash_available + snapshot.repo_amount
+        checks = {
+            "holdings_market_value_matches_summary": abs(total_market_value - sum(p.market_value or 0 for p in active_positions)) <= 0.01,
+            "primary_direction_groups_match_summary": abs(total_market_value - primary_sum) <= 0.01,
+            "holding_pnl_matches_summary": abs(total_unrealized_pnl - holding_pnl_sum) <= 0.01,
+            "total_assets_matches_components": abs(total_assets - total_assets_components) <= 0.01,
+            "account_total_pnl_matches_actual_cost_basis": True if not actual_cost else abs((total_assets - actual_cost) - (account_total_pnl or 0)) <= 0.01,
+        }
+        diffs = {
+            "holdings_market_value_delta": _round(total_market_value - sum(p.market_value or 0 for p in active_positions)),
+            "primary_direction_market_value_delta": _round(total_market_value - primary_sum),
+            "holding_unrealized_pnl_delta": _round(total_unrealized_pnl - holding_pnl_sum),
+            "total_assets_components_delta": _round(total_assets - total_assets_components),
+        }
+        errors = [key for key, passed in checks.items() if not passed]
+
         return PortfolioMetrics(
             total_assets=_round(total_assets),
             total_market_value=_round(total_market_value),
             cash_available=_round(snapshot.cash_available),
+            account_actual_total_cost=_round(actual_cost) if actual_cost else None,
+            account_actual_total_cost_source=snapshot.account_actual_total_cost_source,
+            account_actual_total_cost_confirmed_at=snapshot.account_actual_total_cost_confirmed_at,
+            account_total_pnl=_round(account_total_pnl) if account_total_pnl is not None else None,
+            account_total_pnl_pct=_round(account_total_pnl_pct) if account_total_pnl_pct is not None else None,
+            account_total_pnl_status=account_pnl_status,
             repo_amount=_round(snapshot.repo_amount),
             snapshot_total_assets=_round(snapshot.total_assets) if snapshot.total_assets is not None else None,
             snapshot_cash_available=_round(snapshot.cash_available),
@@ -382,6 +427,17 @@ class PortfolioService:
             total_unrealized_pnl=_round(total_unrealized_pnl) if total_cost_basis > 0 else None,
             total_unrealized_pnl_pct=_round(total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis > 0 else None,
             total_unrealized_pnl_status=pnl_status,
+            current_holding_cost_basis=_round(total_cost_basis) if total_cost_basis > 0 else None,
+            current_holding_unrealized_pnl=_round(total_unrealized_pnl) if total_cost_basis > 0 else None,
+            current_holding_unrealized_pnl_pct=_round(total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis > 0 else None,
+            current_holding_unrealized_pnl_status=pnl_status,
+            valuation_snapshot_id=valuation_snapshot_id,
+            valuation_generated_at=valuation_generated_at,
+            quote_retrieved_at=valuation_generated_at,
+            valuation_consistency_status="failed" if errors else "passed",
+            valuation_consistency_checks=checks,
+            valuation_consistency_errors=errors,
+            valuation_consistency_diffs=diffs,
             excluded_symbols=sorted(set(excluded_symbols)),
             position_weights=sorted(position_weights, key=lambda x: x["weight_pct"], reverse=True),
             pnl_contributors=sorted(pnl_contributors, key=lambda x: x["unrealized_pnl"] or 0, reverse=True),
@@ -539,8 +595,13 @@ class PortfolioService:
             notes=record.notes,
         )
 
-    def build_portfolio_snapshot(self, user_question: str | None = None, persist: bool = True) -> AnalysisSnapshot:
-        state = self.get_state()
+    def build_portfolio_snapshot(
+        self,
+        user_question: str | None = None,
+        persist: bool = True,
+        state: PortfolioState | None = None,
+    ) -> AnalysisSnapshot:
+        state = state or self.get_state()
         evidence_items: list[EvidenceItem] = []
         now = datetime.now(timezone.utc)
         for position in state.snapshot.positions:

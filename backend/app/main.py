@@ -13,7 +13,7 @@ from app.api.facts import router as facts_router
 from app.api.portfolio import router as portfolio_router
 from app.core.config import settings
 
-APP_VERSION = "v3.6I.1"
+APP_VERSION = "v3.6I.2"
 
 app = FastAPI(
     title="Stock Copilot API",

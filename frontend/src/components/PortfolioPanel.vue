@@ -67,6 +67,7 @@ const tagDrafts = ref<Record<string, string>>({})
 
 const accountDraft = ref({
   cash_available: 0,
+  account_actual_total_cost: null as number | null,
   repo_amount: 0,
   max_position_weight: 35,
   max_theme_weight: 50,
@@ -147,16 +148,23 @@ const rowMarketValue = (row: ManualRow) => {
 const rowCostValue = (row: ManualRow) => rowQuantity(row) * rowAvgCost(row)
 const totalMarketValue = computed(() => manualRows.value.reduce((sum, row) => sum + rowMarketValue(row), 0))
 const totalCostValue = computed(() => manualRows.value.reduce((sum, row) => sum + rowCostValue(row), 0))
-const totalPnl = computed(() => totalMarketValue.value - totalCostValue.value)
-const totalPnlPct = computed(() => totalCostValue.value ? (totalPnl.value / totalCostValue.value) * 100 : null)
+const currentHoldingPnl = computed(() => totalMarketValue.value - totalCostValue.value)
+const currentHoldingPnlPct = computed(() => totalCostValue.value ? (currentHoldingPnl.value / totalCostValue.value) * 100 : null)
 const computedTotalAssets = computed(() =>
   totalMarketValue.value + Number(accountDraft.value.cash_available || 0) + Number(accountDraft.value.repo_amount || 0),
 )
+const accountActualTotalCost = computed(() => {
+  const value = Number(accountDraft.value.account_actual_total_cost || 0)
+  return value > 0 ? value : null
+})
+const accountTotalPnl = computed(() => accountActualTotalCost.value ? computedTotalAssets.value - accountActualTotalCost.value : null)
+const accountTotalPnlPct = computed(() => accountActualTotalCost.value && accountTotalPnl.value !== null ? accountTotalPnl.value / accountActualTotalCost.value * 100 : null)
 const cashRatio = computed(() => computedTotalAssets.value ? Number(accountDraft.value.cash_available || 0) / computedTotalAssets.value * 100 : 0)
 const investedRatio = computed(() => computedTotalAssets.value ? totalMarketValue.value / computedTotalAssets.value * 100 : 0)
 const validRows = computed(() => manualRows.value.filter((row) => row.symbol && rowQuantity(row) > 0 && rowAvgCost(row) > 0))
 const draftFingerprint = computed(() => JSON.stringify({
   cash_available: Number(accountDraft.value.cash_available || 0),
+  account_actual_total_cost: accountActualTotalCost.value,
   repo_amount: Number(accountDraft.value.repo_amount || 0),
   risk_limits: {
     max_position_weight: Number(accountDraft.value.max_position_weight || 35),
@@ -241,6 +249,7 @@ const load = async () => {
     state.value = await getPortfolio()
     await loadSuggestions()
     accountDraft.value.cash_available = state.value.snapshot.cash_available
+    accountDraft.value.account_actual_total_cost = state.value.snapshot.account_actual_total_cost ?? null
     accountDraft.value.repo_amount = state.value.snapshot.repo_amount
     accountDraft.value.max_position_weight = state.value.snapshot.risk_limits.max_position_weight
     accountDraft.value.max_theme_weight = state.value.snapshot.risk_limits.max_theme_weight
@@ -355,6 +364,7 @@ const saveManualPortfolio = async () => {
       snapshot_time: new Date().toISOString(),
       total_assets: computedTotalAssets.value,
       cash_available: Number(accountDraft.value.cash_available || 0),
+      account_actual_total_cost: accountActualTotalCost.value,
       repo_amount: Number(accountDraft.value.repo_amount || 0),
       source_type: 'manual_account',
       source_name: 'user_manual_entry',
@@ -471,7 +481,7 @@ onMounted(load)
 
       <template v-else>
         <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
-          <div class="rounded bg-secondary/40 p-3">
+          <div class="rounded bg-secondary/40 p-3" :title="`当前持仓浮动盈亏：${signedFmt(currentHoldingPnl)} ${signedFmt(currentHoldingPnlPct, '%')}`">
             <div class="text-muted-foreground">当前估算总资产</div>
             <div class="font-mono text-base font-semibold">{{ fmt(computedTotalAssets) }}</div>
           </div>
@@ -480,9 +490,12 @@ onMounted(load)
             <div class="font-mono text-base font-semibold">{{ fmt(totalMarketValue) }}</div>
           </div>
           <div class="rounded bg-secondary/40 p-3">
-            <div class="text-muted-foreground">总盈亏</div>
-            <div :class="['font-mono text-base font-semibold', totalPnl >= 0 ? 'text-negative' : 'text-positive']">
-              {{ signedFmt(totalPnl) }} <span class="text-xs">{{ signedFmt(totalPnlPct, '%') }}</span>
+            <div class="text-muted-foreground">账户总盈亏</div>
+            <div v-if="accountTotalPnl !== null" :class="['font-mono text-base font-semibold', accountTotalPnl >= 0 ? 'text-negative' : 'text-positive']">
+              {{ signedFmt(accountTotalPnl) }} <span class="text-xs">{{ signedFmt(accountTotalPnlPct, '%') }}</span>
+            </div>
+            <div v-else class="text-xs font-medium text-muted-foreground">
+              待录入实际总成本
             </div>
           </div>
           <div class="rounded bg-secondary/40 p-3">
@@ -496,13 +509,17 @@ onMounted(load)
         </div>
 
         <div class="rounded border border-border/60 bg-secondary/20 p-2 text-xs text-muted-foreground">
-          当前估算 = 系统最新取价持仓市值 + 快照现金/逆回购；不等同于券商实时总资产。
+          当前估算总资产基于系统最新取价与已保存现金计算；账户总盈亏基于手动维护的账户实际总成本计算，均不等同于券商实时官方口径。
         </div>
 
         <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
           <label class="space-y-1">
             <span class="text-muted-foreground">可用现金</span>
             <input v-model.number="accountDraft.cash_available" class="h-9 w-full rounded bg-input px-2" type="number" />
+          </label>
+          <label class="space-y-1">
+            <span class="text-muted-foreground">账户实际总成本</span>
+            <input v-model.number="accountDraft.account_actual_total_cost" class="h-9 w-full rounded bg-input px-2" min="0" step="0.01" type="number" />
           </label>
           <div class="flex items-end md:col-start-3">
             <button class="h-9 w-full rounded bg-primary px-3 text-xs font-medium" :disabled="saving" @click="saveManualPortfolio">

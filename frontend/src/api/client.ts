@@ -250,6 +250,9 @@ export interface PortfolioState {
     snapshot_time: string
     total_assets?: number | null
     cash_available: number
+    account_actual_total_cost?: number | null
+    account_actual_total_cost_source?: string | null
+    account_actual_total_cost_confirmed_at?: string | null
     repo_amount: number
     repo_available_date?: string | null
     notes?: string | null
@@ -264,6 +267,12 @@ export interface PortfolioState {
     total_assets: number
     total_market_value: number
     cash_available: number
+    account_actual_total_cost?: number | null
+    account_total_pnl?: number | null
+    account_total_pnl_pct?: number | null
+    current_holding_cost_basis?: number | null
+    current_holding_unrealized_pnl?: number | null
+    current_holding_unrealized_pnl_pct?: number | null
     repo_amount: number
     cash_ratio_pct: number
     repo_ratio_pct: number

@@ -188,6 +188,54 @@ def test_total_cost_basis_and_unrealized_pnl(tmp_path, monkeypatch):
     assert metrics.excluded_symbols == []
 
 
+def test_account_actual_total_cost_drives_account_total_pnl(tmp_path, monkeypatch):
+    service = _service(tmp_path, monkeypatch)
+    saved = service.load_snapshot()
+    payload = saved.model_dump()
+    payload["account_actual_total_cost"] = 110000
+    service.save_snapshot(PortfolioSnapshotInput(**payload))
+
+    context = build_account_analysis_context(mode="compact")
+    facts = context["account_facts"]
+    expected_assets = facts["total_market_value"] + facts["cash_available"] + facts.get("repo_amount", 0)
+
+    assert facts["account_actual_total_cost"] == 110000
+    assert facts["account_actual_total_cost_source"] == "user_manual_entry"
+    assert facts["account_total_pnl"] == round(expected_assets - 110000, 2)
+    assert facts["current_holding_unrealized_pnl"] == 7900
+
+    md = render_compact_markdown(context)
+    assert "账户总盈亏" in md
+    assert "当前持仓浮动盈亏" in md
+    assert "持仓累计浮动盈亏" not in md
+
+
+def test_missing_account_actual_total_cost_does_not_fake_account_pnl(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+
+    assert context["account_facts"]["account_actual_total_cost"] is None
+    assert context["account_facts"]["account_total_pnl"] is None
+    assert any(gap.get("key") == "账户实际总成本" for gap in context["data_gaps"] if isinstance(gap, dict))
+    assert "账户总盈亏 | 暂不可计算" in render_compact_markdown(context)
+
+
+def test_compact_context_uses_one_valuation_snapshot(tmp_path, monkeypatch):
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    facts = context["account_facts"]
+
+    holdings_market_value = round(sum(item["market_value"] or 0 for item in context["holdings"]), 2)
+    primary_market_value = round(sum(item["market_value"] or 0 for item in context["primary_direction_grouping"]), 2)
+    holdings_pnl = round(sum(item["unrealized_pnl"] or 0 for item in context["holdings"]), 2)
+
+    assert context["meta"]["valuation_snapshot_id"].startswith("valuation_")
+    assert context["meta"]["valuation_consistency_status"] == "passed"
+    assert holdings_market_value == facts["total_market_value"]
+    assert primary_market_value == facts["total_market_value"]
+    assert holdings_pnl == facts["current_holding_unrealized_pnl"]
+
+
 def test_compact_context_excludes_audit_fields(tmp_path, monkeypatch):
     _service(tmp_path, monkeypatch)
     context = build_account_analysis_context(mode="compact")

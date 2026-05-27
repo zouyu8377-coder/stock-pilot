@@ -704,15 +704,15 @@ def build_single_stock_packet(symbol: str, user_question: str | None = None, per
 
 def build_portfolio_packet(user_question: str | None = None, persist: bool = True) -> dict[str, Any]:
     state = portfolio_service.get_state()
-    snapshot = portfolio_service.build_portfolio_snapshot(user_question=user_question, persist=True)
-    generated_at = _now()
+    snapshot = portfolio_service.build_portfolio_snapshot(user_question=user_question, persist=persist, state=state)
+    generated_at = state.metrics.valuation_generated_at or _now()
     positions = []
     weights = {item.get("symbol"): item for item in state.metrics.position_weights}
     for position in state.snapshot.positions:
         data = position.model_dump(mode="json")
         data["portfolio_weight_pct"] = (weights.get(position.symbol) or {}).get("weight_pct")
         data["weight_pct"] = data["portfolio_weight_pct"]
-        data["quote_retrieved_at"] = generated_at.isoformat()
+        data["quote_retrieved_at"] = (position.system_quote_retrieved_at or generated_at).isoformat()
         data["quote_market_time"] = None
         data["quote_time_status"] = "unavailable"
         data["quote_time_boundary"] = QUOTE_TIME_BOUNDARY
@@ -804,8 +804,25 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             "total_assets": state.metrics.total_assets,
             "total_market_value": state.metrics.total_market_value,
             "cash_available": state.metrics.cash_available,
+            "account_actual_total_cost": state.metrics.account_actual_total_cost,
+            "account_actual_total_cost_source": state.metrics.account_actual_total_cost_source,
+            "account_actual_total_cost_confirmed_at": state.metrics.account_actual_total_cost_confirmed_at.isoformat() if state.metrics.account_actual_total_cost_confirmed_at else None,
+            "account_total_pnl": state.metrics.account_total_pnl,
+            "account_total_pnl_pct": state.metrics.account_total_pnl_pct,
+            "account_total_pnl_status": state.metrics.account_total_pnl_status,
+            "current_holding_cost_basis": state.metrics.current_holding_cost_basis,
+            "current_holding_unrealized_pnl": state.metrics.current_holding_unrealized_pnl,
+            "current_holding_unrealized_pnl_pct": state.metrics.current_holding_unrealized_pnl_pct,
+            "current_holding_unrealized_pnl_status": state.metrics.current_holding_unrealized_pnl_status,
             "repo_amount": state.metrics.repo_amount,
             "valuation_basis": "current_quote_estimate",
+            "valuation_snapshot_id": state.metrics.valuation_snapshot_id,
+            "valuation_generated_at": state.metrics.valuation_generated_at.isoformat() if state.metrics.valuation_generated_at else None,
+            "quote_retrieved_at": state.metrics.quote_retrieved_at.isoformat() if state.metrics.quote_retrieved_at else generated_at.isoformat(),
+            "valuation_consistency_status": state.metrics.valuation_consistency_status,
+            "valuation_consistency_checks": state.metrics.valuation_consistency_checks,
+            "valuation_consistency_errors": state.metrics.valuation_consistency_errors,
+            "valuation_consistency_diffs": state.metrics.valuation_consistency_diffs,
             "snapshot_valuation": {
                 "snapshot_as_of": state.snapshot.snapshot_time.isoformat(),
                 "snapshot_total_assets": state.snapshot.total_assets,
@@ -814,7 +831,8 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
                 "boundary": "Snapshot values reflect the locally saved account record at snapshot time.",
             },
             "current_quote_estimate": {
-                "quote_retrieved_at": generated_at.isoformat(),
+                "quote_retrieved_at": state.metrics.quote_retrieved_at.isoformat() if state.metrics.quote_retrieved_at else generated_at.isoformat(),
+                "valuation_snapshot_id": state.metrics.valuation_snapshot_id,
                 "current_enriched_market_value": state.metrics.total_market_value,
                 "cash_carried_from_snapshot": state.metrics.cash_available,
                 "repo_carried_from_snapshot": state.metrics.repo_amount,
@@ -840,6 +858,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         "holdings": positions,
         "positions": positions,
         "primary_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
+        "primary_direction_grouping": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
         "official_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
         "related_risk_observations": {
             "risk_tag_exposure": [item.model_dump(mode="json") for item in state.metrics.risk_tag_exposures],
@@ -956,7 +975,8 @@ _COMPACT_LLM_QUESTIONS = [
 
 _COMPACT_BOUNDARIES = [
     "隐私边界：本上下文由本地生成，不会自动发送给外部 AI；仅在用户主动复制、导出或提交时外传。",
-    "行情时间边界：当前 A 股行情源不提供可验证市场报价时间；总资产与浮动盈亏均为系统当前取价估算。",
+    "行情时间边界：当前 A 股行情源不提供可验证市场报价时间；当前估算总资产与持仓市值均基于系统本次冻结取价结果。",
+    "账户盈亏边界：账户总盈亏基于用户手动维护的账户实际总成本与当前估算总资产计算；当前持仓浮动盈亏仅反映尚持有证券的浮动结果，两者口径不同。",
     "方向口径边界：每只持仓按首个关联方向进行唯一归组；全部关联方向仅用于非加总观察，不得重复统计为资产暴露。",
     "风险观察边界：高波动等风险标记独立于关联方向，仅作描述性观察，不构成调仓或交易建议。",
     "外部驱动边界：COMEX、汇率、ETF 或其他外部驱动仅作为关联背景，不构成因果结论、估值结论或买卖建议。",
@@ -978,7 +998,7 @@ def _driver_label(key: str) -> str:
 def build_account_analysis_context(mode: str = "compact", snapshot_status_note: str | None = None) -> dict[str, Any]:
     result = build_portfolio_packet(user_question=None, persist=False)
     packet = result["packet"]
-    state = portfolio_service.get_state()
+    account_overview = packet["account_overview"]
 
     if mode == "audit":
         return {
@@ -986,6 +1006,9 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
                 "generated_at": _iso_z(packet["meta"]["generated_at"]),
                 "portfolio_snapshot_id": packet["meta"]["source_snapshot_id"],
                 "portfolio_as_of": _iso_z(packet["meta"]["portfolio_as_of"]),
+                "valuation_snapshot_id": account_overview.get("valuation_snapshot_id"),
+                "valuation_generated_at": _iso_z(account_overview.get("valuation_generated_at")),
+                "quote_retrieved_at": _iso_z(account_overview.get("quote_retrieved_at")),
                 "quote_time_boundary": QUOTE_TIME_BOUNDARY,
                 "privacy_boundary": PRIVACY_NOTICE,
             },
@@ -1013,7 +1036,7 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
                 }
                 for item in packet["holdings"]
             ],
-            "primary_direction_grouping": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
+            "primary_direction_grouping": packet.get("primary_direction_grouping", packet.get("primary_theme_exposure", [])),
             "all_direction_observations": packet["related_theme_observations"],
             "risk_observations": packet["related_risk_observations"],
             "official_theme_exposure": packet["official_theme_exposure"],
@@ -1025,24 +1048,32 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
         }
 
     # Compact mode
-    state = portfolio_service.get_state()
-    metrics = state.metrics
-    has_repo = bool(metrics.repo_amount and metrics.repo_amount > 0)
+    has_repo = bool(account_overview.get("repo_amount") and account_overview.get("repo_amount") > 0)
 
     account_facts: dict[str, Any] = {
-        "total_assets": metrics.total_assets,
-        "total_market_value": metrics.total_market_value,
-        "cash_available": metrics.cash_available,
-        "invested_ratio_pct": metrics.invested_ratio_pct,
-        "cash_ratio_pct": metrics.cash_ratio_pct,
-        "total_cost_basis": metrics.total_cost_basis,
-        "total_unrealized_pnl": metrics.total_unrealized_pnl,
-        "total_unrealized_pnl_pct": metrics.total_unrealized_pnl_pct,
-        "total_unrealized_pnl_status": metrics.total_unrealized_pnl_status,
+        "total_assets": account_overview.get("total_assets"),
+        "total_market_value": account_overview.get("total_market_value"),
+        "cash_available": account_overview.get("cash_available"),
+        "invested_ratio_pct": account_overview.get("invested_ratio_pct"),
+        "cash_ratio_pct": account_overview.get("cash_ratio_pct"),
+        "account_actual_total_cost": account_overview.get("account_actual_total_cost"),
+        "account_actual_total_cost_source": account_overview.get("account_actual_total_cost_source"),
+        "account_actual_total_cost_confirmed_at": account_overview.get("account_actual_total_cost_confirmed_at"),
+        "account_total_pnl": account_overview.get("account_total_pnl"),
+        "account_total_pnl_pct": account_overview.get("account_total_pnl_pct"),
+        "account_total_pnl_status": account_overview.get("account_total_pnl_status"),
+        "current_holding_cost_basis": account_overview.get("current_holding_cost_basis"),
+        "current_holding_unrealized_pnl": account_overview.get("current_holding_unrealized_pnl"),
+        "current_holding_unrealized_pnl_pct": account_overview.get("current_holding_unrealized_pnl_pct"),
+        "current_holding_unrealized_pnl_status": account_overview.get("current_holding_unrealized_pnl_status"),
+        "total_cost_basis": account_overview.get("current_holding_cost_basis"),
+        "total_unrealized_pnl": account_overview.get("current_holding_unrealized_pnl"),
+        "total_unrealized_pnl_pct": account_overview.get("current_holding_unrealized_pnl_pct"),
+        "total_unrealized_pnl_status": account_overview.get("current_holding_unrealized_pnl_status"),
     }
     if has_repo:
-        account_facts["repo_amount"] = metrics.repo_amount
-        account_facts["repo_ratio_pct"] = metrics.repo_ratio_pct
+        account_facts["repo_amount"] = account_overview.get("repo_amount")
+        account_facts["repo_ratio_pct"] = account_overview.get("repo_ratio_pct")
 
     # Build name/primary maps and compact holdings
     symbol_name_map: dict[str, str] = {}
@@ -1100,7 +1131,7 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
                 entry["market_value"] += mv
                 entry["symbols"].append(symbol)
 
-    total_assets_for_wp = metrics.total_assets or 1
+    total_assets_for_wp = account_overview.get("total_assets") or 1
     primary_direction_grouping = []
     for direction, data in sorted(primary_direction_aggregates.items(), key=lambda x: x[1]["market_value"], reverse=True):
         mv = data["market_value"]
@@ -1146,6 +1177,11 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
             compact_data_gaps.append(gap)
         else:
             compact_data_gaps.append(gap)
+    if not account_overview.get("account_actual_total_cost") or account_overview.get("account_actual_total_cost", 0) <= 0:
+        compact_data_gaps.append({
+            "key": "账户实际总成本",
+            "reason": "尚未录入；账户整体盈亏暂不可计算，当前仅可展示持仓浮动盈亏。",
+        })
 
     # 3. Restore fact coverage gaps in compact with grouped keys
     gap_reasons: dict[str, str] = {}
@@ -1177,7 +1213,12 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
             "generated_at": _iso_z(packet["meta"]["generated_at"]),
             "portfolio_snapshot_id": packet["meta"]["source_snapshot_id"],
             "portfolio_as_of": _iso_z(packet["meta"]["portfolio_as_of"]),
-            "quote_retrieved_at": _iso_z(packet["account_overview"]["current_quote_estimate"]["quote_retrieved_at"]),
+            "quote_retrieved_at": _iso_z(account_overview.get("quote_retrieved_at") or packet["account_overview"]["current_quote_estimate"]["quote_retrieved_at"]),
+                "valuation_snapshot_id": account_overview.get("valuation_snapshot_id"),
+                "valuation_generated_at": _iso_z(account_overview.get("valuation_generated_at")),
+                "valuation_consistency_status": account_overview.get("valuation_consistency_status"),
+                "valuation_consistency_checks": account_overview.get("valuation_consistency_checks"),
+                "valuation_consistency_errors": account_overview.get("valuation_consistency_errors"),
                 "symbol_name_map": symbol_name_map,
                 "symbol_primary_map": symbol_primary_map,
                 "analysis_boundaries": _COMPACT_BOUNDARIES,
@@ -1414,11 +1455,13 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         f"持仓快照时间：{meta.get('portfolio_as_of', '-')}",
         f"行情取数时间：{meta.get('quote_retrieved_at', '-')}",
     ]
+    if meta.get("valuation_snapshot_id"):
+        lines.append(f"估值快照：{meta.get('valuation_snapshot_id')}")
     if meta.get("snapshot_status_note"):
         lines.append(f"快照状态：{meta['snapshot_status_note']}")
     lines.extend([
         "",
-        "> 注意：系统取数时间不是可验证市场报价时间。",
+        "> 注意：系统取数时间不是可验证市场报价时间；本次上下文所有金额来自同一冻结估值快照。",
         "",
         "## 分析边界",
     ])
@@ -1433,18 +1476,28 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         "| 指标 | 当前估算值 |",
         "|---|---:|",
     ])
-    lines.append(f"| 总资产 | {_fmt_amount(account.get('total_assets'))} |")
-    lines.append(f"| 持仓市值 | {_fmt_amount(account.get('total_market_value'))} |")
+    lines.append(f"| 当前估算总资产 | {_fmt_amount(account.get('total_assets'))} |")
+    lines.append(f"| 当前行情持仓市值 | {_fmt_amount(account.get('total_market_value'))} |")
     lines.append(f"| 可用现金 | {_fmt_amount(account.get('cash_available'))} |")
     ir = account.get("invested_ratio_pct")
     lines.append(f"| 当前仓位 | {ir:.2f}% |" if ir is not None else "| 当前仓位 | - |")
-    if account.get("total_cost_basis") is not None:
-        lines.append(f"| 持仓总成本 | {_fmt_amount(account['total_cost_basis'])} |")
-        pnl = account.get("total_unrealized_pnl")
-        pnl_pct = account.get("total_unrealized_pnl_pct")
+    if account.get("account_actual_total_cost") is not None:
+        lines.append(f"| 账户实际总成本 | {_fmt_amount(account.get('account_actual_total_cost'))} |")
+        pnl = account.get("account_total_pnl")
+        pnl_pct = account.get("account_total_pnl_pct")
         pnl_str = _fmt_signed_amount(pnl)
         pnl_pct_str = f" ({pnl_pct:+.2f}%)" if pnl_pct is not None else ""
-        lines.append(f"| 持仓累计浮动盈亏 | {pnl_str}{pnl_pct_str} |")
+        lines.append(f"| 账户总盈亏 | {pnl_str}{pnl_pct_str} |")
+    else:
+        lines.append("| 账户实际总成本 | 待录入 |")
+        lines.append("| 账户总盈亏 | 暂不可计算 |")
+    if account.get("current_holding_cost_basis") is not None:
+        lines.append(f"| 当前持仓成本 | {_fmt_amount(account['current_holding_cost_basis'])} |")
+        pnl = account.get("current_holding_unrealized_pnl")
+        pnl_pct = account.get("current_holding_unrealized_pnl_pct")
+        pnl_str = _fmt_signed_amount(pnl)
+        pnl_pct_str = f" ({pnl_pct:+.2f}%)" if pnl_pct is not None else ""
+        lines.append(f"| 当前持仓浮动盈亏 | {pnl_str}{pnl_pct_str} |")
     if account.get("repo_amount") is not None:
         lines.append(f"| 逆回购余额 | {_fmt_amount(account['repo_amount'])} |")
     lines.append("")
@@ -1453,7 +1506,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     lines.extend([
         "## 当前持仓",
         "",
-        "| 标的 | 持仓数量 | 成本价 | 当前价 | 当前市值 | 浮动盈亏 | 权重 | 关联方向 | 角色 |",
+        "| 标的 | 持仓数量 | 成本价 | 当前价 | 当前市值 | 当前持仓浮动盈亏 | 权重 | 关联方向 | 角色 |",
         "|---|---:|---:|---:|---:|---:|---:|---|---|",
     ])
     for h in holdings:

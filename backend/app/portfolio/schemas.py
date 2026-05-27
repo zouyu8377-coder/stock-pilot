@@ -57,6 +57,9 @@ _LEGACY_DIRECTION_MIGRATION = {
     "PCB": ["PCB"],
     "AI": ["AI"],
     "SEMICONDUCTOR_EQUIPMENT": ["SEMICONDUCTOR_EQUIPMENT"],
+    "SEMICONDUCTOR": ["SEMICONDUCTOR_EQUIPMENT"],
+    "半导体": ["SEMICONDUCTOR_EQUIPMENT"],
+    "半导体设备": ["SEMICONDUCTOR_EQUIPMENT"],
 }
 _DEPRECATED_DIRECTION_TAGS = {"COMPOSITE_EXPOSURE", "CASH_EQUIVALENT"}
 
@@ -188,6 +191,9 @@ class PortfolioSnapshotInput(BaseModel):
     snapshot_time: datetime = Field(default_factory=datetime.utcnow)
     total_assets: float | None = None
     cash_available: float = 0
+    account_actual_total_cost: float | None = None
+    account_actual_total_cost_source: str | None = None
+    account_actual_total_cost_confirmed_at: datetime | None = None
     repo_amount: float = 0
     repo_available_date: date | None = None
     notes: str | None = None
@@ -214,6 +220,12 @@ class PortfolioMetrics(BaseModel):
     total_assets: float
     total_market_value: float
     cash_available: float
+    account_actual_total_cost: float | None = None
+    account_actual_total_cost_source: str | None = None
+    account_actual_total_cost_confirmed_at: datetime | None = None
+    account_total_pnl: float | None = None
+    account_total_pnl_pct: float | None = None
+    account_total_pnl_status: str = "unavailable"
     repo_amount: float
     snapshot_total_assets: float | None = None
     snapshot_cash_available: float | None = None
@@ -235,6 +247,17 @@ class PortfolioMetrics(BaseModel):
     total_unrealized_pnl: float | None = None
     total_unrealized_pnl_pct: float | None = None
     total_unrealized_pnl_status: str = "unavailable"
+    current_holding_cost_basis: float | None = None
+    current_holding_unrealized_pnl: float | None = None
+    current_holding_unrealized_pnl_pct: float | None = None
+    current_holding_unrealized_pnl_status: str = "unavailable"
+    valuation_snapshot_id: str | None = None
+    valuation_generated_at: datetime | None = None
+    quote_retrieved_at: datetime | None = None
+    valuation_consistency_status: str = "unchecked"
+    valuation_consistency_checks: dict[str, bool] = Field(default_factory=dict)
+    valuation_consistency_errors: list[str] = Field(default_factory=list)
+    valuation_consistency_diffs: dict[str, float] = Field(default_factory=dict)
     excluded_symbols: list[str] = Field(default_factory=list)
     composite_exposure_notes: list[str] = Field(default_factory=list)
     missing_data: list[dict[str, Any]] = Field(default_factory=list)
