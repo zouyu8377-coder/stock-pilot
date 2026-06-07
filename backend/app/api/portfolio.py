@@ -1,7 +1,10 @@
+from dataclasses import asdict
+
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from app.portfolio import portfolio_service
 from app.analysis_packet.packet_service import build_account_analysis_context
+from app.portfolio.dashboard import build_dashboard
 from app.portfolio.import_schemas import PortfolioImportDraftUpdate, PortfolioScreenshotImportOptions
 from app.portfolio.import_service import portfolio_import_service, provider_statuses
 from app.portfolio.schemas import (
@@ -11,6 +14,7 @@ from app.portfolio.schemas import (
     PortfolioSnapshotInput,
     TradeSimulationRequest,
 )
+from app.services.portfolio_etf_share_sync import sync_new_etf_share_data
 
 router = APIRouter()
 
@@ -25,9 +29,13 @@ def get_portfolio():
 
 @router.put("/portfolio")
 def save_portfolio(payload: PortfolioSnapshotInput):
+    previous_snapshot = portfolio_service.load_snapshot()
+    state = portfolio_service.save_snapshot(payload)
+    etf_share_update = sync_new_etf_share_data(previous_snapshot, state.snapshot)
     return {
         "success": True,
-        "data": portfolio_service.save_snapshot(payload).model_dump(mode="json"),
+        "data": state.model_dump(mode="json"),
+        "etf_share_update": [asdict(item) for item in etf_share_update],
     }
 
 
@@ -109,6 +117,16 @@ def portfolio_account_analysis_context(mode: str = Query(default="compact")):
     }
 
 
+@router.get("/portfolio/dashboard")
+def portfolio_dashboard():
+    state = portfolio_service.get_state()
+    context = build_account_analysis_context(mode="compact")
+    return {
+        "success": True,
+        "data": build_dashboard(state, context),
+    }
+
+
 @router.get("/portfolio/import/parser-providers")
 def get_portfolio_import_parser_providers():
     return {
@@ -183,7 +201,9 @@ def rerun_portfolio_import_parse(draft_id: str):
 @router.post("/portfolio/import/drafts/{draft_id}/confirm")
 def confirm_portfolio_import_draft(draft_id: str):
     try:
+        previous_snapshot = portfolio_service.load_snapshot()
         result = portfolio_import_service.confirm_draft(draft_id)
+        etf_share_update = sync_new_etf_share_data(previous_snapshot, result["state"].snapshot)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Import draft not found") from exc
     except ValueError as exc:
@@ -194,6 +214,7 @@ def confirm_portfolio_import_draft(draft_id: str):
             "draft": result["draft"].model_dump(mode="json"),
             "portfolio": result["state"].model_dump(mode="json"),
         },
+        "etf_share_update": [asdict(item) for item in etf_share_update],
     }
 
 

@@ -7,9 +7,11 @@ import KLineChart from './components/KLineChart.vue'
 import AutoFactsPanel from './components/AutoFactsPanel.vue'
 import AnalysisPacketPanel from './components/AnalysisPacketPanel.vue'
 import PortfolioPanel from './components/PortfolioPanel.vue'
+import AccountDashboard from './components/AccountDashboard.vue'
 import { getSearchHistory, updateSearchHistory, type SearchHistoryItem } from './utils/searchHistory'
 import { APP_VERSION } from './version'
 
+const activeView = ref<'dashboard' | 'portfolio' | 'research'>('dashboard')
 const symbol = ref('600519')
 const loading = ref(false)
 const result = ref<AnalyzeResponse | null>(null)
@@ -225,6 +227,7 @@ const resolveInputSymbol = async () => {
 }
 
 const handleAnalyze = async () => {
+  activeView.value = 'research'
   loading.value = true
   error.value = ''
   result.value = null
@@ -247,6 +250,12 @@ const handleAnalyze = async () => {
     loading.value = false
   }
 }
+
+const openResearchForSymbol = async (nextSymbol: string) => {
+  symbol.value = nextSymbol
+  activeView.value = 'research'
+  await handleAnalyze()
+}
 </script>
 
 <template>
@@ -263,6 +272,26 @@ const handleAnalyze = async () => {
           <span class="rounded bg-secondary/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground" :title="`API ${API_BASE_URL}`">
             {{ APP_VERSION }} · API {{ API_BASE_URL.replace('http://127.0.0.1:', ':') }}
           </span>
+          <nav class="ml-3 flex rounded border border-border bg-card p-1 text-xs">
+            <button
+              :class="['h-8 rounded px-3', activeView === 'dashboard' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground']"
+              @click="activeView = 'dashboard'"
+            >
+              驾驶舱
+            </button>
+            <button
+              :class="['h-8 rounded px-3', activeView === 'portfolio' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground']"
+              @click="activeView = 'portfolio'"
+            >
+              组合维护
+            </button>
+            <button
+              :class="['h-8 rounded px-3', activeView === 'research' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground']"
+              @click="activeView = 'research'"
+            >
+              个股分析
+            </button>
+          </nav>
         </div>
 
         <div class="flex min-w-0 items-center gap-4 text-xs">
@@ -306,7 +335,9 @@ const handleAnalyze = async () => {
     </header>
 
     <main class="mx-auto max-w-[1600px] px-6 py-4">
-      <PortfolioPanel />
+      <AccountDashboard v-if="activeView === 'dashboard'" @select-symbol="openResearchForSymbol" />
+      <PortfolioPanel v-else-if="activeView === 'portfolio'" />
+      <template v-else>
       <div class="mb-6">
         <div class="flex items-center gap-3">
           <div ref="searchContainerRef" class="relative max-w-md flex-1">
@@ -377,6 +408,7 @@ const handleAnalyze = async () => {
           <DeepAnalysisPanel :symbol="result.stocks[0].symbol" />
         </div>
       </div>
+      </template>
     </main>
   </div>
 </template>

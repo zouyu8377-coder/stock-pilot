@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8001'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -191,6 +191,8 @@ export interface PortfolioPosition {
   system_quote_retrieved_at?: string | null
   system_quote_market_time?: string | null
   quote_time_status?: string
+  position_status?: string
+  valuation_scope?: string
   source_type?: string
   source_name?: string | null
   import_draft_id?: string | null
@@ -284,6 +286,9 @@ export interface PortfolioState {
     warnings: string[]
     composite_exposure_notes: string[]
     missing_data: Array<Record<string, any>>
+    active_position_count?: number
+    watchlist_position_count?: number
+    watchlist_symbols?: string[]
   }
   supported_directions: string[]
   supported_risk_flags: string[]
@@ -337,6 +342,31 @@ export interface AnalysisPacketResponse {
     json_path: string
     markdown_path: string
   }
+}
+
+export interface PortfolioDashboard {
+  generated_at: string
+  account_facts: Record<string, any>
+  positions: Array<PortfolioPosition & {
+    portfolio_weight_pct?: number | null
+    trend?: Record<string, any>
+  }>
+  opportunity_queue: Array<Record<string, any>>
+  risk_queue: Array<Record<string, any>>
+  strategy_matrix: Array<Record<string, any>>
+  primary_direction_grouping: Array<Record<string, any>>
+  risk_observations: Record<string, any>
+  data_gaps: Array<Record<string, any> | string>
+  market_event_radar?: {
+    generated_at: string
+    window_days: number
+    high_impact_count: number
+    next_event?: Record<string, any> | null
+    events: Array<Record<string, any>>
+    boundary: string
+  }
+  external_ai_tasks: string[]
+  boundaries: Record<string, any>
 }
 
 export async function analyzeStock(symbol: string): Promise<AnalyzeResponse> {
@@ -408,6 +438,11 @@ export async function updateHoldingSemantics(payload: any): Promise<PortfolioSta
 
 export async function getAccountAnalysisContext(): Promise<any> {
   const response = await client.get<{ success: boolean; data: any }>('/api/portfolio/account-analysis-context')
+  return response.data.data
+}
+
+export async function getPortfolioDashboard(): Promise<PortfolioDashboard> {
+  const response = await client.get<{ success: boolean; data: PortfolioDashboard }>('/api/portfolio/dashboard')
   return response.data.data
 }
 

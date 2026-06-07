@@ -19,6 +19,7 @@ from app.facts.common import to_ts_code
 from app.facts.disclosure_service import get_disclosure_facts
 from app.facts.dragon_tiger_service import get_dragon_tiger_facts
 from app.facts.etf_service import SUPPORTED_ETFS, get_etf_facts
+from app.services.etf_share_service import ETF_SHARE_LIMIT, etf_share_service
 from app.portfolio import portfolio_service
 
 
@@ -63,11 +64,12 @@ SINGLE_LLM_QUESTIONS = [
 ]
 
 PORTFOLIO_LLM_QUESTIONS = [
-    "Please summarize the official exposure structure under confirmed primary_theme and state that theme_tags are non-additive related observations only.",
-    "Please identify holdings that share the same or related external-driver context, and state that these links are contextual observations rather than causal conclusions.",
-    "Please list missing account records, holding plans, role notes, or external facts that would materially affect further review.",
-    "Please organize observations into focus areas, information to supplement, and items without enough basis for judgment; do not output buy, sell, or position-adjustment instructions.",
-    "Please state which conclusions are contextual assumptions rather than verified facts.",
+    "请先识别当前账户的具体机会点，并结合关联方向与风险观察说明：哪些已有持仓或持仓量为 0 的观察标的最值得优先跟踪，对应证据来自持仓角色、账户权重、走势证据、外部驱动或数据缺口中的哪一项。",
+    "请再识别当前账户的具体风险点：集中度、趋势转弱、事实缺失、持仓计划不清、账户数据陈旧、外部驱动敏感性等，都必须绑定到具体标的或账户指标。",
+    "请对重要标的分别给出短期、中期、长期策略观察；每个周期都要包含需要观察的触发条件、使判断失效的信号，以及哪些新增信息会改变当前看法。",
+    "请区分已有持仓与持仓量为 0 的观察标的。观察标的只讨论进入观察池后的跟踪重点、入场准备度和需要等待的证据，不计入当前仓位暴露、成本或盈亏贡献。",
+    "避免输出“控制风险、注意波动、关注基本面”这类笼统结论；每条结论都应点名标的或账户指标，并引用本证据包中的相关字段。",
+    "不要输出无条件的买入、卖出、加仓、减仓或调仓指令；请使用条件化策略语言，例如继续观察、等待确认、降低置信度、需要补充证据、若条件成立再评估；do not output buy, sell, or position-adjustment instructions。",
 ]
 
 
@@ -604,6 +606,29 @@ def _portfolio_auto_fact_summary(symbols: list[str]) -> list[dict[str, Any]]:
     return summaries
 
 
+def _portfolio_etf_share_observations(positions: list[dict[str, Any]]) -> dict[str, Any]:
+    codes: list[str] = []
+    names: dict[str, str] = {}
+    for position in positions:
+        symbol = str(position.get("symbol") or "")
+        code = symbol.split(".", 1)[0].strip().zfill(6)
+        if not code.startswith(("15", "16", "51", "56", "58")):
+            continue
+        codes.append(code)
+        if position.get("name"):
+            names[code] = str(position.get("name"))
+
+    observations = etf_share_service.observations_for_codes(sorted(set(codes)), names=names)
+    available = [item for item in observations if item.get("data_status") == "available"]
+    unavailable = [item for item in observations if item.get("data_status") != "available"]
+    return {
+        "observations": available,
+        "unavailable": unavailable,
+        "source": "akshare",
+        "boundary": ETF_SHARE_LIMIT,
+    }
+
+
 def _save_packet(packet: dict[str, Any], markdown: str) -> dict[str, str]:
     scope = packet["meta"]["analysis_scope"]
     leaf = packet["meta"].get("target_symbol") or packet["meta"].get("portfolio_id") or "default"
@@ -790,8 +815,18 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             if item.get("data_status") != "available"
         ],
     ]
+    etf_share_observations = _portfolio_etf_share_observations(positions)
     missing_data = _clean_text([
         *data_gaps,
+        *[
+            {
+                "key": "ETF 份额 / 净值事实",
+                "symbol": item.get("fund_code"),
+                "reason": item.get("reason") or "AKShare 接口失败或未匹配到基金代码",
+                "source": "akshare",
+            }
+            for item in etf_share_observations.get("unavailable", [])
+        ],
         {"key": "broker_sync", "reason": "Broker account sync is not implemented."},
         {"key": "quote_time", "reason": QUOTE_TIME_BOUNDARY},
     ])
@@ -829,6 +864,9 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
             "current_holding_unrealized_pnl_pct": state.metrics.current_holding_unrealized_pnl_pct,
             "current_holding_unrealized_pnl_status": state.metrics.current_holding_unrealized_pnl_status,
             "repo_amount": state.metrics.repo_amount,
+            "active_position_count": state.metrics.active_position_count,
+            "watchlist_position_count": state.metrics.watchlist_position_count,
+            "watchlist_symbols": state.metrics.watchlist_symbols,
             "valuation_basis": "current_quote_estimate",
             "valuation_snapshot_id": state.metrics.valuation_snapshot_id,
             "valuation_generated_at": state.metrics.valuation_generated_at.isoformat() if state.metrics.valuation_generated_at else None,
@@ -905,6 +943,7 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         "rule_reminders": rule_reminders,
         "manual_evidence": _manual_evidence_for_symbol(None),
         "auto_fact_summary": _portfolio_auto_fact_summary([p.symbol for p in state.snapshot.positions]),
+        "etf_share_observations": etf_share_observations,
         "external_driver_summary": external_driver_summary,
         "data_gaps": missing_data,
         "ai_analysis_boundary": {
@@ -997,6 +1036,15 @@ _COMPACT_BOUNDARIES = [
     "方向口径边界：每只持仓按首个关联方向进行唯一归组；全部关联方向仅用于非加总观察，不得重复统计为资产暴露。",
     "风险观察边界：高波动等风险标记独立于关联方向，仅作描述性观察，不构成调仓或交易建议。",
     "外部驱动边界：COMEX、汇率、ETF 或其他外部驱动仅作为关联背景，不构成因果结论、估值结论或买卖建议。",
+]
+
+_STRATEGY_LLM_QUESTIONS = [
+    "请先识别当前账户的具体机会点，并结合关联方向与风险观察说明：哪些已有持仓或持仓量为 0 的观察标的最值得优先跟踪，对应证据来自持仓角色、账户权重、走势证据、外部驱动或数据缺口中的哪一项。",
+    "请再识别当前账户的具体风险点：集中度、趋势转弱、事实缺失、持仓计划不清、账户数据陈旧、外部驱动敏感性等，都必须绑定到具体标的或账户指标。",
+    "请对重要标的分别给出短期、中期、长期策略观察；每个周期都要包含需要观察的触发条件、使判断失效的信号，以及哪些新增信息会改变当前看法。",
+    "请区分已有持仓与持仓量为 0 的观察标的。观察标的只讨论进入观察池后的跟踪重点、入场准备度和需要等待的证据，不计入当前仓位暴露、成本或盈亏贡献。",
+    "避免输出“控制风险、注意波动、关注基本面”这类笼统结论；每条结论都应点名标的或账户指标，并引用本证据包中的相关字段。",
+    "不要输出无条件的买入、卖出、加仓、减仓或调仓指令；请使用条件化策略语言，例如继续观察、等待确认、降低置信度、需要补充证据、若条件成立再评估；do not output buy, sell, or position-adjustment instructions。",
 ]
 
 
@@ -1181,6 +1229,8 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
                     "unrealized_pnl": item.get("unrealized_pnl"),
                     "unrealized_pnl_pct": item.get("unrealized_pnl_pct"),
                     "portfolio_weight_pct": item.get("portfolio_weight_pct"),
+                    "position_status": item.get("position_status"),
+                    "valuation_scope": item.get("valuation_scope"),
                     "confirmed_primary_theme": item.get("confirmed_primary_theme"),
                     "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
                     "confirmed_directions": item.get("confirmed_directions", []),
@@ -1192,6 +1242,7 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
                 for item in packet["holdings"]
             ],
             "holding_trend_evidence": packet.get("holding_trend_evidence", []),
+            "etf_share_observations": packet.get("etf_share_observations", {}),
             "primary_direction_grouping": packet.get("primary_direction_grouping", packet.get("primary_theme_exposure", [])),
             "all_direction_observations": packet["related_theme_observations"],
             "risk_observations": packet["related_risk_observations"],
@@ -1212,6 +1263,9 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
         "cash_available": account_overview.get("cash_available"),
         "invested_ratio_pct": account_overview.get("invested_ratio_pct"),
         "cash_ratio_pct": account_overview.get("cash_ratio_pct"),
+        "active_position_count": account_overview.get("active_position_count"),
+        "watchlist_position_count": account_overview.get("watchlist_position_count"),
+        "watchlist_symbols": account_overview.get("watchlist_symbols", []),
         "account_actual_total_cost": account_overview.get("account_actual_total_cost"),
         "account_actual_total_cost_source": account_overview.get("account_actual_total_cost_source"),
         "account_actual_total_cost_confirmed_at": account_overview.get("account_actual_total_cost_confirmed_at"),
@@ -1251,6 +1305,8 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
             "unrealized_pnl": item.get("unrealized_pnl"),
             "unrealized_pnl_pct": item.get("unrealized_pnl_pct"),
             "portfolio_weight_pct": item.get("portfolio_weight_pct"),
+            "position_status": item.get("position_status"),
+            "valuation_scope": item.get("valuation_scope"),
             "confirmed_primary_theme": item.get("confirmed_primary_theme"),
             "confirmed_theme_tags": item.get("confirmed_theme_tags", []),
             "confirmed_directions": directions,
@@ -1412,6 +1468,7 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
         "account_facts": account_facts,
         "holdings": compact_holdings,
         "holding_trend_evidence": compact_trend_evidence,
+        "etf_share_observations": packet.get("etf_share_observations", {}),
         "primary_direction_grouping": primary_direction_grouping,
         "all_direction_observations": {
             "direction_observations": all_direction_observations,
@@ -1433,7 +1490,7 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
             "inactive_decision_rules": packet["ai_analysis_boundary"]["inactive_decision_rules"],
             "boundary": "当前上下文仅用于账户事实汇总、方向结构观察与数据缺口识别；不输出买卖或调仓指令。",
         },
-        "suggested_questions_for_external_llm": _COMPACT_LLM_QUESTIONS,
+        "suggested_questions_for_external_llm": _STRATEGY_LLM_QUESTIONS,
     }
 
 
@@ -1606,6 +1663,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     account = context["account_facts"]
     holdings = context["holdings"]
     holding_trend_evidence = context.get("holding_trend_evidence", [])
+    etf_share_obs = context.get("etf_share_observations", {})
     primary_direction_grouping = context.get("primary_direction_grouping", [])
     all_directions = context.get("all_direction_observations", {})
     risk_obs = context.get("risk_observations", {})
@@ -1746,6 +1804,35 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             )
         lines.append("")
         lines.append("近期走势证据来自本地日K和派生技术指标，仅作弱信号观察，不构成买卖、加仓、减仓或止盈止损指令。")
+        lines.append("")
+
+    observations = etf_share_obs.get("observations", []) if isinstance(etf_share_obs, dict) else []
+    if observations:
+        def _fmt_pct(value: Any) -> str:
+            if value is None:
+                return "暂无"
+            try:
+                return f"{float(value) * 100:+.2f}%"
+            except (TypeError, ValueError):
+                return "暂无"
+
+        lines.extend([
+            "## ETF 份额观察",
+            "",
+            "| ETF | 最新日期 | 最新份额 | 1日变化 | 5日变化 | 20日变化 | 数据源 |",
+            "|---|---:|---:|---:|---:|---:|---|",
+        ])
+        for item in observations:
+            name = item.get("fund_name") or item.get("fund_code")
+            latest_share = item.get("latest_share_100m")
+            latest_share_str = f"{float(latest_share):.2f} 亿份" if latest_share is not None else "暂无"
+            lines.append(
+                f"| {name} | {item.get('latest_trade_date') or '暂无'} | {latest_share_str} | "
+                f"{_fmt_pct(item.get('share_chg_1d'))} | {_fmt_pct(item.get('share_chg_5d'))} | "
+                f"{_fmt_pct(item.get('share_chg_20d'))} | AKShare |"
+            )
+        lines.append("")
+        lines.append("ETF 份额变化仅作为资金变化观察证据，不构成买卖、加减仓或价格方向判断。")
         lines.append("")
 
     # Primary direction grouping
@@ -1958,6 +2045,10 @@ def render_packet_markdown(packet: dict[str, Any], mode: str = "audit") -> str:
             "## Holding Recent Trend Evidence",
             "Daily-K trend evidence and technical indicators are weak auxiliary signals only.",
             f"```json\n{json.dumps(packet.get('holding_trend_evidence', []), ensure_ascii=False, indent=2, default=str)}\n```",
+            "",
+            "## ETF Share Observations",
+            "ETF share changes are fund-size observations only, not trading signals.",
+            f"```json\n{json.dumps(packet.get('etf_share_observations', {}), ensure_ascii=False, indent=2, default=str)}\n```",
             "",
             "## Primary Theme Exposure",
             "Unique attribution by `primary_theme`; this is the additive theme exposure view.",

@@ -172,6 +172,8 @@ class PortfolioPositionInput(BaseModel):
 
 
 class PortfolioPosition(PortfolioPositionInput):
+    position_status: str = "active"
+    valuation_scope: str = "asset_metric_included"
     market_price: float | None = None
     market_value: float | None = None
     unrealized_pnl: float | None = None
@@ -261,6 +263,9 @@ class PortfolioMetrics(BaseModel):
     excluded_symbols: list[str] = Field(default_factory=list)
     composite_exposure_notes: list[str] = Field(default_factory=list)
     missing_data: list[dict[str, Any]] = Field(default_factory=list)
+    active_position_count: int = 0
+    watchlist_position_count: int = 0
+    watchlist_symbols: list[str] = Field(default_factory=list)
 
 
 class PortfolioState(BaseModel):

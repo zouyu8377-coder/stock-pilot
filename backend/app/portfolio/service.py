@@ -260,7 +260,8 @@ class PortfolioService:
                 missing_data.append("market_price")
             if base.quantity < 0:
                 missing_data.append("quantity_invalid")
-            if base.avg_cost <= 0:
+            is_watchlist = base.quantity == 0
+            if base.avg_cost <= 0 and not is_watchlist:
                 missing_data.append("avg_cost_invalid")
             can_value = price is not None and base.quantity >= 0
             can_pnl = can_value and base.avg_cost > 0
@@ -271,6 +272,8 @@ class PortfolioService:
             data["name"] = _canonical_name(base.symbol, base.name or quote_name)
             positions.append(PortfolioPosition(
                 **data,
+                position_status="watchlist" if is_watchlist else "active",
+                valuation_scope="asset_metric_excluded" if is_watchlist else "asset_metric_included",
                 market_price=_round(price, 4) if price is not None else None,
                 market_value=_round(market_value) if market_value is not None else None,
                 unrealized_pnl=_round(pnl) if pnl is not None else None,
@@ -291,6 +294,7 @@ class PortfolioService:
         valuation_snapshot_id = f"valuation_{valuation_generated_at.strftime('%Y%m%d%H%M%S%f')}"
         # Filter positions with positive quantity for asset-metric aggregations
         active_positions = [p for p in snapshot.positions if p.quantity is not None and p.quantity > 0]
+        watchlist_positions = [p for p in snapshot.positions if p.quantity == 0]
 
         total_market_value = sum(p.market_value or 0 for p in active_positions)
         current_quote_total_assets = total_market_value + snapshot.cash_available + snapshot.repo_amount
@@ -446,6 +450,9 @@ class PortfolioService:
             warnings=warnings,
             composite_exposure_notes=composite_notes,
             missing_data=missing_data,
+            active_position_count=len(active_positions),
+            watchlist_position_count=len(watchlist_positions),
+            watchlist_symbols=[p.symbol for p in watchlist_positions],
         )
 
     def list_manual_evidence(self) -> list[ManualEvidenceRecord]:

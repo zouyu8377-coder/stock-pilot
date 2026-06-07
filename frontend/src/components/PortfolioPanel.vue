@@ -61,6 +61,8 @@ const packetCopied = ref(false)
 const packetLoading = ref(false)
 const contextDirtyPrompt = ref(false)
 const savedDraftFingerprint = ref('')
+const marketValueSort = ref<'desc' | 'asc'>('desc')
+const rowSortOrder = ref<string[]>([])
 
 const editingTagsRowId = ref('')
 const tagDrafts = ref<Record<string, string>>({})
@@ -161,7 +163,38 @@ const accountTotalPnl = computed(() => accountActualTotalCost.value ? computedTo
 const accountTotalPnlPct = computed(() => accountActualTotalCost.value && accountTotalPnl.value !== null ? accountTotalPnl.value / accountActualTotalCost.value * 100 : null)
 const cashRatio = computed(() => computedTotalAssets.value ? Number(accountDraft.value.cash_available || 0) / computedTotalAssets.value * 100 : 0)
 const investedRatio = computed(() => computedTotalAssets.value ? totalMarketValue.value / computedTotalAssets.value * 100 : 0)
-const validRows = computed(() => manualRows.value.filter((row) => row.symbol && rowQuantity(row) > 0 && rowAvgCost(row) > 0))
+const validRows = computed(() => manualRows.value.filter((row) => {
+  if (!row.symbol) return false
+  const quantity = rowQuantity(row)
+  const avgCost = rowAvgCost(row)
+  return quantity >= 0 && (quantity === 0 || avgCost > 0)
+}))
+const marketValueSortedIds = () =>
+  [...manualRows.value]
+    .sort((a, b) => {
+      const diff = rowMarketValue(b) - rowMarketValue(a)
+      return marketValueSort.value === 'desc' ? diff : -diff
+    })
+    .map((row) => row.row_id)
+
+const refreshMarketValueOrder = () => {
+  rowSortOrder.value = marketValueSortedIds()
+}
+
+const displayedRows = computed(() => {
+  if (!rowSortOrder.value.length) return manualRows.value
+  const order = new Map(rowSortOrder.value.map((rowId, index) => [rowId, index]))
+  return [...manualRows.value].sort((a, b) => {
+    const aOrder = order.get(a.row_id) ?? Number.MAX_SAFE_INTEGER
+    const bOrder = order.get(b.row_id) ?? Number.MAX_SAFE_INTEGER
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return manualRows.value.indexOf(a) - manualRows.value.indexOf(b)
+  })
+})
+const toggleMarketValueSort = () => {
+  marketValueSort.value = marketValueSort.value === 'desc' ? 'asc' : 'desc'
+  refreshMarketValueOrder()
+}
 const draftFingerprint = computed(() => JSON.stringify({
   cash_available: Number(accountDraft.value.cash_available || 0),
   account_actual_total_cost: accountActualTotalCost.value,
@@ -260,6 +293,7 @@ const load = async () => {
       applySuggestionToRow(row)
     })
     await Promise.all(manualRows.value.filter((row) => row.symbol).map(loadQuoteForRow))
+    refreshMarketValueOrder()
     savedDraftFingerprint.value = draftFingerprint.value
     contextDirtyPrompt.value = false
   } finally {
@@ -309,11 +343,14 @@ const chooseMatch = async (row: ManualRow, match: StockSearchItem) => {
 }
 
 const addRow = () => {
-  manualRows.value.push(newRow())
+  const row = newRow()
+  manualRows.value.push(row)
+  rowSortOrder.value = [...rowSortOrder.value, row.row_id]
 }
 
 const removeRow = (rowId: string) => {
   manualRows.value = manualRows.value.filter((row) => row.row_id !== rowId)
+  rowSortOrder.value = rowSortOrder.value.filter((id) => id !== rowId)
   if (!manualRows.value.length) addRow()
 }
 
@@ -403,6 +440,7 @@ const saveManualPortfolio = async () => {
       }
     })
     await Promise.all(manualRows.value.filter((row) => row.symbol).map(loadQuoteForRow))
+    refreshMarketValueOrder()
     savedDraftFingerprint.value = draftFingerprint.value
     contextDirtyPrompt.value = false
     saveNotice.value = '已保存为正式本地组合快照。'
@@ -555,7 +593,11 @@ onMounted(load)
                 <th class="px-2 py-2 text-right">可用</th>
                 <th class="px-2 py-2 text-right">成本</th>
                 <th class="px-2 py-2 text-right">现价 / 涨跌</th>
-                <th class="px-2 py-2 text-right">市值</th>
+                <th class="px-2 py-2 text-right">
+                  <button class="w-full text-right hover:text-foreground" type="button" @click="toggleMarketValueSort">
+                    市值 {{ marketValueSort === 'desc' ? '↓' : '↑' }}
+                  </button>
+                </th>
                 <th class="px-2 py-2 text-right">账户权重</th>
                 <th class="px-2 py-2">关联方向</th>
                 <th class="px-2 py-2">角色</th>
@@ -563,7 +605,7 @@ onMounted(load)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in manualRows" :key="row.row_id" class="border-t border-border/50 align-top">
+              <tr v-for="row in displayedRows" :key="row.row_id" class="border-t border-border/50 align-top">
                 <td class="relative p-2">
                   <div class="rounded bg-input focus-within:ring-2 focus-within:ring-warning/70">
                     <input
@@ -590,9 +632,9 @@ onMounted(load)
                   </div>
                   <div v-if="row.quoteLoading || searchLoading" class="mt-1 text-[11px] text-muted-foreground">查询中...</div>
                 </td>
-                <td class="p-2"><input v-model.number="row.quantity" class="h-9 w-full rounded bg-input px-2 text-right font-mono" type="number" /></td>
-                <td class="p-2"><input v-model.number="row.available_quantity" class="h-9 w-full rounded bg-input px-2 text-right font-mono" type="number" /></td>
-                <td class="p-2"><input v-model.number="row.avg_cost" class="h-9 w-full rounded bg-input px-2 text-right font-mono" type="number" /></td>
+                <td class="p-2"><input v-model.number="row.quantity" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
+                <td class="p-2"><input v-model.number="row.available_quantity" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
+                <td class="p-2"><input v-model.number="row.avg_cost" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
                 <td class="p-2 text-right font-mono">
                   <div>{{ fmt(row.quote?.price) }}</div>
                   <div :class="['text-[11px]', Number(row.quote?.change_pct || 0) >= 0 ? 'text-negative' : 'text-positive']">
