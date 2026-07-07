@@ -1,10 +1,11 @@
 from dataclasses import asdict
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
 
+from app.disclosure_verification import refresh_portfolio_disclosure_verifications
 from app.portfolio import portfolio_service
 from app.analysis_packet.packet_service import build_account_analysis_context
-from app.portfolio.dashboard import build_dashboard
+from app.portfolio.dashboard_cache import get_dashboard_bundle, invalidate_dashboard_cache
 from app.portfolio.import_schemas import PortfolioImportDraftUpdate, PortfolioScreenshotImportOptions
 from app.portfolio.import_service import portfolio_import_service, provider_statuses
 from app.portfolio.schemas import (
@@ -31,6 +32,7 @@ def get_portfolio():
 def save_portfolio(payload: PortfolioSnapshotInput):
     previous_snapshot = portfolio_service.load_snapshot()
     state = portfolio_service.save_snapshot(payload)
+    invalidate_dashboard_cache()
     etf_share_update = sync_new_etf_share_data(previous_snapshot, state.snapshot)
     return {
         "success": True,
@@ -49,6 +51,7 @@ def get_portfolio_semantic_suggestions():
 
 @router.patch("/portfolio/holding-semantics")
 def update_portfolio_holding_semantics(payload: HoldingSemanticBatchUpdate):
+    invalidate_dashboard_cache()
     return {
         "success": True,
         "data": portfolio_service.update_holding_semantics(payload).model_dump(mode="json"),
@@ -77,6 +80,7 @@ def list_manual_evidence():
 
 @router.post("/portfolio/manual-evidence")
 def add_manual_evidence(payload: ManualEvidenceCreate):
+    invalidate_dashboard_cache()
     return {
         "success": True,
         "data": portfolio_service.add_manual_evidence(payload).model_dump(mode="json"),
@@ -87,6 +91,7 @@ def add_manual_evidence(payload: ManualEvidenceCreate):
 def delete_manual_evidence(evidence_id: str):
     if not portfolio_service.delete_manual_evidence(evidence_id):
         raise HTTPException(status_code=404, detail="Manual evidence not found")
+    invalidate_dashboard_cache()
     return {"success": True}
 
 
@@ -95,6 +100,7 @@ def update_manual_evidence_include(evidence_id: str, payload: ManualEvidenceIncl
     updated = portfolio_service.update_manual_evidence_include(evidence_id, payload.include_in_analysis_packet)
     if updated is None:
         raise HTTPException(status_code=404, detail="Manual evidence not found")
+    invalidate_dashboard_cache()
     return {
         "success": True,
         "data": updated.model_dump(mode="json"),
@@ -110,20 +116,34 @@ def portfolio_analysis_snapshot():
 
 
 @router.get("/portfolio/account-analysis-context")
-def portfolio_account_analysis_context(mode: str = Query(default="compact")):
+def portfolio_account_analysis_context(mode: str = Query(default="compact"), force: bool = Query(False)):
+    if mode == "compact":
+        data = get_dashboard_bundle(force=force)["context"]
+    else:
+        data = build_account_analysis_context(mode=mode)
     return {
         "success": True,
-        "data": build_account_analysis_context(mode=mode),
+        "data": data,
     }
 
 
 @router.get("/portfolio/dashboard")
-def portfolio_dashboard():
-    state = portfolio_service.get_state()
-    context = build_account_analysis_context(mode="compact")
+def portfolio_dashboard(force: bool = Query(False)):
+    bundle = get_dashboard_bundle(force=force)
+    data = bundle["dashboard"]
+    data["_cache"] = bundle["cache"]
     return {
         "success": True,
-        "data": build_dashboard(state, context),
+        "data": data,
+    }
+
+
+@router.post("/portfolio/disclosure-verification/refresh")
+def refresh_portfolio_disclosures(background_tasks: BackgroundTasks, force: bool = Query(False)):
+    background_tasks.add_task(refresh_portfolio_disclosure_verifications, force=force)
+    return {
+        "success": True,
+        "status": "scheduled",
     }
 
 
@@ -203,6 +223,7 @@ def confirm_portfolio_import_draft(draft_id: str):
     try:
         previous_snapshot = portfolio_service.load_snapshot()
         result = portfolio_import_service.confirm_draft(draft_id)
+        invalidate_dashboard_cache()
         etf_share_update = sync_new_etf_share_data(previous_snapshot, result["state"].snapshot)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Import draft not found") from exc

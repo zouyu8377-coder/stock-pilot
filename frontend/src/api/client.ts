@@ -1,6 +1,7 @@
 import axios from 'axios'
+import { API_BASE_URL } from './config'
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+export { API_BASE_URL }
 
 const client = axios.create({
   baseURL: API_BASE_URL,
@@ -68,6 +69,16 @@ export interface ColdDataStatus {
   progress: number
   updated_at?: string | null
   failure_reasons: Record<string, number>
+  phase?: string | null
+  core_total?: number
+  core_completed?: number
+  core_failed?: number
+  core_status?: string | null
+  core_last_trading_date?: string | null
+  market_total?: number
+  market_processed?: number
+  deferred_reason?: string | null
+  average_symbol_seconds?: number | null
   components?: {
     stock?: ColdDataStatus
     etf?: ColdDataStatus
@@ -80,6 +91,8 @@ export interface StockSearchItem {
   industry?: string
   area?: string
   asset_type?: string
+  ipo_status?: string | null
+  issue_price?: number | null
   fund_type?: string
   management?: string
 }
@@ -93,6 +106,8 @@ export interface StockQuoteInfo extends StockSearchItem {
   quote_error?: string | null
   list_date?: string | null
   asset_type?: string
+  ipo_status?: string | null
+  issue_price?: number | null
   fund_type?: string
   management?: string
 }
@@ -187,6 +202,10 @@ export interface PortfolioPosition {
   broker_screenshot_market_value?: number | null
   broker_screenshot_unrealized_pnl?: number | null
   broker_screenshot_unrealized_pnl_pct?: number | null
+  asset_type?: string
+  ipo_status?: string | null
+  issue_price?: number | null
+  expected_list_date?: string | null
   system_quote_price?: number | null
   system_quote_retrieved_at?: string | null
   system_quote_market_time?: string | null
@@ -350,6 +369,7 @@ export interface PortfolioDashboard {
   positions: Array<PortfolioPosition & {
     portfolio_weight_pct?: number | null
     trend?: Record<string, any>
+    attractiveness?: Record<string, any>
   }>
   opportunity_queue: Array<Record<string, any>>
   risk_queue: Array<Record<string, any>>
@@ -363,6 +383,22 @@ export interface PortfolioDashboard {
     high_impact_count: number
     next_event?: Record<string, any> | null
     events: Array<Record<string, any>>
+    boundary: string
+  }
+  theme_evidence_radar?: {
+    generated_at?: string
+    registry_version?: string
+    registry_updated_at?: string
+    themes: Array<Record<string, any>>
+    boundary?: string
+  }
+  attractiveness_radar?: {
+    generated_at: string
+    model: string
+    positions: Array<Record<string, any>>
+    benchmark?: Record<string, any>
+    validation?: Record<string, any>
+    data_quality?: Record<string, any>
     boundary: string
   }
   external_ai_tasks: string[]
@@ -441,8 +477,11 @@ export async function getAccountAnalysisContext(): Promise<any> {
   return response.data.data
 }
 
-export async function getPortfolioDashboard(): Promise<PortfolioDashboard> {
-  const response = await client.get<{ success: boolean; data: PortfolioDashboard }>('/api/portfolio/dashboard')
+export async function getPortfolioDashboard(force = false): Promise<PortfolioDashboard> {
+  const response = await client.get<{ success: boolean; data: PortfolioDashboard }>(
+    '/api/portfolio/dashboard',
+    { params: force ? { force: true } : undefined },
+  )
   return response.data.data
 }
 

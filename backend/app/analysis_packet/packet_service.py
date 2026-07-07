@@ -19,6 +19,8 @@ from app.facts.common import to_ts_code
 from app.facts.disclosure_service import get_disclosure_facts
 from app.facts.dragon_tiger_service import get_dragon_tiger_facts
 from app.facts.etf_service import SUPPORTED_ETFS, get_etf_facts
+from app.portfolio.dashboard import build_market_event_radar
+from app.theme_evidence import build_theme_evidence_radar, load_theme_evidence_registry
 from app.services.etf_share_service import ETF_SHARE_LIMIT, etf_share_service
 from app.portfolio import portfolio_service
 
@@ -731,8 +733,12 @@ def build_single_stock_packet(symbol: str, user_question: str | None = None, per
     return result
 
 
-def build_portfolio_packet(user_question: str | None = None, persist: bool = True) -> dict[str, Any]:
-    state = portfolio_service.get_state()
+def build_portfolio_packet(
+    user_question: str | None = None,
+    persist: bool = True,
+    state: PortfolioState | None = None,
+) -> dict[str, Any]:
+    state = state or portfolio_service.get_state()
     snapshot = portfolio_service.build_portfolio_snapshot(user_question=user_question, persist=persist, state=state)
     generated_at = state.metrics.valuation_generated_at or _now()
     positions = []
@@ -816,6 +822,18 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         ],
     ]
     etf_share_observations = _portfolio_etf_share_observations(positions)
+    event_weights = {
+        str(item.get("symbol", "")).split(".", 1)[0].strip().zfill(6): float(item.get("weight_pct") or 0)
+        for item in state.metrics.position_weights
+        if item.get("symbol")
+    }
+    market_event_radar = build_market_event_radar(state, event_weights)
+    theme_evidence_radar = build_theme_evidence_radar(
+        state,
+        load_theme_evidence_registry(),
+        event_weights,
+        market_event_radar=market_event_radar,
+    )
     missing_data = _clean_text([
         *data_gaps,
         *[
@@ -944,6 +962,8 @@ def build_portfolio_packet(user_question: str | None = None, persist: bool = Tru
         "manual_evidence": _manual_evidence_for_symbol(None),
         "auto_fact_summary": _portfolio_auto_fact_summary([p.symbol for p in state.snapshot.positions]),
         "etf_share_observations": etf_share_observations,
+        "market_event_radar": market_event_radar,
+        "theme_evidence_radar": theme_evidence_radar,
         "external_driver_summary": external_driver_summary,
         "data_gaps": missing_data,
         "ai_analysis_boundary": {
@@ -1198,8 +1218,12 @@ def _build_holding_trend_evidence(positions: list[dict[str, Any]], generated_at:
     return evidence
 
 
-def build_account_analysis_context(mode: str = "compact", snapshot_status_note: str | None = None) -> dict[str, Any]:
-    result = build_portfolio_packet(user_question=None, persist=False)
+def build_account_analysis_context(
+    mode: str = "compact",
+    snapshot_status_note: str | None = None,
+    state: PortfolioState | None = None,
+) -> dict[str, Any]:
+    result = build_portfolio_packet(user_question=None, persist=False, state=state)
     packet = result["packet"]
     account_overview = packet["account_overview"]
 
@@ -1243,6 +1267,8 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
             ],
             "holding_trend_evidence": packet.get("holding_trend_evidence", []),
             "etf_share_observations": packet.get("etf_share_observations", {}),
+            "market_event_radar": packet.get("market_event_radar", {}),
+            "theme_evidence_radar": packet.get("theme_evidence_radar", {}),
             "primary_direction_grouping": packet.get("primary_direction_grouping", packet.get("primary_theme_exposure", [])),
             "all_direction_observations": packet["related_theme_observations"],
             "risk_observations": packet["related_risk_observations"],
@@ -1469,6 +1495,8 @@ def build_account_analysis_context(mode: str = "compact", snapshot_status_note: 
         "holdings": compact_holdings,
         "holding_trend_evidence": compact_trend_evidence,
         "etf_share_observations": packet.get("etf_share_observations", {}),
+        "market_event_radar": packet.get("market_event_radar", {}),
+        "theme_evidence_radar": _compact_theme_evidence_radar(packet.get("theme_evidence_radar", {})),
         "primary_direction_grouping": primary_direction_grouping,
         "all_direction_observations": {
             "direction_observations": all_direction_observations,
@@ -1500,6 +1528,135 @@ def _fmt(value: Any) -> str:
     if isinstance(value, (list, dict)):
         return json.dumps(value, ensure_ascii=False, default=str)
     return str(value)
+
+
+def _compact_theme_evidence_radar(radar: dict[str, Any]) -> dict[str, Any]:
+    themes = []
+    for theme in (radar.get("themes") or [])[:3]:
+        themes.append({
+            "theme_id": theme.get("theme_id"),
+            "theme_name": theme.get("theme_name"),
+            "portfolio_relevance_score": theme.get("portfolio_relevance_score"),
+            "evidence_maturity": theme.get("evidence_maturity"),
+            "related_position_weight_pct": theme.get("related_position_weight_pct"),
+            "matched_event_channels": (theme.get("matched_event_channels") or [])[:3],
+            "related_positions": [
+                {
+                    "symbol": item.get("symbol"),
+                    "name": item.get("name"),
+                    "position_status": item.get("position_status"),
+                    "weight_pct": item.get("weight_pct"),
+                    "relation_strength": item.get("relation_strength"),
+                    "relation_label": item.get("relation_label"),
+                    "role_in_theme": item.get("role_in_theme"),
+                    "thesis_status": item.get("thesis_status"),
+                    "open_questions": (item.get("open_questions") or [])[:3],
+                    "invalid_condition": item.get("invalid_condition"),
+                    "announcement_verification": item.get("announcement_verification"),
+                }
+                for item in (theme.get("related_positions") or [])[:5]
+            ],
+            "chain_layers": [
+                {
+                    "layer_name": layer.get("layer_name"),
+                    "physical_constraint": layer.get("physical_constraint"),
+                    "evidence_questions": (layer.get("evidence_questions") or [])[:2],
+                }
+                for layer in (theme.get("chain_layers") or [])[:3]
+            ],
+            "confirming_events": (theme.get("confirming_events") or [])[:4],
+            "invalidating_events": (theme.get("invalidating_events") or [])[:4],
+            "portfolio_readout": theme.get("portfolio_readout"),
+        })
+    return {
+        "generated_at": radar.get("generated_at"),
+        "registry_version": radar.get("registry_version"),
+        "registry_updated_at": radar.get("registry_updated_at"),
+        "themes": themes,
+        "boundary": radar.get("boundary"),
+    }
+
+
+def _theme_evidence_markdown(radar: dict[str, Any], *, compact: bool) -> str:
+    themes = (radar.get("themes") or [])[:3] if compact else (radar.get("themes") or [])
+    if not themes:
+        return "## 主题证据雷达\n\n- 当前无可用主题证据注册表。\n"
+
+    def cell(value: Any) -> str:
+        if isinstance(value, list):
+            value = "；".join(str(item) for item in value)
+        return str(value or "-").replace("|", "/").replace("\n", " ")
+
+    lines = [
+        "## 主题证据雷达",
+        "",
+        "### 账户相关主题表",
+        "",
+        "| 主题 | 账户相关分 | 相关持仓 | 主题状态 | 组合提示 |",
+        "|---|---:|---|---|---|",
+    ]
+    for theme in themes:
+        positions = theme.get("related_positions") or []
+        related = "、".join(
+            f"{item.get('name') or item.get('symbol')}({item.get('relation_label') or '待核验'})"
+            for item in positions[:5]
+        ) or "-"
+        lines.append(
+            f"| {cell(theme.get('theme_name'))} | {theme.get('portfolio_relevance_score', 0)} | "
+            f"{cell(related)} | {cell(theme.get('evidence_maturity'))} | {cell(theme.get('portfolio_readout'))} |"
+        )
+
+    lines.extend([
+        "",
+        "### 产业链层级表",
+        "",
+        "| 主题 | 层级 | 物理约束 | 待核验问题 |",
+        "|---|---|---|---|",
+    ])
+    for theme in themes:
+        for layer in (theme.get("chain_layers") or [])[:3 if compact else None]:
+            lines.append(
+                f"| {cell(theme.get('theme_name'))} | {cell(layer.get('layer_name'))} | "
+                f"{cell(layer.get('physical_constraint'))} | {cell((layer.get('evidence_questions') or [])[:3])} |"
+            )
+
+    lines.extend([
+        "",
+        "### 持仓 Thesis 健康表",
+        "",
+        "| 标的 | 相关主题 | 产业链角色 | 当前状态 | 待核验问题 | 失效条件 |",
+        "|---|---|---|---|---|---|",
+    ])
+    for theme in themes:
+        for item in (theme.get("related_positions") or [])[:5 if compact else None]:
+            lines.append(
+                f"| {cell(item.get('name') or item.get('symbol'))} | {cell(theme.get('theme_name'))} | "
+                f"{cell(item.get('role_in_theme'))} | {cell(item.get('thesis_status'))} / {cell(item.get('relation_label'))} | "
+                f"{cell((item.get('open_questions') or [])[:3])} | {cell(item.get('invalid_condition'))} |"
+            )
+
+    lines.extend([
+        "",
+        "### 催化 / 反证事件表",
+        "",
+        "| 主题 | 确认信号 | 反证信号 | 关联持仓 |",
+        "|---|---|---|---|",
+    ])
+    for theme in themes:
+        positions = "、".join(
+            item.get("name") or item.get("symbol")
+            for item in (theme.get("related_positions") or [])[:5]
+        ) or "-"
+        lines.append(
+            f"| {cell(theme.get('theme_name'))} | {cell((theme.get('confirming_events') or [])[:4])} | "
+            f"{cell((theme.get('invalidating_events') or [])[:4])} | {cell(positions)} |"
+        )
+    lines.extend([
+        "",
+        radar.get("boundary") or "主题证据雷达仅用于研究观察，不构成交易建议。",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def _render_single_external_drivers(packet: dict[str, Any]) -> str:
@@ -1664,12 +1821,13 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     holdings = context["holdings"]
     holding_trend_evidence = context.get("holding_trend_evidence", [])
     etf_share_obs = context.get("etf_share_observations", {})
+    market_event_radar = context.get("market_event_radar", {})
+    theme_evidence_radar = context.get("theme_evidence_radar", {})
     primary_direction_grouping = context.get("primary_direction_grouping", [])
     all_directions = context.get("all_direction_observations", {})
     risk_obs = context.get("risk_observations", {})
     ext_summary = context["external_driver_summary"]
     data_gaps = context["data_gaps"]
-    questions = context["suggested_questions_for_external_llm"]
 
     symbol_name_map = meta.get("symbol_name_map") or {}
     symbol_primary_map = meta.get("symbol_primary_map") or {}
@@ -1829,11 +1987,41 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             lines.append(
                 f"| {name} | {item.get('latest_trade_date') or '暂无'} | {latest_share_str} | "
                 f"{_fmt_pct(item.get('share_chg_1d'))} | {_fmt_pct(item.get('share_chg_5d'))} | "
-                f"{_fmt_pct(item.get('share_chg_20d'))} | AKShare |"
+                f"{_fmt_pct(item.get('share_chg_20d'))} | {item.get('source') or 'akshare'} |"
             )
         lines.append("")
         lines.append("ETF 份额变化仅作为资金变化观察证据，不构成买卖、加减仓或价格方向判断。")
         lines.append("")
+
+    event_items = market_event_radar.get("events", []) if isinstance(market_event_radar, dict) else []
+    if event_items:
+        lines.extend([
+            "## 近期风险事件日历",
+            "",
+            "| 日期 | 事件 | 市场影响 | 账户相关 | 组合风险 | 影响路径 | 关联持仓 | 组合提示 |",
+            "|---|---|---:|---:|---:|---|---|---|",
+        ])
+        for event in event_items[:8]:
+            related = event.get("related_positions") or []
+            related_text = ", ".join(
+                f"{item.get('name') or item.get('symbol')}({item.get('portfolio_weight_pct', '-') }%)"
+                for item in related[:4]
+            ) or "-"
+            channels = ", ".join(
+                item.get("label") or item.get("channel") or "-"
+                for item in (event.get("matched_impact_channels") or [])[:3]
+            ) or "-"
+            event_time = f"{event.get('date') or '-'} {event.get('time_et') or ''} ET".strip()
+            lines.append(
+                f"| {event_time} | {event.get('title') or '-'} | {event.get('market_impact_score', event.get('impact_score', '-'))} | "
+                f"{event.get('account_relevance_score', '-')} | {event.get('portfolio_risk_score', event.get('impact_score', '-'))} | {channels} | "
+                f"{related_text} | {event.get('portfolio_readout') or '-'} |"
+            )
+        lines.append("")
+        lines.append(market_event_radar.get("boundary") or "事件日历仅作波动风险提示，不构成买卖、加仓、减仓或择时指令。")
+        lines.append("")
+
+    lines.append(_theme_evidence_markdown(theme_evidence_radar, compact=True))
 
     # Primary direction grouping
     lines.extend([
@@ -1946,50 +2134,9 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
             lines.append(f"| {name} | {syms} | {status} | {reason} |")
         lines.append("")
 
-    # Data gaps: group by key and merge symbols
-    if data_gaps:
-        lines.extend([
-            "## 数据缺口",
-            "",
-        ])
-        gap_groups: dict[str, dict[str, Any]] = {}
-        non_dict_gaps: list[str] = []
-        for gap in data_gaps:
-            if isinstance(gap, dict):
-                key = gap.get("key", "")
-                reason = gap.get("reason", "")
-                symbol = gap.get("symbol", "")
-                if key not in gap_groups:
-                    gap_groups[key] = {"reason": reason, "symbols": []}
-                if symbol:
-                    gap_groups[key]["symbols"].append(symbol)
-            else:
-                non_dict_gaps.append(str(gap))
-
-        key_label_map = {
-            "龙虎榜与公告索引": "龙虎榜 / 公告索引",
-            "ETF份额净值事实": "ETF 份额 / 净值事实",
-        }
-        for key, info in gap_groups.items():
-            label = key_label_map.get(key, key)
-            reason = info["reason"]
-            syms = _names(info["symbols"]) if info["symbols"] else ""
-            if syms:
-                lines.append(f"- {label}：当前暂无数据；原因：{reason}；涉及标的：{syms}。")
-            else:
-                lines.append(f"- {label}：当前暂无数据；原因：{reason}。")
-        for gap_str in non_dict_gaps:
-            lines.append(f"- {gap_str}")
-        lines.append("")
-
-    # AI questions
-    lines.extend([
-        "## 给外部 AI 的任务",
-        "",
-    ])
-    for q in questions:
-        lines.append(f"- {q}")
-    lines.append("")
+    # Structured data_gaps and suggested questions remain in the JSON context,
+    # but the default markdown stays focused on reusable evidence. The user's
+    # actual AI task can change each time.
 
     return "\n".join(lines)
 
@@ -2050,6 +2197,11 @@ def render_packet_markdown(packet: dict[str, Any], mode: str = "audit") -> str:
             "ETF share changes are fund-size observations only, not trading signals.",
             f"```json\n{json.dumps(packet.get('etf_share_observations', {}), ensure_ascii=False, indent=2, default=str)}\n```",
             "",
+            "## Market Event Radar",
+            "Known upcoming events are volatility-risk context only, not timing instructions.",
+            f"```json\n{json.dumps(packet.get('market_event_radar', {}), ensure_ascii=False, indent=2, default=str)}\n```",
+            "",
+            _theme_evidence_markdown(packet.get("theme_evidence_radar", {}), compact=False),
             "## Primary Theme Exposure",
             "Unique attribution by `primary_theme`; this is the additive theme exposure view.",
             f"```json\n{json.dumps(packet['primary_theme_exposure'], ensure_ascii=False, indent=2, default=str)}\n```",
@@ -2071,15 +2223,18 @@ def render_packet_markdown(packet: dict[str, Any], mode: str = "audit") -> str:
 
     lines.extend([
         "",
-        "## Missing Data",
-        *[f"- {_fmt(item)}" for item in packet["missing_data"]],
-        "",
         "## Interpretation Boundaries",
         *[f"- {_fmt(item)}" for item in packet["interpretation_boundaries"]],
         "",
-        "## Neutral Questions for an External LLM",
-        *[f"- {question}" for question in packet["suggested_questions_for_external_llm"]],
-        "",
-        "No buy/sell recommendation is generated by this packet.",
     ])
+    if meta["analysis_scope"] == "single_stock":
+        lines.extend([
+            "## Missing Data",
+            *[f"- {_fmt(item)}" for item in packet["missing_data"]],
+            "",
+            "## Neutral Questions for an External LLM",
+            *[f"- {question}" for question in packet["suggested_questions_for_external_llm"]],
+            "",
+        ])
+    lines.append("No buy/sell recommendation is generated by this packet.")
     return "\n".join(lines)

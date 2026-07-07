@@ -37,6 +37,7 @@ from app.portfolio.schemas import (
     TradeSimulationResult,
     _migrate_directions_risk_flags,
 )
+from app.portfolio.ipo_registry import get_ipo_entry, normalize_symbol
 
 
 SEMANTIC_SUGGESTIONS: dict[str, dict[str, Any]] = {
@@ -54,6 +55,11 @@ SEMANTIC_SUGGESTIONS: dict[str, dict[str, Any]] = {
     "000657": {"directions": ["TUNGSTEN"], "risk_flags": []},
 }
 
+SEMANTIC_SUGGESTIONS.update({
+    "001399": {"directions": ["DISPLAY_PANEL", "SEMICONDUCTOR_EQUIPMENT"], "risk_flags": ["HIGH_VOLATILITY"]},
+    "001248": {"directions": ["GREEN_POWER"], "risk_flags": ["HIGH_VOLATILITY"]},
+})
+
 CANONICAL_SECURITY_NAMES: dict[str, str] = {
     "601899": "紫金矿业",
     "603993": "洛阳钼业",
@@ -65,13 +71,18 @@ CANONICAL_SECURITY_NAMES: dict[str, str] = {
     "000657": "中钨高新",
 }
 
+CANONICAL_SECURITY_NAMES.update({
+    "001399": "惠科股份",
+    "001248": "华润新能源",
+})
+
 
 def _round(value: float | None, digits: int = 2) -> float:
     return round(float(value or 0), digits)
 
 
 def _compact_symbol(symbol: str) -> str:
-    return symbol.split(".", 1)[0].strip().zfill(6)
+    return normalize_symbol(symbol)
 
 
 def _dedupe_tags(tags: list[str]) -> list[str]:
@@ -99,7 +110,9 @@ def _sync_legacy_fields(data: dict) -> dict:
 
 
 def _canonical_name(symbol: str, current: str = "") -> str:
-    return CANONICAL_SECURITY_NAMES.get(_compact_symbol(symbol), current or "")
+    compact = _compact_symbol(symbol)
+    ipo = get_ipo_entry(compact)
+    return CANONICAL_SECURITY_NAMES.get(compact) or (ipo or {}).get("name") or current or ""
 
 
 def _normalize_position_semantics(data: dict) -> dict:
@@ -116,6 +129,17 @@ def _normalize_position_semantics(data: dict) -> dict:
         data["directions"] = suggestion.get("directions", [])
         data["risk_flags"] = suggestion.get("risk_flags", data.get("risk_flags", []))
     data["name"] = _canonical_name(data.get("symbol", ""), data.get("name", ""))
+    ipo = get_ipo_entry(compact)
+    if ipo:
+        if data.get("asset_type") in {None, "", "stock"}:
+            data["asset_type"] = "ipo_subscription"
+        data["ipo_status"] = data.get("ipo_status") or ipo.get("ipo_status")
+        data["issue_price"] = data.get("issue_price") or ipo.get("issue_price")
+        if not data.get("directions"):
+            data["directions"] = ipo.get("directions", [])
+        if not data.get("risk_flags"):
+            data["risk_flags"] = ipo.get("risk_flags", [])
+        _sync_legacy_fields(data)
     _sync_legacy_fields(data)
     return data
 
@@ -236,6 +260,18 @@ class PortfolioService:
             pass
         return None, "missing_quote", ""
 
+    def _manual_ipo_price(self, position: PortfolioPositionInput) -> tuple[float | None, str]:
+        if position.asset_type != "ipo_subscription":
+            return None, ""
+        for value, source in (
+            (position.broker_screenshot_price, "broker_screenshot_price"),
+            (position.issue_price, "ipo_issue_price"),
+            (position.avg_cost, "ipo_avg_cost"),
+        ):
+            if value is not None and float(value or 0) > 0:
+                return float(value), source
+        return None, ""
+
     def enrich_snapshot(self, snapshot: PortfolioSnapshot, valuation_generated_at: datetime | None = None) -> PortfolioSnapshot:
         quote_retrieved_at = valuation_generated_at or datetime.now(timezone.utc)
         positions: list[PortfolioPosition] = []
@@ -254,10 +290,16 @@ class PortfolioService:
                 "missing_data",
             }))
             price, source, quote_name = self._quote_price(base.symbol)
+            manual_ipo_price, manual_ipo_source = self._manual_ipo_price(base)
+            if price is None and manual_ipo_price is not None:
+                price = manual_ipo_price
+                source = manual_ipo_source
             retrieved_at = quote_retrieved_at if price is not None else None
             missing_data: list[str] = []
             if price is None:
                 missing_data.append("market_price")
+            if base.asset_type == "ipo_subscription" and source != "easyquotation":
+                missing_data.extend(["realtime_quote", "daily_k_history"])
             if base.quantity < 0:
                 missing_data.append("quantity_invalid")
             is_watchlist = base.quantity == 0
@@ -273,7 +315,7 @@ class PortfolioService:
             positions.append(PortfolioPosition(
                 **data,
                 position_status="watchlist" if is_watchlist else "active",
-                valuation_scope="asset_metric_excluded" if is_watchlist else "asset_metric_included",
+                valuation_scope="asset_metric_excluded" if is_watchlist else ("manual_ipo_valuation" if base.asset_type == "ipo_subscription" and source != "easyquotation" else "asset_metric_included"),
                 market_price=_round(price, 4) if price is not None else None,
                 market_value=_round(market_value) if market_value is not None else None,
                 unrealized_pnl=_round(pnl) if pnl is not None else None,
@@ -282,9 +324,9 @@ class PortfolioService:
                 system_quote_price=_round(price, 4) if price is not None else None,
                 system_quote_retrieved_at=retrieved_at,
                 system_quote_market_time=None,
-                quote_time_status="unavailable",
-                data_status="available" if not missing_data else "missing_data",
-                missing_data=missing_data,
+                quote_time_status="unavailable" if source == "easyquotation" else "manual_ipo_price" if base.asset_type == "ipo_subscription" and price is not None else "unavailable",
+                data_status="available" if not missing_data else "manual_ipo_valuation" if base.asset_type == "ipo_subscription" and price is not None else "missing_data",
+                missing_data=sorted(set(missing_data)),
             ))
         snapshot.positions = positions
         return snapshot

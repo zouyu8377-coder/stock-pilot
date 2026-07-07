@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from app.attractiveness import build_attractiveness_radar
 from app.portfolio.schemas import PortfolioPosition, PortfolioState
 
 
@@ -158,72 +161,61 @@ def _queue_item(position: PortfolioPosition, trend: dict[str, Any], weight: floa
     }
 
 
-_MARKET_EVENT_SEEDS: list[dict[str, Any]] = [
-    {
-        "event_id": "us_cpi_2026_06_10",
-        "date": "2026-06-10",
-        "time_et": "08:30",
-        "category": "macro_inflation",
-        "title": "美国 5 月 CPI",
-        "impact_base": 92,
-        "source": "BLS CPI Release Calendar",
-        "source_url": "https://www.bls.gov/schedule/news_release/cpi.htm",
-        "focus_points": ["核心 CPI 环比", "服务通胀", "市场对降息路径的重定价"],
-    },
-    {
-        "event_id": "fomc_2026_06_16_17",
-        "date": "2026-06-17",
-        "time_et": "14:00",
-        "category": "macro_fed",
-        "title": "FOMC 利率决议与经济预测",
-        "impact_base": 96,
-        "source": "Federal Reserve FOMC Calendar",
-        "source_url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
-        "focus_points": ["利率决定", "点阵图", "鲍威尔发布会措辞"],
-    },
-    {
-        "event_id": "us_pce_2026_06_25",
-        "date": "2026-06-25",
-        "time_et": "08:30",
-        "category": "macro_inflation",
-        "title": "美国 PCE / 个人收入支出",
-        "impact_base": 84,
-        "source": "BEA Release Calendar",
-        "source_url": "https://www.bea.gov/news/schedule",
-        "focus_points": ["核心 PCE", "个人消费支出", "通胀与增长组合"],
-    },
-    {
-        "event_id": "us_jobs_2026_07_02",
-        "date": "2026-07-02",
-        "time_et": "08:30",
-        "category": "macro_jobs",
-        "title": "美国 6 月非农就业",
-        "impact_base": 90,
-        "source": "BLS Employment Situation Calendar",
-        "source_url": "https://www.bls.gov/schedule/news_release/empsit.htm",
-        "focus_points": ["新增非农就业", "失业率", "平均时薪"],
-    },
-    {
-        "event_id": "us_cpi_2026_07_14",
-        "date": "2026-07-14",
-        "time_et": "08:30",
-        "category": "macro_inflation",
-        "title": "美国 6 月 CPI",
-        "impact_base": 88,
-        "source": "BLS July 2026 Release Schedule",
-        "source_url": "https://www.bls.gov/schedule/2026/07_sched_list.htm",
-        "focus_points": ["核心 CPI 环比", "住房与服务价格", "下一次 FOMC 前的通胀验证"],
-    },
-]
+MARKET_EVENT_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "data" / "market_events" / "event_registry.json"
 
 
-def _event_relevance(position: PortfolioPosition, event: dict[str, Any], weight: float) -> tuple[int, str]:
-    directions = set(position.directions or [])
+def _load_market_event_registry(path: Path = MARKET_EVENT_REGISTRY_PATH) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"events": [], "boundary": "事件注册表缺失；当前无法生成事件日历。"}
+    except json.JSONDecodeError as exc:
+        return {"events": [], "boundary": f"事件注册表 JSON 无法解析：{exc}"}
+    if not isinstance(payload.get("events"), list):
+        payload["events"] = []
+    return payload
+
+
+def _position_tags(position: PortfolioPosition) -> set[str]:
+    return set(position.directions or []) | set(position.theme_tags or []) | set(position.risk_flags or [])
+
+
+def _portfolio_tags(state: PortfolioState) -> set[str]:
+    tags: set[str] = set()
+    for position in state.snapshot.positions:
+        tags.update(_position_tags(position))
+    return tags
+
+
+def _event_channels(event: dict[str, Any]) -> list[dict[str, Any]]:
+    channels = event.get("impact_channels")
+    if isinstance(channels, list) and channels:
+        return [item for item in channels if isinstance(item, dict)]
+    required_tags = event.get("required_tags") or []
+    if required_tags:
+        return [{
+            "channel": "legacy_required_tags",
+            "label": "账户标签匹配",
+            "related_tags": required_tags,
+            "reason": "事件与账户标签存在配置关联",
+        }]
+    return []
+
+
+def _event_required_tags(event: dict[str, Any]) -> set[str]:
+    tags = set(event.get("required_tags") or [])
+    for channel in _event_channels(event):
+        tags.update(channel.get("related_tags") or [])
+    return tags
+
+
+def _event_relevance(position: PortfolioPosition, event: dict[str, Any], weight: float) -> dict[str, Any]:
     risks = set(position.risk_flags or [])
-    tags = directions | set(position.theme_tags or []) | risks
+    tags = _position_tags(position)
     category = event["category"]
     score = 0
     reasons: list[str] = []
+    matched_channels: list[dict[str, Any]] = []
 
     if float(position.quantity or 0) > 0:
         score += 2
@@ -233,6 +225,23 @@ def _event_relevance(position: PortfolioPosition, event: dict[str, Any], weight:
     if "HIGH_VOLATILITY" in risks:
         score += 2
         reasons.append("高波动标签")
+    for channel in _event_channels(event):
+        related_tags = set(channel.get("related_tags") or [])
+        if related_tags and not (tags & related_tags):
+            continue
+        if not related_tags and category.startswith("macro_"):
+            pass
+        elif not related_tags:
+            continue
+        score += 3
+        matched_channels.append({
+            "channel": channel.get("channel") or "unknown",
+            "label": channel.get("label") or channel.get("channel") or "影响路径",
+            "reason": channel.get("reason") or "事件与账户暴露存在配置关联",
+            "matched_tags": sorted(tags & related_tags) if related_tags else [],
+        })
+    if matched_channels:
+        reasons = [item["reason"] for item in matched_channels[:2]] + reasons
     if category in {"macro_fed", "macro_inflation", "macro_jobs"}:
         score += 1
         if tags & {"AI", "PCB", "SEMICONDUCTOR_EQUIPMENT", "AI_THEME_ETF"}:
@@ -244,65 +253,116 @@ def _event_relevance(position: PortfolioPosition, event: dict[str, Any], weight:
         if tags & {"COPPER", "TUNGSTEN", "METAL_RESOURCE"}:
             score += 1
             reasons.append("资源品方向受增长预期影响")
-    return score, "；".join(reasons[:2]) or "组合内标的可能受全市场风险偏好变化影响"
+    if category in {"ai_supply_chain", "semiconductor_earnings"}:
+        theme_reasons: list[str] = []
+        if tags & {"AI", "AI_THEME_ETF"}:
+            score += 3
+            theme_reasons.append("AI 算力链风向标")
+        if tags & {"PCB"}:
+            score += 3
+            theme_reasons.append("PCB 订单与 AI 服务器链条相关")
+        if tags & {"SEMICONDUCTOR_EQUIPMENT"}:
+            score += 2
+            theme_reasons.append("半导体景气与资本开支敏感")
+        reasons = [*theme_reasons, *reasons]
+    return {
+        "score": score,
+        "reason": "；".join(dict.fromkeys(reasons).keys()) or "组合内标的可能受全市场风险偏好变化影响",
+        "matched_channels": matched_channels,
+    }
 
 
 def build_market_event_radar(state: PortfolioState, weights: dict[str, float], today: date | None = None) -> dict[str, Any]:
     today = today or datetime.now(timezone.utc).date()
-    events: list[dict[str, Any]] = []
+    registry = _load_market_event_registry()
+    portfolio_tags = _portfolio_tags(state)
+    registry_events: list[dict[str, Any]] = []
     high_impact_count = 0
 
-    for seed in _MARKET_EVENT_SEEDS:
-        event_date = date.fromisoformat(seed["date"])
+    for seed in registry.get("events", []):
+        required_tags = _event_required_tags(seed)
+        if required_tags and not (portfolio_tags & required_tags):
+            continue
+        try:
+            event_date = date.fromisoformat(seed["date"])
+        except (KeyError, TypeError, ValueError):
+            continue
         days_until = (event_date - today).days
-        if days_until < -5 or days_until > 45:
+        if days_until < 0 or days_until > 45:
             continue
 
         related: list[dict[str, Any]] = []
-        relevance_bonus = 0
+        relevance_points = 0
+        matched_event_channels: dict[str, dict[str, Any]] = {}
         for position in state.snapshot.positions:
             compact = _compact_symbol(position.symbol)
             weight = weights.get(compact, 0.0)
-            relevance, reason = _event_relevance(position, seed, weight)
-            if relevance <= 1:
+            relevance = _event_relevance(position, seed, weight)
+            score = int(relevance["score"])
+            if score <= 1:
                 continue
-            relevance_bonus = max(relevance_bonus, relevance)
+            relevance_points = max(relevance_points, score)
+            for channel in relevance.get("matched_channels", []):
+                key = str(channel.get("channel") or "")
+                if key and key not in matched_event_channels:
+                    matched_event_channels[key] = channel
             related.append({
                 "symbol": position.symbol,
                 "name": position.name,
                 "portfolio_weight_pct": _round(weight),
-                "reason": reason,
+                "reason": relevance["reason"],
+                "matched_channels": relevance.get("matched_channels", []),
             })
 
         related.sort(key=lambda item: item.get("portfolio_weight_pct") or 0, reverse=True)
-        impact_score = min(100, int(seed["impact_base"]) + relevance_bonus)
-        if impact_score >= 90:
+        market_impact_score = min(100, int(seed.get("impact_base") or 0))
+        account_relevance_score = min(100, relevance_points * 10)
+        portfolio_risk_score = min(100, round(market_impact_score * 0.6 + account_relevance_score * 0.4))
+        if portfolio_risk_score >= 90:
             high_impact_count += 1
         status = "released" if days_until < 0 else "today" if days_until == 0 else "upcoming"
 
-        events.append({
+        channel_list = list(matched_event_channels.values())
+        registry_events.append({
             **seed,
             "days_until": days_until,
             "status": status,
-            "impact_score": impact_score,
-            "impact_level": "high" if impact_score >= 85 else "medium" if impact_score >= 65 else "low",
+            "market_impact_score": market_impact_score,
+            "account_relevance_score": account_relevance_score,
+            "portfolio_risk_score": portfolio_risk_score,
+            "impact_score": portfolio_risk_score,
+            "impact_level": "high" if portfolio_risk_score >= 85 else "medium" if portfolio_risk_score >= 65 else "low",
+            "matched_impact_channels": channel_list,
             "related_positions": related[:6],
             "portfolio_readout": related[0]["reason"] if related else "组合层面风险偏好事件，暂未匹配到明确方向暴露。",
         })
 
-    events.sort(key=lambda item: (item["date"], item["time_et"]))
+    registry_events.sort(key=lambda item: (item["date"], item["time_et"]))
+    dynamic_alerts: list[dict[str, Any]] = []
+    manual_events: list[dict[str, Any]] = []
+    events = [*registry_events, *dynamic_alerts, *manual_events]
     next_event = events[0] if events else None
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "window_days": 45,
+        "registry_version": registry.get("version"),
+        "registry_updated_at": registry.get("updated_at"),
         "high_impact_count": high_impact_count,
         "next_event": next_event,
+        "registry_events": registry_events,
+        "dynamic_alerts": dynamic_alerts,
+        "manual_events": manual_events,
         "events": events,
-        "boundary": "第一版仅覆盖已人工核对的美国宏观事件种子；不包含自动抓取的公司财报、监管节点或实时一致预期。",
+        "boundary": registry.get("boundary") or "事件日历仅作波动风险提示，不构成买卖、加仓、减仓或择时指令。",
     }
 
 
-def build_dashboard(state: PortfolioState, context: dict[str, Any]) -> dict[str, Any]:
+def build_dashboard(
+    state: PortfolioState,
+    context: dict[str, Any],
+    *,
+    persist_attractiveness_history: bool = False,
+) -> dict[str, Any]:
     trends = _trend_by_symbol(context)
     weights = _weight_by_symbol(state, context)
     opportunity_queue: list[dict[str, Any]] = []
@@ -341,6 +401,19 @@ def build_dashboard(state: PortfolioState, context: dict[str, Any]) -> dict[str,
     opportunity_queue.sort(key=lambda item: item["score"], reverse=True)
     risk_queue.sort(key=lambda item: item["score"], reverse=True)
 
+    market_event_radar = build_market_event_radar(state, weights)
+    theme_evidence_radar = context.get("theme_evidence_radar", {})
+    attractiveness_radar = build_attractiveness_radar(
+        state,
+        trends=trends,
+        theme_radar=theme_evidence_radar,
+        event_radar=market_event_radar,
+        persist_history=persist_attractiveness_history,
+    )
+    attractiveness_by_symbol = {
+        _compact_symbol(item.get("symbol", "")): item
+        for item in attractiveness_radar.get("positions", [])
+    }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "account_facts": context.get("account_facts", {}),
@@ -350,6 +423,7 @@ def build_dashboard(state: PortfolioState, context: dict[str, Any]) -> dict[str,
                 "portfolio_weight_pct": _round(weights.get(_compact_symbol(position.symbol), 0.0)),
                 "position_status": _status(position),
                 "trend": trends.get(_compact_symbol(position.symbol), {}),
+                "attractiveness": attractiveness_by_symbol.get(_compact_symbol(position.symbol), {}),
             }
             for position in state.snapshot.positions
         ],
@@ -359,7 +433,9 @@ def build_dashboard(state: PortfolioState, context: dict[str, Any]) -> dict[str,
         "primary_direction_grouping": context.get("primary_direction_grouping", []),
         "risk_observations": context.get("risk_observations", {}),
         "data_gaps": context.get("data_gaps", []),
-        "market_event_radar": build_market_event_radar(state, weights),
+        "market_event_radar": market_event_radar,
+        "theme_evidence_radar": theme_evidence_radar,
+        "attractiveness_radar": attractiveness_radar,
         "external_ai_tasks": context.get("suggested_questions_for_external_llm", []),
         "boundaries": context.get("ai_analysis_boundary", {}),
     }

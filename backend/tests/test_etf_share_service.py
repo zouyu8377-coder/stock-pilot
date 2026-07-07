@@ -79,6 +79,11 @@ def test_update_many_records_warning_without_interrupt(tmp_path, monkeypatch):
 
     monkeypatch.setattr(service_module, "fetch_szse_etf_share_history", fail_history)
     monkeypatch.setattr(service_module, "fetch_szse_etf_share_latest", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        service_module,
+        "fetch_em_etf_share_latest",
+        lambda *args, **kwargs: (_ for _ in ()).throw(service_module.AkshareEtfShareError("fallback failed")),
+    )
 
     svc = EtfShareService(cache_root=tmp_path)
     results = svc.update_many(["159819", "000001"], force=True)
@@ -89,6 +94,35 @@ def test_update_many_records_warning_without_interrupt(tmp_path, monkeypatch):
     assert results[0].warnings
     assert results[1].success is False
     assert "Non-ETF" in results[1].reason
+
+
+def test_update_one_uses_eastmoney_spot_fallback(tmp_path, monkeypatch):
+    def fail_history(*args, **kwargs):
+        raise service_module.AkshareEtfShareError("network failed")
+
+    fallback_records = [{
+        "fund_code": "159819",
+        "fund_name": "创业板人工智能ETF",
+        "exchange": "SZSE",
+        "trade_date": "2026-06-08",
+        "fund_share": 1_230_000_000,
+        "fund_share_100m": 12.3,
+        "nav": None,
+        "source": "akshare_eastmoney_spot",
+        "fetched_at": datetime.utcnow().isoformat(),
+        "raw_fields": {},
+    }]
+    monkeypatch.setattr(service_module, "fetch_szse_etf_share_history", fail_history)
+    monkeypatch.setattr(service_module, "fetch_szse_etf_share_latest", lambda *args, **kwargs: [])
+    monkeypatch.setattr(service_module, "fetch_em_etf_share_latest", lambda *args, **kwargs: fallback_records)
+
+    svc = EtfShareService(cache_root=tmp_path)
+    result = svc.update_one("159819", force=True)
+
+    assert result.success is True
+    assert result.metrics["source"] == "akshare_eastmoney_spot"
+    assert result.metrics["latest_share_100m"] == 12.3
+    assert result.warnings
 
 
 def test_account_context_keeps_running_when_etf_share_cache_missing(tmp_path, monkeypatch):

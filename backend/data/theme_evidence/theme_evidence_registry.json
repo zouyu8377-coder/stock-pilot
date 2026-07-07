@@ -1,0 +1,201 @@
+{
+  "version": "theme_evidence.v1",
+  "updated_at": "2026-06-12",
+  "boundary": "主题证据雷达仅用于产业链研究和账户相关观察，不构成买卖、加仓、减仓、目标价或择时指令。",
+  "themes": [
+    {
+      "theme_id": "ai_server_pcb",
+      "theme_name": "AI服务器 / PCB",
+      "description": "围绕AI服务器、高速互连、交换机、算力基础设施相关的PCB和材料链研究。",
+      "theme_tags": ["AI", "PCB", "AI_THEME_ETF"],
+      "candidate_tags": ["PCB", "AI", "SEMICONDUCTOR_EQUIPMENT"],
+      "impact_channels": ["ai_capex", "data_center_buildout", "high_speed_interconnect", "pcb_order_expectation", "foundry_cycle", "memory_cycle", "rates"],
+      "chain_layers": [
+        {
+          "layer_id": "downstream_ai_server",
+          "layer_name": "下游：AI服务器 / 云厂商资本开支",
+          "physical_constraint": "AI服务器需求、云厂商资本开支、GPU供给和数据中心建设节奏。",
+          "evidence_questions": ["云厂商资本开支是否继续上修？", "海外芯片厂指引是否继续支持AI服务器需求？"]
+        },
+        {
+          "layer_id": "high_speed_pcb",
+          "layer_name": "高速PCB / 高多层板",
+          "physical_constraint": "高速、高层数、高可靠性、客户认证周期、良率与有效产能。",
+          "evidence_questions": ["AI服务器PCB收入占比是否提升？", "毛利率是否体现产品结构升级？", "是否有客户认证、订单或产能兑现证据？"]
+        },
+        {
+          "layer_id": "pcb_materials",
+          "layer_name": "PCB材料：CCL / 铜箔 / 玻纤布 / 树脂",
+          "physical_constraint": "高频高速材料性能、供给扩张周期和价格传导能力。",
+          "evidence_questions": ["材料端是否出现可验证的供需紧张？", "价格或毛利率是否持续改善？"]
+        }
+      ],
+      "symbol_mappings": {
+        "002463": {
+          "role_in_theme": "高速PCB / AI服务器链候选核心",
+          "relation_strength": "high",
+          "thesis_status": "core_observation",
+          "open_questions": ["AI服务器相关收入占比是否进一步提升？", "毛利率是否继续体现结构升级？", "订单与有效产能是否同步兑现？"],
+          "invalid_condition": "收入结构、毛利率或订单证据无法支持AI服务器PCB逻辑。"
+        },
+        "002916": {
+          "role_in_theme": "高速PCB / 封装基板候选核心",
+          "relation_strength": "high",
+          "thesis_status": "core_observation",
+          "open_questions": ["高速PCB订单是否持续改善？", "毛利率和产能利用率是否验证结构升级？"],
+          "invalid_condition": "订单、毛利率或客户认证证据持续弱于主题预期。"
+        },
+        "002384": {
+          "role_in_theme": "PCB及精密制造中相关候选",
+          "relation_strength": "medium",
+          "thesis_status": "needs_verification",
+          "open_questions": ["AI服务器相关业务占比是否足以影响利润？", "PCB逻辑与其他业务波动如何拆分？"],
+          "invalid_condition": "AI服务器相关收入和利润贡献缺少可验证提升。"
+        },
+        "159382": {
+          "role_in_theme": "AI主题Beta暴露",
+          "relation_strength": "medium",
+          "thesis_status": "beta_exposure",
+          "open_questions": ["ETF成分暴露是否仍集中于AI服务器链？", "份额变化是否支持主题关注度？"],
+          "invalid_condition": "ETF成分与AI服务器/PCB链相关性下降或主题资金持续弱化。"
+        },
+        "000657": {
+          "role_in_theme": "PCB钻针 / 硬质合金材料弱关联",
+          "relation_strength": "weak",
+          "thesis_status": "weak_relation_needs_verification",
+          "open_questions": ["PCB钻针或材料业务占比是否足够重要？", "需求改善能否传导到收入和利润？"],
+          "invalid_condition": "PCB相关材料业务缺少收入、订单或利润贡献证据。"
+        }
+      },
+      "confirming_events": ["TSMC月度营收继续验证AI/HPC需求", "Micron财报验证HBM/DRAM需求", "海外AI芯片厂指引继续支持资本开支", "A股PCB公司财报验证收入或毛利改善"],
+      "invalidating_events": ["AI服务器订单推迟", "相关公司毛利率下降", "行业扩产导致价格压力", "海外AI和半导体链持续估值收缩"]
+    },
+    {
+      "theme_id": "semiconductor_hbm_memory",
+      "theme_name": "半导体设备 / HBM / 存储",
+      "description": "围绕HBM/DRAM供需、先进封装、设备周期和国产替代的证据研究。",
+      "theme_tags": ["SEMICONDUCTOR_EQUIPMENT", "STORAGE", "HBM"],
+      "candidate_tags": ["SEMICONDUCTOR_EQUIPMENT", "AI", "AI_THEME_ETF"],
+      "impact_channels": ["memory_cycle", "foundry_cycle", "semiconductor_equipment_orders", "advanced_packaging", "rates"],
+      "chain_layers": [
+        {
+          "layer_id": "memory_demand",
+          "layer_name": "HBM / DRAM需求",
+          "physical_constraint": "AI服务器内存需求、存储价格、产能分配和良率。",
+          "evidence_questions": ["HBM与DRAM供需是否继续偏紧？", "存储厂收入、价格和指引是否同步改善？"]
+        },
+        {
+          "layer_id": "advanced_packaging",
+          "layer_name": "先进封装",
+          "physical_constraint": "封装产能、设备交付、工艺良率和客户验证周期。",
+          "evidence_questions": ["先进封装产能是否成为真实瓶颈？", "设备和材料订单是否出现持续兑现？"]
+        },
+        {
+          "layer_id": "semiconductor_equipment",
+          "layer_name": "半导体设备 / 国产替代",
+          "physical_constraint": "晶圆厂资本开支、设备验证、交付周期和国产化率。",
+          "evidence_questions": ["国内设备订单和收入是否改善？", "验证进度是否转化为可确认收入？"]
+        }
+      ],
+      "symbol_mappings": {
+        "513310": {
+          "role_in_theme": "海外存储与半导体产业链ETF暴露",
+          "relation_strength": "high",
+          "thesis_status": "core_observation",
+          "open_questions": ["ETF成分对存储/HBM的实际暴露是多少？", "海外存储厂指引是否继续改善？"],
+          "invalid_condition": "存储周期和主要成分股指引持续转弱。"
+        },
+        "159516": {
+          "role_in_theme": "半导体设备ETF主题暴露",
+          "relation_strength": "high",
+          "thesis_status": "core_observation",
+          "open_questions": ["设备订单和收入是否出现行业性改善？", "ETF份额是否持续验证关注度？"],
+          "invalid_condition": "设备订单、收入或ETF份额持续走弱。"
+        },
+        "600549": {
+          "role_in_theme": "半导体材料 / 存储材料弱关联",
+          "relation_strength": "weak",
+          "thesis_status": "weak_relation_needs_verification",
+          "open_questions": ["半导体或存储材料业务占比是否足够重要？", "材料需求是否能够传导至利润？"],
+          "invalid_condition": "缺少半导体材料收入、订单或利润贡献证据。"
+        },
+        "159382": {
+          "role_in_theme": "上游AI Beta弱关联",
+          "relation_strength": "weak",
+          "thesis_status": "beta_exposure_needs_verification",
+          "open_questions": ["ETF成分对设备、HBM和存储链的实际暴露是多少？"],
+          "invalid_condition": "ETF成分与设备/HBM/存储链缺少足够关联。"
+        }
+      },
+      "confirming_events": ["Micron财报显示HBM/DRAM供需较强", "海外设备订单改善", "国内设备公司订单或收入改善", "存储价格持续上行"],
+      "invalidating_events": ["存储周期回落", "设备订单不及预期", "相关ETF份额持续流出", "海外半导体指数持续破位"]
+    },
+    {
+      "theme_id": "industrial_metals",
+      "theme_name": "有色金属 / 铜 / 钼 / 钨",
+      "description": "围绕铜、钼、钨及黄金相关资源品的供需、宏观定价和产业需求证据研究。",
+      "theme_tags": ["COPPER", "TUNGSTEN", "MOLYBDENUM", "METAL_RESOURCE", "GOLD"],
+      "candidate_tags": ["COPPER", "TUNGSTEN", "GOLD"],
+      "impact_channels": ["usd_real_yield", "growth_demand", "commodity_prices", "supply_disruption", "data_center_buildout"],
+      "chain_layers": [
+        {
+          "layer_id": "macro_pricing",
+          "layer_name": "宏观定价：美元 / 实际利率 / 增长",
+          "physical_constraint": "美元、实际利率和全球增长预期共同影响资源品定价。",
+          "evidence_questions": ["美元与实际利率是否继续压制商品？", "全球增长预期是否支持工业金属需求？"]
+        },
+        {
+          "layer_id": "metal_supply_demand",
+          "layer_name": "铜 / 钼 / 钨供需",
+          "physical_constraint": "矿山供给、品位、配额、扩产周期、冶炼和库存。",
+          "evidence_questions": ["价格走强是否有库存和供给证据支持？", "供给扰动是否具有持续性？"]
+        },
+        {
+          "layer_id": "ai_power_demand",
+          "layer_name": "AI数据中心用电与铜需求",
+          "physical_constraint": "数据中心建设、电网投资和高压输配电对铜需求的传导。",
+          "evidence_questions": ["AI数据中心建设是否形成可量化铜需求？", "需求能否传导至资源企业利润？"]
+        }
+      ],
+      "symbol_mappings": {
+        "601899": {
+          "role_in_theme": "铜 / 黄金资源核心观察",
+          "relation_strength": "high",
+          "thesis_status": "core_observation",
+          "open_questions": ["铜价与黄金价格能否共同支持盈利？", "产量、成本和关键项目兑现是否匹配价格逻辑？"],
+          "invalid_condition": "金属价格、产量或成本证据持续弱于资源逻辑。"
+        },
+        "603993": {
+          "role_in_theme": "铜 / 钼资源核心观察",
+          "relation_strength": "high",
+          "thesis_status": "core_observation",
+          "open_questions": ["铜钼价格与产量增长是否共同兑现？", "供给与成本变化是否支持利润持续性？"],
+          "invalid_condition": "铜钼价格、产量或成本证据无法支持利润逻辑。"
+        },
+        "000657": {
+          "role_in_theme": "钨资源及硬质合金候选",
+          "relation_strength": "medium",
+          "thesis_status": "needs_verification",
+          "open_questions": ["钨价与配额变化是否传导到收入和利润？", "资源端与加工端贡献如何拆分？"],
+          "invalid_condition": "钨价、配额或利润传导缺少可验证证据。"
+        },
+        "600549": {
+          "role_in_theme": "钨资源 / 材料链候选",
+          "relation_strength": "medium",
+          "thesis_status": "needs_verification",
+          "open_questions": ["钨资源与材料业务的利润贡献是否改善？", "价格上涨能否覆盖成本和下游波动？"],
+          "invalid_condition": "钨价上涨未能转化为收入或利润改善。"
+        },
+        "159934": {
+          "role_in_theme": "黄金宏观Beta暴露",
+          "relation_strength": "medium",
+          "thesis_status": "beta_exposure",
+          "open_questions": ["美元与实际利率是否继续支持黄金？", "黄金与工业金属逻辑是否出现分化？"],
+          "invalid_condition": "美元和实际利率持续上行并压制黄金趋势。"
+        }
+      },
+      "confirming_events": ["COMEX或LME铜价持续走强", "资源股走强后出现持续承接而非单日脉冲", "关键资源股站回重要趋势位置", "有色板块出现扩散", "FOMC后美元和实际利率不继续压制商品"],
+      "invalidating_events": ["FOMC偏鹰推动美元和实际利率上行", "铜价持续回落", "强势日后快速大幅回吐", "有色板块仅出现单日脉冲", "黄金持续走弱并拖累黄金属性"]
+    }
+  ]
+}

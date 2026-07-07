@@ -18,7 +18,14 @@ class Settings(BaseSettings):
     VOLCENGINE_ARK_VISION_TIMEOUT: int = 120
     VOLCENGINE_ARK_VISION_MAX_TOKENS: int = 2048
     VOLCENGINE_ARK_VISION_JSON_MODE: bool = True
+    DISCLOSURE_VERIFICATION_ENABLED: bool = True
+    DISCLOSURE_VERIFICATION_MAX_SYMBOLS: int = 8
+    DISCLOSURE_VERIFICATION_MAX_DOCUMENTS: int = 2
+    DISCLOSURE_VERIFICATION_CACHE_DAYS: int = 7
+    DISCLOSURE_INDEX_CHECK_MINUTES: int = 60
+    DASHBOARD_CACHE_SECONDS: int = 300
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    CORS_ORIGIN_REGEX: str = r"^https?://(localhost|127\.0\.0\.1):\d+$"
 
     @property
     def cors_origins(self) -> list[str]:

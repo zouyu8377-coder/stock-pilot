@@ -82,7 +82,13 @@ def _share_to_raw_units(value: Any, column_name: str | None = None) -> float | N
     return raw
 
 
-def _normalize_records(df: pd.DataFrame, code: str, exchange: str, fallback_date: str | None = None) -> list[dict[str, Any]]:
+def _normalize_records(
+    df: pd.DataFrame,
+    code: str,
+    exchange: str,
+    fallback_date: str | None = None,
+    source: str = "akshare",
+) -> list[dict[str, Any]]:
     if df is None or df.empty:
         return []
     frame = df.copy()
@@ -90,7 +96,7 @@ def _normalize_records(df: pd.DataFrame, code: str, exchange: str, fallback_date
     code_col = _pick_column(columns, ("基金代码", "基金编码", "证券代码", "代码", "fund_code", "ts_code"))
     name_col = _pick_column(columns, ("基金简称", "基金名称", "证券简称", "简称", "名称", "fund_name"))
     date_col = _pick_column(columns, ("统计日期", "业务日期", "交易日期", "日期", "trade_date", "end_date"))
-    share_col = _pick_column(columns, ("基金份额", "份额", "总份额", "基金规模", "规模", "fund_share", "total_share"))
+    share_col = _pick_column(columns, ("最新份额", "基金份额", "份额", "总份额", "基金规模", "规模", "fund_share", "total_share"))
     nav_col = _pick_column(columns, ("单位净值", "基金净值", "净值", "nav", "unit_nav"))
     if code_col is None or share_col is None:
         return []
@@ -118,7 +124,7 @@ def _normalize_records(df: pd.DataFrame, code: str, exchange: str, fallback_date
             "fund_share": fund_share,
             "fund_share_100m": round(fund_share / 100_000_000, 4),
             "nav": _as_float(row.get(nav_col)) if nav_col else None,
-            "source": "akshare",
+            "source": source,
             "fetched_at": fetched_at,
             "raw_fields": raw_fields,
         })
@@ -153,3 +159,22 @@ def fetch_szse_etf_share_latest(code: str) -> list[dict[str, Any]]:
     except Exception as exc:
         raise AkshareEtfShareError(f"AKShare SZSE latest ETF share request failed: {exc}") from exc
     return _normalize_records(df, code, "SZSE")
+
+
+def fetch_em_etf_share_latest(code: str) -> list[dict[str, Any]]:
+    ak = _import_akshare()
+    compact = compact_fund_code(code)
+    try:
+        df = ak.fund_etf_spot_em()
+    except Exception as exc:
+        raise AkshareEtfShareError(f"AKShare Eastmoney ETF spot request failed: {exc}") from exc
+    records = _normalize_records(
+        df,
+        compact,
+        infer_exchange(compact),
+        source="akshare_eastmoney_spot",
+    )
+    for record in records:
+        if not record.get("trade_date"):
+            record["trade_date"] = datetime.now().strftime("%Y-%m-%d")
+    return records

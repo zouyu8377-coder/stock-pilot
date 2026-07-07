@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { API_BASE_URL, analyzeStock, getColdDataStatus, searchStocks, type AnalyzeResponse, type ColdDataStatus, type StockSearchItem } from './api/client'
+import { API_BASE_LABEL } from './api/config'
 import StockCard from './components/StockCard.vue'
 import DeepAnalysisPanel from './components/DeepAnalysisPanel.vue'
 import KLineChart from './components/KLineChart.vue'
@@ -8,6 +9,7 @@ import AutoFactsPanel from './components/AutoFactsPanel.vue'
 import AnalysisPacketPanel from './components/AnalysisPacketPanel.vue'
 import PortfolioPanel from './components/PortfolioPanel.vue'
 import AccountDashboard from './components/AccountDashboard.vue'
+import PositionContextPanel from './components/PositionContextPanel.vue'
 import { getSearchHistory, updateSearchHistory, type SearchHistoryItem } from './utils/searchHistory'
 import { APP_VERSION } from './version'
 
@@ -111,7 +113,7 @@ const coldDataDotClass = computed(() => {
     components?.etf?.status,
   ].filter(Boolean)
   if (statuses.some((status) => status === 'running' || status === 'checking')) return 'bg-warning animate-pulse'
-  if (statuses.some((status) => status === 'partial_failed' || status === 'unavailable')) return 'bg-warning'
+  if (statuses.some((status) => status === 'partial_failed' || status === 'unavailable' || status === 'market_deferred')) return 'bg-warning'
   if (statuses.length > 0 && statuses.every((status) => status === 'complete')) return 'bg-positive'
   return 'bg-muted-foreground'
 })
@@ -120,11 +122,26 @@ const formatColdComponent = (label: string, component?: ColdDataStatus) => {
   if (!component) return `${label} --`
   const status = component.status
   if (status === 'running' || status === 'checking') {
+    const phase = component.phase
+    const coreReadyText = component.core_total ? `核心完成 ${component.core_completed ?? 0}/${component.core_total}` : '核心已就绪'
+    if (phase === 'core_running') {
+      return `${label} 核心 ${component.core_completed ?? 0}/${component.core_total ?? 0}，全市场后台待补`
+    }
     const progress = component.progress ?? 0
     const remaining = component.remaining_count ?? 0
     const failed = component.failed_count ?? 0
     const current = component.current_symbol ? ` ${component.current_symbol}` : ''
+    if (phase === 'market_backfill' && component.core_total) {
+      return `${label} 核心完成；全市场 ${progress.toFixed(1)}% / 剩 ${remaining}${current}`
+    }
+    if (phase === 'market_backfill') {
+      return `${label} ${coreReadyText}；全市场 ${progress.toFixed(1)}% / 剩 ${remaining}${current}`
+    }
     return `${label} ${progress.toFixed(1)}% / 剩 ${remaining} / 失败 ${failed}${current}`
+  }
+  if (status === 'market_deferred') {
+    const coreReadyText = component.core_total ? `核心完成 ${component.core_completed ?? 0}/${component.core_total}` : '核心已就绪'
+    return `${label} ${coreReadyText}；非持仓全市场未补齐 ${component.remaining_count ?? 0}`
   }
   if (status === 'complete') return `${label} 完成 ${component.completed_count}/${component.total_symbols}`
   if (status === 'partial_failed') return `${label} 部分失败 ${component.completed_count}/${component.total_symbols}`
@@ -270,7 +287,7 @@ const openResearchForSymbol = async (nextSymbol: string) => {
           </div>
           <span class="text-lg font-semibold tracking-tight text-foreground">Stock-Pilot</span>
           <span class="rounded bg-secondary/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground" :title="`API ${API_BASE_URL}`">
-            {{ APP_VERSION }} · API {{ API_BASE_URL.replace('http://127.0.0.1:', ':') }}
+            {{ APP_VERSION }} · API {{ API_BASE_LABEL }}
           </span>
           <nav class="ml-3 flex rounded border border-border bg-card p-1 text-xs">
             <button
@@ -335,9 +352,9 @@ const openResearchForSymbol = async (nextSymbol: string) => {
     </header>
 
     <main class="mx-auto max-w-[1600px] px-6 py-4">
-      <AccountDashboard v-if="activeView === 'dashboard'" @select-symbol="openResearchForSymbol" />
-      <PortfolioPanel v-else-if="activeView === 'portfolio'" />
-      <template v-else>
+      <AccountDashboard v-show="activeView === 'dashboard'" @select-symbol="openResearchForSymbol" />
+      <PortfolioPanel v-if="activeView === 'portfolio'" />
+      <template v-if="activeView === 'research'">
       <div class="mb-6">
         <div class="flex items-center gap-3">
           <div ref="searchContainerRef" class="relative max-w-md flex-1">
@@ -400,6 +417,7 @@ const openResearchForSymbol = async (nextSymbol: string) => {
       <div v-if="result?.stocks?.length" class="flex gap-4">
         <div class="min-w-0 flex-1 space-y-4">
           <StockCard :stock="result.stocks[0]" />
+          <PositionContextPanel :symbol="result.stocks[0].symbol" />
           <KLineChart :symbol="result.stocks[0].symbol" :indicators="result.stocks[0].indicators" />
           <AutoFactsPanel :symbol="result.stocks[0].symbol" />
           <AnalysisPacketPanel :symbol="result.stocks[0].symbol" />

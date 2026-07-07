@@ -31,13 +31,17 @@ type ManualRow = {
   user_plan: string
   invalid_condition: string
   target_max_weight: number | null
+  asset_type: string
+  ipo_status: string
+  issue_price: number | null
+  expected_list_date: string
   semantic_classification_status: string
   semantic_classification_source: string
   quote: StockQuoteInfo | null
   quoteLoading: boolean
 }
 
-const supportedDirections = ['COPPER', 'GOLD', 'PCB', 'AI', 'SEMICONDUCTOR_EQUIPMENT', 'TUNGSTEN', 'OTHER', 'UNCLASSIFIED']
+const supportedDirections = ['COPPER', 'GOLD', 'PCB', 'AI', 'SEMICONDUCTOR_EQUIPMENT', 'DISPLAY_PANEL', 'GREEN_POWER', 'TUNGSTEN', 'OTHER', 'UNCLASSIFIED']
 const positionRoles = ['core', 'trend', 'defensive', 'short_term', 'observation', 'unclassified']
 
 const expanded = ref(false)
@@ -66,6 +70,10 @@ const rowSortOrder = ref<string[]>([])
 
 const editingTagsRowId = ref('')
 const tagDrafts = ref<Record<string, string>>({})
+const editingDirectionCatalog = ref(false)
+const directionCatalogDraft = ref('')
+const customDirectionCatalog = ref<string[]>([])
+const hiddenDirectionCatalog = ref<string[]>([])
 
 const accountDraft = ref({
   cash_available: 0,
@@ -88,7 +96,11 @@ const signedFmt = (v?: number | null, suffix = '') => {
 }
 
 const rowKey = () => `manual_${Date.now()}_${Math.random().toString(16).slice(2)}`
-const compactSymbol = (symbol: string) => symbol.split('.', 1)[0].padStart(6, '0')
+const compactSymbol = (symbol: string) => {
+  const raw = (symbol || '').split('.', 1)[0].trim().toUpperCase()
+  const digits = raw.replace(/\D/g, '')
+  return digits ? digits.slice(0, 6).padStart(6, '0') : raw
+}
 const roleLabelMap: Record<string, string> = {
   core: '核心',
   trend: '趋势',
@@ -110,10 +122,26 @@ const themeLabelMap: Record<string, string> = {
   UNCLASSIFIED: '待分类',
   HIGH_VOLATILITY: '高波动',
 }
+Object.assign(themeLabelMap, {
+  DISPLAY_PANEL: '显示面板',
+  GREEN_POWER: '绿电',
+})
 const themeLabel = (key: string) => themeLabelMap[key] || key
 const normalizeTag = (value: string) => value.trim().replace(/\s+/g, '_').toUpperCase()
+const rowDirectionTags = computed(() =>
+  manualRows.value.flatMap((row) => row.directions),
+)
+const allDirectionOptions = computed(() => {
+  const hidden = new Set(hiddenDirectionCatalog.value)
+  return Array.from(new Set([
+    ...supportedDirections,
+    ...(state.value?.supported_directions || []),
+    ...customDirectionCatalog.value,
+    ...rowDirectionTags.value,
+  ])).filter((tag) => tag && !hidden.has(tag))
+})
 const selectableDirectionsForRow = (row: ManualRow) =>
-  Array.from(new Set([...supportedDirections, ...row.directions])).filter((d) => !row.directions.includes(d))
+  allDirectionOptions.value.filter((d) => !row.directions.includes(d))
 
 const canonicalNames: Record<string, string> = {
   '601899': '紫金矿业',
@@ -126,8 +154,9 @@ const canonicalNames: Record<string, string> = {
   '000657': '中钨高新',
 }
 
-const marketBadge = (symbol: string) => {
-  const code = symbol.split('.')[0]
+const marketBadge = (row: ManualRow) => {
+  if (row.asset_type === 'ipo_subscription') return 'IPO'
+  const code = row.symbol.split('.')[0]
   if (code.startsWith('6')) return '沪'
   if (code.startsWith('0') || code.startsWith('1') || code.startsWith('3')) return '深'
   return ''
@@ -140,11 +169,12 @@ const rowShortName = (row: ManualRow) => {
 }
 
 const quotePrice = (row: ManualRow) => row.quote?.price ?? null
+const displayPrice = (row: ManualRow) => quotePrice(row) ?? row.issue_price ?? (row.asset_type === 'ipo_subscription' ? rowAvgCost(row) : null)
 const suggestionFor = (row: ManualRow) => suggestions.value[compactSymbol(row.symbol)]
 const rowQuantity = (row: ManualRow) => Number(row.quantity || 0)
 const rowAvgCost = (row: ManualRow) => Number(row.avg_cost || 0)
 const rowMarketValue = (row: ManualRow) => {
-  const price = quotePrice(row)
+  const price = displayPrice(row)
   return price === null ? 0 : rowQuantity(row) * price
 }
 const rowCostValue = (row: ManualRow) => rowQuantity(row) * rowAvgCost(row)
@@ -180,6 +210,10 @@ const marketValueSortedIds = () =>
 const refreshMarketValueOrder = () => {
   rowSortOrder.value = marketValueSortedIds()
 }
+Object.assign(canonicalNames, {
+  '001399': '惠科股份',
+  '001248': '华润新能源',
+})
 
 const displayedRows = computed(() => {
   if (!rowSortOrder.value.length) return manualRows.value
@@ -208,8 +242,11 @@ const draftFingerprint = computed(() => JSON.stringify({
     symbol: compactSymbol(row.symbol),
     name: rowShortName(row),
     quantity: Number(row.quantity || 0),
-    available_quantity: row.available_quantity ?? null,
     avg_cost: Number(row.avg_cost || 0),
+    asset_type: row.asset_type || 'stock',
+    ipo_status: row.ipo_status || null,
+    issue_price: row.issue_price ?? null,
+    expected_list_date: row.expected_list_date || null,
     directions: row.directions,
     risk_flags: row.risk_flags,
     position_role: row.position_role || 'observation',
@@ -243,6 +280,10 @@ const newRow = (position?: PortfolioPosition): ManualRow => ({
   user_plan: position?.user_plan || '',
   invalid_condition: position?.invalid_condition || '',
   target_max_weight: position?.target_max_weight ?? null,
+  asset_type: position?.asset_type || 'stock',
+  ipo_status: position?.ipo_status || '',
+  issue_price: position?.issue_price ?? null,
+  expected_list_date: position?.expected_list_date || '',
   semantic_classification_status: position?.semantic_classification_status || 'unconfirmed',
   semantic_classification_source: position?.semantic_classification_source || '',
   quote: position
@@ -251,6 +292,9 @@ const newRow = (position?: PortfolioPosition): ManualRow => ({
         name: position.name,
         price: position.system_quote_price ?? position.market_price ?? null,
         change_pct: null,
+        asset_type: position.asset_type,
+        ipo_status: position.ipo_status,
+        issue_price: position.issue_price,
         quote_status: position.quote_time_status || 'saved',
       }
     : null,
@@ -325,6 +369,12 @@ const loadQuoteForRow = async (row: ManualRow) => {
   try {
     row.quote = await getStockQuote(row.symbol)
     row.name = canonicalNames[compactSymbol(row.symbol)] || row.quote.name || row.name
+    row.asset_type = row.quote.asset_type || row.asset_type || 'stock'
+    row.ipo_status = row.quote.ipo_status || row.ipo_status || ''
+    row.issue_price = row.quote.issue_price ?? row.issue_price
+    if (row.asset_type === 'ipo_subscription' && (!row.avg_cost || row.avg_cost <= 0) && row.issue_price) {
+      row.avg_cost = row.issue_price
+    }
     row.query = `${compactSymbol(row.symbol)} ${rowShortName(row)}`.trim()
   } finally {
     row.quoteLoading = false
@@ -334,6 +384,12 @@ const loadQuoteForRow = async (row: ManualRow) => {
 const chooseMatch = async (row: ManualRow, match: StockSearchItem) => {
   row.symbol = match.symbol
   row.name = canonicalNames[compactSymbol(match.symbol)] || match.name
+  row.asset_type = match.asset_type || 'stock'
+  row.ipo_status = match.ipo_status || ''
+  row.issue_price = match.issue_price ?? null
+  if (row.asset_type === 'ipo_subscription' && (!row.avg_cost || row.avg_cost <= 0) && row.issue_price) {
+    row.avg_cost = row.issue_price
+  }
   row.query = `${compactSymbol(match.symbol)} ${row.name}`
   rowMatches.value = []
   activeRowId.value = ''
@@ -372,13 +428,38 @@ const removeDirection = (row: ManualRow, tag: string) => {
   row.directions = row.directions.filter((t) => t !== tag)
 }
 
+const ensureCatalogTag = (tag: string) => {
+  if (!tag) return
+  hiddenDirectionCatalog.value = hiddenDirectionCatalog.value.filter((item) => item !== tag)
+  if (!supportedDirections.includes(tag) && !customDirectionCatalog.value.includes(tag)) {
+    customDirectionCatalog.value = [...customDirectionCatalog.value, tag]
+  }
+}
+
 const addCustomDirection = (row: ManualRow) => {
   const tag = normalizeTag(tagDrafts.value[row.row_id] || '')
   if (!tag) return
+  ensureCatalogTag(tag)
   if (!row.directions.includes(tag)) {
     row.directions = [...row.directions, tag]
   }
   tagDrafts.value[row.row_id] = ''
+}
+
+const addCatalogDirection = () => {
+  const tag = normalizeTag(directionCatalogDraft.value)
+  if (!tag) return
+  ensureCatalogTag(tag)
+  directionCatalogDraft.value = ''
+}
+
+const removeCatalogDirection = (tag: string) => {
+  hiddenDirectionCatalog.value = Array.from(new Set([...hiddenDirectionCatalog.value, tag]))
+  customDirectionCatalog.value = customDirectionCatalog.value.filter((item) => item !== tag)
+  manualRows.value = manualRows.value.map((row) => ({
+    ...row,
+    directions: row.directions.filter((item) => item !== tag),
+  }))
 }
 
 const toggleRiskFlag = (row: ManualRow, flag: string) => {
@@ -414,8 +495,12 @@ const saveManualPortfolio = async () => {
         symbol: compactSymbol(row.symbol),
         name: rowShortName(row),
         quantity: Number(row.quantity || 0),
-        available_quantity: row.available_quantity ?? null,
+        available_quantity: null,
         avg_cost: Number(row.avg_cost || 0),
+        asset_type: row.asset_type || 'stock',
+        ipo_status: row.ipo_status || null,
+        issue_price: row.issue_price ?? null,
+        expected_list_date: row.expected_list_date || null,
         source_type: 'manual_account',
         source_name: 'user_manual_entry',
         confirmed_by_user: true,
@@ -573,16 +658,15 @@ onMounted(load)
         </div>
 
         <div class="overflow-x-auto rounded border border-border/60">
-          <table class="w-full min-w-[1050px] table-fixed text-xs">
+          <table class="w-full min-w-[980px] table-fixed text-xs">
             <colgroup>
               <col class="w-[220px]" />
-              <col class="w-[90px]" />
               <col class="w-[90px]" />
               <col class="w-[90px]" />
               <col class="w-[120px]" />
               <col class="w-[110px]" />
               <col class="w-[100px]" />
-              <col class="w-[280px]" />
+              <col class="w-[300px]" />
               <col class="w-[100px]" />
               <col class="w-[56px]" />
             </colgroup>
@@ -590,7 +674,6 @@ onMounted(load)
               <tr>
                 <th class="px-2 py-2 text-left">标的</th>
                 <th class="px-2 py-2 text-right">持仓</th>
-                <th class="px-2 py-2 text-right">可用</th>
                 <th class="px-2 py-2 text-right">成本</th>
                 <th class="px-2 py-2 text-right">现价 / 涨跌</th>
                 <th class="px-2 py-2 text-right">
@@ -599,7 +682,42 @@ onMounted(load)
                   </button>
                 </th>
                 <th class="px-2 py-2 text-right">账户权重</th>
-                <th class="px-2 py-2">关联方向</th>
+                <th class="px-2 py-2">
+                  <div class="flex items-center justify-between gap-2">
+                    <span>关联方向</span>
+                    <button
+                      type="button"
+                      class="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      @click="editingDirectionCatalog = !editingDirectionCatalog"
+                    >
+                      {{ editingDirectionCatalog ? '收起' : '标签管理' }}
+                    </button>
+                  </div>
+                  <div v-if="editingDirectionCatalog" class="mt-2 space-y-2 rounded border border-border/60 bg-background/60 p-2 text-left">
+                    <div class="flex flex-wrap gap-1">
+                      <span
+                        v-for="tag in allDirectionOptions"
+                        :key="tag"
+                        class="inline-flex items-center gap-1 rounded border border-border/80 bg-secondary/30 px-2 py-1 text-[11px] text-foreground"
+                      >
+                        {{ themeLabel(tag) }}
+                        <button type="button" class="text-negative" @click="removeCatalogDirection(tag)">×</button>
+                      </span>
+                    </div>
+                    <div class="flex gap-1">
+                      <input
+                        v-model="directionCatalogDraft"
+                        class="h-7 min-w-0 flex-1 rounded bg-input px-2 text-[11px]"
+                        placeholder="新增标签，如 有色金属"
+                        @keydown.enter.prevent="addCatalogDirection"
+                      />
+                      <button type="button" class="rounded border border-primary px-2 py-1 text-[11px]" @click="addCatalogDirection">
+                        新增
+                      </button>
+                    </div>
+                    <div class="text-[11px] text-muted-foreground">删除标签会同步从所有标的的关联方向中移除。</div>
+                  </div>
+                </th>
                 <th class="px-2 py-2">角色</th>
                 <th class="px-2 py-2"></th>
               </tr>
@@ -616,7 +734,7 @@ onMounted(load)
                       @input="scheduleSearch(row)"
                     />
                     <div v-if="row.symbol" class="-mt-1 flex items-center gap-1 truncate px-2 pb-1 text-[11px]">
-                      <span v-if="marketBadge(row.symbol)" class="rounded bg-secondary px-1 text-muted-foreground">{{ marketBadge(row.symbol) }}</span>
+                      <span v-if="marketBadge(row)" class="rounded bg-secondary px-1 text-muted-foreground">{{ marketBadge(row) }}</span>
                     </div>
                   </div>
                   <div v-if="activeRowId === row.row_id && rowMatches.length" class="absolute left-2 right-2 top-12 z-30 overflow-hidden rounded border border-border bg-card shadow-xl">
@@ -633,12 +751,11 @@ onMounted(load)
                   <div v-if="row.quoteLoading || searchLoading" class="mt-1 text-[11px] text-muted-foreground">查询中...</div>
                 </td>
                 <td class="p-2"><input v-model.number="row.quantity" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
-                <td class="p-2"><input v-model.number="row.available_quantity" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
                 <td class="p-2"><input v-model.number="row.avg_cost" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
                 <td class="p-2 text-right font-mono">
-                  <div>{{ fmt(row.quote?.price) }}</div>
+                  <div>{{ fmt(displayPrice(row)) }}</div>
                   <div :class="['text-[11px]', Number(row.quote?.change_pct || 0) >= 0 ? 'text-negative' : 'text-positive']">
-                    {{ signedFmt(row.quote?.change_pct, '%') }}
+                    {{ row.asset_type === 'ipo_subscription' && !row.quote?.change_pct ? 'IPO/待上市' : signedFmt(row.quote?.change_pct, '%') }}
                   </div>
                 </td>
                 <td class="p-2 text-right font-mono">{{ fmt(rowMarketValue(row)) }}</td>

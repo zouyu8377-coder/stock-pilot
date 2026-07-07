@@ -409,7 +409,8 @@ def test_compact_data_gaps_restored(tmp_path, monkeypatch):
     assert "ETF 份额 / 净值事实" in gap_keys or "龙虎榜 / 公告索引" in gap_keys
 
     md = render_compact_markdown(context)
-    assert "## 数据缺口" in md
+    assert "## 数据缺口" not in md
+    assert context["data_gaps"], "Structured data_gaps should remain available to the dashboard/API"
 
 
 def test_compact_role_chinese_names_and_format(tmp_path, monkeypatch):
@@ -437,7 +438,8 @@ def test_compact_time_info_and_ai_questions(tmp_path, monkeypatch):
     assert "行情取数时间" in md
     assert "系统取数时间不是可验证市场报价时间" in md
 
-    assert "给外部 AI 的任务" in md
+    assert "给外部 AI 的任务" not in md
+    assert context["suggested_questions_for_external_llm"]
     questions = context["suggested_questions_for_external_llm"]
     assert all(any("一" <= ch <= "鿿" for ch in q) for q in questions), "AI questions should be in Chinese"
 
@@ -522,12 +524,11 @@ def test_compact_data_gaps_grouped(tmp_path, monkeypatch):
     context = build_account_analysis_context(mode="compact")
     md = render_compact_markdown(context)
 
-    # Gaps should be grouped by key, not repeated per symbol
-    assert "当前暂无数据" in md
-    assert "涉及标的" in md
-    # Per-symbol repetition pattern like "（601899）" should not appear
-    assert "（601899）" not in md
-    assert "（603993）" not in md
+    # Gaps stay structured for the dashboard/API, but are no longer rendered into
+    # the default user-facing portfolio markdown.
+    assert context["data_gaps"]
+    assert "## 数据缺口" not in md
+    assert "涉及标的" not in md
 
 
 def test_compact_holdings_direction_excludes_primary_theme(tmp_path, monkeypatch):
@@ -551,6 +552,30 @@ def test_compact_ai_question_wording(tmp_path, monkeypatch):
     first_question = questions[0]
     assert "关联方向与风险观察" in first_question, "AI question should distinguish direction and risk"
     assert "theme_tags 仅是非加总的关联观察" not in first_question, "AI question should not use old theme_tags wording"
+
+
+def test_compact_context_includes_market_event_radar(tmp_path, monkeypatch):
+    from datetime import datetime as real_datetime
+
+    from app.portfolio import dashboard
+
+    class FrozenDatetime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 6, 1, tzinfo=tz)
+
+    monkeypatch.setattr(dashboard, "datetime", FrozenDatetime)
+    _service(tmp_path, monkeypatch)
+    context = build_account_analysis_context(mode="compact")
+    md = render_compact_markdown(context)
+
+    radar = context["market_event_radar"]
+    titles = [event["title"] for event in radar["events"]]
+    assert "美国 5 月 CPI" in titles
+    assert "FOMC 利率决议与经济预测" in titles
+    assert "## 近期风险事件日历" in md
+    assert "美国 5 月 CPI" in md
+    assert "FOMC 利率决议与经济预测" in md
 
 
 def test_localize_driver_pending_probe():

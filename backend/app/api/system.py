@@ -28,6 +28,16 @@ def _shape_status(status: dict, target_date: str) -> dict:
         "progress": progress,
         "updated_at": status.get("updated_at"),
         "failure_reasons": status.get("failure_reasons", {}),
+        "phase": status.get("phase"),
+        "core_total": int(status.get("core_total") or 0),
+        "core_completed": int(status.get("core_completed") or 0),
+        "core_failed": int(status.get("core_failed") or 0),
+        "core_status": status.get("core_status"),
+        "core_last_trading_date": status.get("core_last_trading_date"),
+        "market_total": int(status.get("market_total") or 0),
+        "market_processed": int(status.get("market_processed") or 0),
+        "deferred_reason": status.get("deferred_reason"),
+        "average_symbol_seconds": status.get("average_symbol_seconds"),
     }
 
 

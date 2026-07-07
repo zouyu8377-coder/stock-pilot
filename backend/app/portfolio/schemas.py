@@ -16,6 +16,8 @@ DEFAULT_THEME_TAGS = [
     "GOLD",
     "COPPER",
     "TUNGSTEN",
+    "DISPLAY_PANEL",
+    "GREEN_POWER",
     "CASH_EQUIVALENT",
     "BROAD_INDEX",
     "CASH",
@@ -42,6 +44,8 @@ DEFAULT_DIRECTIONS = [
     "TUNGSTEN",
     "PCB",
     "SEMICONDUCTOR_EQUIPMENT",
+    "DISPLAY_PANEL",
+    "GREEN_POWER",
     "OTHER",
     "UNCLASSIFIED",
 ]
@@ -153,6 +157,10 @@ class PortfolioPositionInput(BaseModel):
     broker_screenshot_market_value: float | None = None
     broker_screenshot_unrealized_pnl: float | None = None
     broker_screenshot_unrealized_pnl_pct: float | None = None
+    asset_type: str = "stock"
+    ipo_status: str | None = None
+    issue_price: float | None = None
+    expected_list_date: date | None = None
     source_type: str = "manual_account"
     source_name: str | None = None
     import_draft_id: str | None = None

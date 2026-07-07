@@ -14,7 +14,6 @@ const props = defineProps<{
   symbol: string
 }>()
 
-const ETF_SYMBOLS = new Set(['159382', '159934'])
 const loading = ref(false)
 const error = ref('')
 const etfData = ref<FactResponse<EtfFacts | null> | null>(null)
@@ -27,7 +26,15 @@ const dragonData = ref<FactResponse<{
 const disclosureData = ref<FactResponse<DisclosureFacts> | null>(null)
 const showDragonHistory = ref(false)
 
-const isEtf = computed(() => ETF_SYMBOLS.has(props.symbol))
+const isEtf = computed(() => /^(15|16|51|56|58)/.test(props.symbol))
+const hasEtfData = computed(() => Boolean(isEtf.value && etfData.value?.success && etfData.value.data))
+const hasDragonData = computed(() => Boolean(!isEtf.value && dragonData.value?.success && dragonData.value.data.latest_event))
+const latestDragonEvent = computed(() => dragonData.value?.data.latest_event)
+const hasDisclosureData = computed(() => Boolean(
+  !isEtf.value
+  && disclosureData.value?.success
+  && ((disclosureData.value.data.announcements?.length || 0) > 0 || (disclosureData.value.data.surveys?.length || 0) > 0),
+))
 
 const fmt = (value?: number | null, suffix = '') => {
   if (value === null || value === undefined || Number.isNaN(value)) return '-'
@@ -77,7 +84,7 @@ watch(() => props.symbol, load, { immediate: true })
       {{ error }}
     </div>
 
-    <div v-if="isEtf && etfData?.data" class="rounded-lg border border-border bg-card overflow-hidden">
+    <div v-if="hasEtfData && etfData?.data" class="rounded-lg border border-border bg-card overflow-hidden">
       <div class="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/30">
         <div>
           <h3 class="text-sm font-semibold text-foreground">ETF资金观察</h3>
@@ -125,11 +132,8 @@ watch(() => props.symbol, load, { immediate: true })
         </div>
       </div>
     </div>
-    <div v-else-if="isEtf && etfData && !etfData.success" class="rounded-lg border border-border bg-card p-3 text-xs text-muted-foreground">
-      ETF资金观察暂不可用：{{ etfData.message || '数据源未返回' }}
-    </div>
 
-    <div v-if="!isEtf && dragonData" class="rounded-lg border border-border bg-card overflow-hidden">
+    <div v-if="hasDragonData && dragonData && latestDragonEvent" class="rounded-lg border border-border bg-card overflow-hidden">
       <div class="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/30">
         <h3 class="text-sm font-semibold text-foreground">龙虎榜事件</h3>
         <button
@@ -141,34 +145,28 @@ watch(() => props.symbol, load, { immediate: true })
         </button>
       </div>
       <div class="p-3">
-        <div v-if="!dragonData.success" class="text-xs text-muted-foreground">
-          龙虎榜事件暂不可用：{{ dragonData.message || '数据源未返回' }}
-        </div>
-        <div v-else-if="!dragonData.data.latest_event" class="text-xs text-muted-foreground">
-          {{ dragonData.data.empty_message }}
-        </div>
-        <div v-else class="space-y-3">
+        <div class="space-y-3">
           <div class="grid grid-cols-4 gap-2 text-xs">
-            <div><span class="text-muted-foreground">日期</span><div>{{ dragonData.data.latest_event.trade_date }}</div></div>
-            <div><span class="text-muted-foreground">收盘</span><div>{{ fmt(dragonData.data.latest_event.close) }}</div></div>
-            <div><span class="text-muted-foreground">涨跌</span><div>{{ signed(dragonData.data.latest_event.pct_change, '%') }}</div></div>
-            <div><span class="text-muted-foreground">净买入</span><div>{{ fmt(dragonData.data.latest_event.net_buy) }}</div></div>
+            <div><span class="text-muted-foreground">日期</span><div>{{ latestDragonEvent.trade_date }}</div></div>
+            <div><span class="text-muted-foreground">收盘</span><div>{{ fmt(latestDragonEvent.close) }}</div></div>
+            <div><span class="text-muted-foreground">涨跌</span><div>{{ signed(latestDragonEvent.pct_change, '%') }}</div></div>
+            <div><span class="text-muted-foreground">净买入</span><div>{{ fmt(latestDragonEvent.net_buy) }}</div></div>
           </div>
-          <p class="text-xs text-foreground/80">{{ dragonData.data.latest_event.reason }}</p>
+          <p class="text-xs text-foreground/80">{{ latestDragonEvent.reason }}</p>
           <div class="flex gap-2 text-[11px]">
-            <span v-if="dragonData.data.latest_event.has_institutional_seat" class="rounded bg-primary/25 px-2 py-1">机构专用</span>
-            <span v-if="dragonData.data.latest_event.has_stock_connect_seat" class="rounded bg-primary/25 px-2 py-1">股通席位</span>
+            <span v-if="latestDragonEvent.has_institutional_seat" class="rounded bg-primary/25 px-2 py-1">机构专用</span>
+            <span v-if="latestDragonEvent.has_stock_connect_seat" class="rounded bg-primary/25 px-2 py-1">股通席位</span>
           </div>
           <div class="grid grid-cols-2 gap-3 text-xs">
             <div>
               <div class="mb-1 text-muted-foreground">前五买入</div>
-              <div v-for="seat in dragonData.data.latest_event.top_buy_seats" :key="seat.seat" class="truncate text-foreground/80">
+              <div v-for="seat in latestDragonEvent.top_buy_seats" :key="seat.seat" class="truncate text-foreground/80">
                 {{ seat.seat }} · {{ fmt(seat.buy) }}
               </div>
             </div>
             <div>
               <div class="mb-1 text-muted-foreground">前五卖出</div>
-              <div v-for="seat in dragonData.data.latest_event.top_sell_seats" :key="seat.seat" class="truncate text-foreground/80">
+              <div v-for="seat in latestDragonEvent.top_sell_seats" :key="seat.seat" class="truncate text-foreground/80">
                 {{ seat.seat }} · {{ fmt(seat.sell) }}
               </div>
             </div>
@@ -184,14 +182,11 @@ watch(() => props.symbol, load, { immediate: true })
       </div>
     </div>
 
-    <div v-if="!isEtf && disclosureData?.data" class="rounded-lg border border-border bg-card overflow-hidden">
+    <div v-if="hasDisclosureData && disclosureData?.data" class="rounded-lg border border-border bg-card overflow-hidden">
       <div class="px-3 py-2 border-b border-border bg-secondary/30">
         <h3 class="text-sm font-semibold text-foreground">公告 / 机构调研索引</h3>
       </div>
       <div class="p-3 space-y-3">
-        <div v-if="!disclosureData.success" class="text-xs text-muted-foreground">
-          公告/调研索引暂不可用：{{ disclosureData.message || '数据源未返回' }}
-        </div>
         <div>
           <div class="mb-1 text-xs font-medium text-muted-foreground">公告</div>
           <div v-if="disclosureData.data.announcements.length === 0" class="text-xs text-muted-foreground">最近90日无公告索引</div>

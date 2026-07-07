@@ -63,6 +63,8 @@ backend/data/portfolio/imports/
 backend/data/portfolio/snapshots/
 backend/data/tushare/
 backend/data/metadata/
+backend/data/attractiveness/history.json
+backend/data/disclosure_verification/
 backend/data/*.lock
 *.parquet
 
@@ -84,4 +86,5 @@ data/portfolio/
 data/analysis_snapshots/
 
 # Logs
+logs/
 *.log

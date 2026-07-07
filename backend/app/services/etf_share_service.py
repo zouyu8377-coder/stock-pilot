@@ -12,6 +12,7 @@ import pandas as pd
 from app.data_sources.akshare_etf_share import (
     AkshareEtfShareError,
     compact_fund_code,
+    fetch_em_etf_share_latest,
     fetch_sse_etf_share,
     fetch_szse_etf_share_history,
     fetch_szse_etf_share_latest,
@@ -217,7 +218,11 @@ class EtfShareService:
         warnings: list[str] = []
         try:
             if exchange == "SSE":
-                records = fetch_sse_etf_share(compact, end_date.strftime("%Y%m%d"))
+                try:
+                    records = fetch_sse_etf_share(compact, end_date.strftime("%Y%m%d"))
+                except AkshareEtfShareError as exc:
+                    warnings.append(str(exc))
+                    records = fetch_em_etf_share_latest(compact)
             elif exchange == "SZSE":
                 try:
                     records = fetch_szse_etf_share_history(
@@ -227,22 +232,35 @@ class EtfShareService:
                     )
                 except AkshareEtfShareError as exc:
                     warnings.append(str(exc))
-                    records = fetch_szse_etf_share_latest(compact)
+                    try:
+                        records = fetch_szse_etf_share_latest(compact)
+                    except AkshareEtfShareError as latest_exc:
+                        warnings.append(str(latest_exc))
+                        records = fetch_em_etf_share_latest(compact)
         except AkshareEtfShareError as exc:
             result.reason = str(exc)
             result.warnings = warnings
             return result
 
         if not records:
-            result.reason = "AKShare request succeeded but no row matched the fund code."
-            result.warnings = warnings
-            return result
+            try:
+                records = fetch_em_etf_share_latest(compact)
+                warnings.append("Primary AKShare request returned no matching row; used Eastmoney spot fallback.")
+            except AkshareEtfShareError as exc:
+                result.reason = f"AKShare request succeeded but no row matched the fund code. Fallback failed: {exc}"
+                result.warnings = warnings
+                return result
         for record in records:
             if not record.get("fund_name") and fund_name:
                 record["fund_name"] = fund_name
         existing = self.read_cache(compact)
         merged = _merge_cache(existing, records)
         written_path = _write_cache(self.cache_root / f"{compact}.parquet", merged)
+        try:
+            from app.portfolio.dashboard_cache import invalidate_dashboard_cache
+            invalidate_dashboard_cache()
+        except ImportError:
+            pass
         result.success = True
         result.data_status = "available"
         result.records_written = len(records)

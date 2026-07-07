@@ -31,6 +31,7 @@ class TushareCache:
             "margin",
             "moneyflow",
             "events",
+            "valuation",
         ]:
             (self.root / subdir).mkdir(parents=True, exist_ok=True)
 

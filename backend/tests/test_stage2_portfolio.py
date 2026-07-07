@@ -158,6 +158,8 @@ def test_dashboard_separates_watchlist_from_active_exposure(tmp_path, monkeypatc
     assert any(item["symbol"] == "000657" and item["position_status"] == "watchlist" for item in dashboard["opportunity_queue"])
     assert "观察池标的" in watch_strategy["short_term"]
     assert dashboard["external_ai_tasks"] == ["test task"]
+    assert dashboard["attractiveness_radar"]["model"] == "attractiveness_rules_v1"
+    assert "attractiveness" in watch
 
 
 def test_market_event_radar_surfaces_confirmed_macro_events(tmp_path, monkeypatch):
@@ -187,16 +189,73 @@ def test_market_event_radar_surfaces_confirmed_macro_events(tmp_path, monkeypatc
     ))
     weights = {item["symbol"]: item["weight_pct"] for item in state.metrics.position_weights}
 
-    radar = build_market_event_radar(state, weights, today=date(2026, 6, 7))
+    radar = build_market_event_radar(state, weights, today=date(2026, 6, 1))
     titles = [event["title"] for event in radar["events"]]
     fomc = next(event for event in radar["events"] if event["event_id"] == "fomc_2026_06_16_17")
+    nvidia = next(event for event in radar["events"] if event["event_id"] == "nvidia_bofa_tech_2026_06_04")
 
     assert "美国 5 月 CPI" in titles
     assert "FOMC 利率决议与经济预测" in titles
+    assert "NVIDIA BofA 全球科技会议" in titles
+    assert "TSMC 5 月营收" in titles
+    assert "Micron FY26 Q3 财报" in titles
     assert radar["high_impact_count"] >= 2
     assert fomc["impact_level"] == "high"
     assert any(item["symbol"] == "002463" for item in fomc["related_positions"])
     assert any("黄金" in item["reason"] for item in fomc["related_positions"])
+    assert any(item["symbol"] == "002463" and "PCB" in item["reason"] for item in nvidia["related_positions"])
+
+
+def test_market_event_radar_hides_past_events(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = PortfolioService(tmp_path)
+    state = service.save_snapshot(PortfolioSnapshotInput(
+        cash_available=10000,
+        positions=[
+            PortfolioPositionInput(
+                symbol="002463",
+                name="HD",
+                quantity=1000,
+                avg_cost=80,
+                directions=["PCB"],
+                risk_flags=["HIGH_VOLATILITY"],
+                theme_tags=["PCB", "HIGH_VOLATILITY"],
+            ),
+        ],
+    ))
+    weights = {item["symbol"]: item["weight_pct"] for item in state.metrics.position_weights}
+
+    radar = build_market_event_radar(state, weights, today=date(2026, 6, 8))
+    event_ids = {event["event_id"] for event in radar["events"]}
+
+    assert "nvidia_bofa_tech_2026_06_04" not in event_ids
+    assert radar["next_event"]["date"] == "2026-06-10"
+
+
+def test_market_event_radar_filters_theme_events_by_account_exposure(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = PortfolioService(tmp_path)
+    state = service.save_snapshot(PortfolioSnapshotInput(
+        cash_available=10000,
+        positions=[
+            PortfolioPositionInput(
+                symbol="159934",
+                name="Gold ETF",
+                quantity=5000,
+                avg_cost=5,
+                directions=["GOLD"],
+                theme_tags=["GOLD"],
+            ),
+        ],
+    ))
+    weights = {item["symbol"]: item["weight_pct"] for item in state.metrics.position_weights}
+
+    radar = build_market_event_radar(state, weights, today=date(2026, 6, 7))
+    event_ids = {event["event_id"] for event in radar["events"]}
+
+    assert "fomc_2026_06_16_17" in event_ids
+    assert "nvidia_bofa_tech_2026_06_04" not in event_ids
+    assert "tsmc_may_revenue_2026_06_10" not in event_ids
 
 
 def test_holding_semantic_suggestions_require_user_confirmation_and_persist(tmp_path, monkeypatch):
@@ -249,6 +308,50 @@ def test_missing_price_does_not_fabricate_market_value_or_pnl(tmp_path, monkeypa
     assert "market_price" in position.missing_data
     assert state.metrics.total_market_value == 0
     assert state.metrics.missing_data[0]["symbol"] == "002463"
+
+
+def test_ipo_subscription_uses_manual_issue_price_with_market_data_boundary(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _missing_quote)
+    service = PortfolioService(tmp_path)
+    state = service.save_snapshot(PortfolioSnapshotInput(
+        cash_available=50000,
+        positions=[
+            PortfolioPositionInput(
+                symbol="001399",
+                name="惠科股份",
+                quantity=500,
+                avg_cost=10.12,
+                asset_type="ipo_subscription",
+                ipo_status="subscribed",
+                issue_price=10.12,
+            ),
+            PortfolioPositionInput(
+                symbol="001248",
+                name="华润新能源",
+                quantity=500,
+                avg_cost=10.11,
+                asset_type="ipo_subscription",
+                ipo_status="subscribed",
+                issue_price=10.11,
+            ),
+        ],
+    ))
+
+    hk = next(p for p in state.snapshot.positions if p.symbol == "001399")
+    cr = next(p for p in state.snapshot.positions if p.symbol == "001248")
+    snapshot = service.build_portfolio_snapshot(persist=False)
+
+    assert hk.name == "惠科股份"
+    assert cr.name == "华润新能源"
+    assert hk.market_value == 5060
+    assert cr.market_value == 5055
+    assert hk.valuation_scope == "manual_ipo_valuation"
+    assert hk.data_status == "manual_ipo_valuation"
+    assert set(hk.missing_data) == {"daily_k_history", "realtime_quote"}
+    assert state.metrics.total_market_value == 10115
+    assert {"DISPLAY_PANEL", "GREEN_POWER"} <= {item.theme for item in state.metrics.primary_theme_exposures}
+    assert any(item["symbol"] == "001399" and "daily_k_history" in item["fields"] for item in state.metrics.missing_data)
+    assert {"001399", "001248"} <= set(snapshot.target_symbols)
 
 
 def test_position_limit_placeholder_does_not_become_system_hypothesis(tmp_path, monkeypatch):

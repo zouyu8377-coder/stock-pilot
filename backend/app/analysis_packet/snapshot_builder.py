@@ -29,6 +29,7 @@ from app.facts.common import to_ts_code
 from app.facts.disclosure_service import ANNOUNCEMENT_LIMIT, SURVEY_LIMIT, get_disclosure_facts
 from app.facts.dragon_tiger_service import get_dragon_tiger_facts
 from app.facts.etf_service import SUPPORTED_ETFS, get_etf_facts
+from app.quant.signal_engine import build_quant_signal
 from app.strategy.model_selector import select_models
 from app.strategy.regime_engine import detect_market_regime
 
@@ -117,6 +118,11 @@ def _stock_data(symbol: str) -> tuple[dict[str, Any], pd.DataFrame]:
         "company_profile": company_profile,
     }
     stock_data["analysis"] = analyze_stock(stock_data)
+    stock_data["quant_signal"] = build_quant_signal(
+        history,
+        symbol=symbol,
+        name=quote.get("name") or "",
+    )
     strategy_context = detect_market_regime(stock_data, company_profile)
     select_models(strategy_context)
     stock_data["strategy_context"] = strategy_context
@@ -197,6 +203,23 @@ def build_basic_stock_snapshot(
             reliability=EvidenceReliability.C,
             llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
             interpretation_limit="Technical indicators are auxiliary signals and must not be the sole basis for conclusions.",
+        ),
+        EvidenceItem(
+            symbol=symbol,
+            evidence_type=EvidenceType.TECHNICAL_INDICATOR,
+            category=EvidenceCategory.AUTO_SIGNAL,
+            title="Rules-based multi-factor quant signal",
+            payload=stock_data.get("quant_signal", {}),
+            source="quant/signal_engine.py",
+            source_endpoint="build_quant_signal",
+            as_of_date=daily_as_of,
+            fetched_at=fetched_at,
+            reliability=EvidenceReliability.C,
+            llm_usage=LlmUsage.WEAK_SIGNAL_ONLY,
+            interpretation_limit=(
+                "Rules-based signal and exploratory backtest only. It must not be presented as "
+                "a guaranteed win rate or direct execution instruction."
+            ),
         ),
         EvidenceItem(
             symbol=symbol,
