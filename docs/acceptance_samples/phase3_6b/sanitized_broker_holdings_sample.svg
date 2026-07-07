@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="430" viewBox="0 0 980 430">
+  <rect width="980" height="430" fill="#f7f8fb"/>
+  <rect x="24" y="24" width="932" height="382" rx="8" fill="#ffffff" stroke="#d6dbe6"/>
+  <text x="48" y="62" font-family="Arial, sans-serif" font-size="22" fill="#172033">同花顺持仓截图（脱敏合成样例）</text>
+  <text x="48" y="92" font-family="Arial, sans-serif" font-size="13" fill="#697386">仅用于 Stock-Pilot 阶段3.6B 验收，不代表真实账户。</text>
+  <rect x="48" y="118" width="884" height="38" fill="#eef2f8"/>
+  <g font-family="Arial, sans-serif" font-size="13" fill="#2b3445">
+    <text x="62" y="142">代码</text>
+    <text x="162" y="142">名称</text>
+    <text x="286" y="142">持仓数量</text>
+    <text x="390" y="142">可用数量</text>
+    <text x="494" y="142">平均成本</text>
+    <text x="598" y="142">现价</text>
+    <text x="688" y="142">市值</text>
+    <text x="782" y="142">浮盈亏</text>
+    <text x="864" y="142">盈亏%</text>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="14" fill="#172033">
+    <text x="62" y="190">601899</text><text x="162" y="190">紫金矿业</text><text x="304" y="190">1000</text><text x="408" y="190">800</text><text x="512" y="190">30.00</text><text x="610" y="190">31.64</text><text x="694" y="190">31640</text><text x="792" y="190">1640</text><text x="870" y="190">5.47</text>
+    <text x="62" y="238">002916</text><text x="162" y="238">深南电路</text><text x="310" y="238">200</text><text x="414" y="238">200</text><text x="512" y="238">80.00</text><text x="610" y="238">88.50</text><text x="694" y="238">17700</text><text x="792" y="238">1700</text><text x="870" y="238">10.63</text>
+    <text x="62" y="286">000657</text><text x="162" y="286">中钨高新</text><text x="310" y="286">300</text><text x="414" y="286">300</text><text x="512" y="286">12.00</text><text x="610" y="286">13.20</text><text x="700" y="286">3960</text><text x="798" y="286">360</text><text x="870" y="286">10.00</text>
+    <text x="62" y="334">159934</text><text x="162" y="334">黄金ETF</text><text x="310" y="334">400</text><text x="414" y="334">400</text><text x="518" y="334">5.00</text><text x="616" y="334">5.50</text><text x="700" y="334">2200</text><text x="798" y="334">200</text><text x="870" y="334">10.00</text>
+  </g>
+  <g stroke="#e3e7ef">
+    <line x1="48" y1="166" x2="932" y2="166"/>
+    <line x1="48" y1="214" x2="932" y2="214"/>
+    <line x1="48" y1="262" x2="932" y2="262"/>
+    <line x1="48" y1="310" x2="932" y2="310"/>
+    <line x1="48" y1="358" x2="932" y2="358"/>
+  </g>
+</svg>

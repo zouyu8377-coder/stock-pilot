@@ -1,0 +1,737 @@
+{
+  "meta": {
+    "packet_id": "packet_5e28f5d544ea453b9ec850cd20e4c4fd",
+    "packet_version": "analysis_packet.v1",
+    "generated_at": "2026-05-24T21:56:04.046736",
+    "analysis_scope": "single_stock",
+    "target_symbol": "000657",
+    "target_name": "Demo Composite Resource",
+    "user_question": null,
+    "market_data_as_of": "2026-05-24T21:56:04.039824",
+    "daily_k_as_of": "2026-05-22",
+    "portfolio_as_of": "2026-05-25T09:30:00",
+    "source_snapshot_id": "snap_966ab55a2f894eba8f43a0c38561915d"
+  },
+  "privacy_notice": "This packet is generated locally and may contain personal account information, holdings, costs, cash, repo, trade plans, and manually entered evidence. Stock-Pilot does not send it to any external LLM, does not call deep analysis, and does not upload attachments automatically. External sharing happens only if the user actively copies, downloads, or submits the content elsewhere.",
+  "basic_information": {
+    "symbol": "000657",
+    "name": "Demo Composite Resource",
+    "industry": null,
+    "area": null,
+    "listing_information": {
+      "list_date": null,
+      "exchange": null
+    },
+    "company_profile": {
+      "company_name": "中钨高新",
+      "main_business": "有色金属采选与深加工",
+      "core_products": [
+        "数控刀片",
+        "硬质合金",
+        "钨丝"
+      ],
+      "industry_chain_position": "上游资源开采 + 中游深加工",
+      "core_logic": [
+        "高端刀具国产替代",
+        "工业母机产业链",
+        "战略金属管控",
+        "央企资源整合预期",
+        "国防装备采购"
+      ],
+      "concept_tags": [
+        "工业母机",
+        "军工",
+        "央企改革",
+        "小金属",
+        "硬质合金"
+      ],
+      "company_type": [
+        "军工"
+      ],
+      "profit_driver": "钨价上涨 + 高端刀具放量",
+      "competitive_advantage": "资源储量优势，产业链一体化",
+      "risk_points": [
+        "钨价下跌",
+        "制造业需求回落"
+      ]
+    },
+    "current_holding": {
+      "has_holding": true,
+      "quantity": 1000.0,
+      "available_quantity": 800.0,
+      "avg_cost": 9.0,
+      "market_price": 10.0,
+      "market_price_as_of": null,
+      "market_price_time_status": "unavailable",
+      "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time.",
+      "market_value": 10000.0,
+      "unrealized_pnl": 1000.0,
+      "unrealized_pnl_pct": 11.11,
+      "portfolio_weight_pct": 10.0,
+      "position_role": "short_term",
+      "primary_theme": "METAL_RESOURCE",
+      "theme_tags": [
+        "METAL_RESOURCE",
+        "TUNGSTEN",
+        "HIGH_VOLATILITY",
+        "COMPOSITE_EXPOSURE"
+      ],
+      "user_plan": "Demo plan: composite exposure should be reviewed separately.",
+      "invalid_condition": "Demo invalid condition: composite risk becomes unclear.",
+      "target_max_weight": 15.0,
+      "data_status": "available",
+      "missing_data": []
+    },
+    "data_status": "available"
+  },
+  "stock_profile": {
+    "symbol": "000657",
+    "name": "Demo Composite Resource",
+    "profile": {
+      "company_name": "中钨高新",
+      "main_business": "有色金属采选与深加工",
+      "core_products": [
+        "数控刀片",
+        "硬质合金",
+        "钨丝"
+      ],
+      "industry_chain_position": "上游资源开采 + 中游深加工",
+      "core_logic": [
+        "高端刀具国产替代",
+        "工业母机产业链",
+        "战略金属管控",
+        "央企资源整合预期",
+        "国防装备采购"
+      ],
+      "concept_tags": [
+        "工业母机",
+        "军工",
+        "央企改革",
+        "小金属",
+        "硬质合金"
+      ],
+      "company_type": [
+        "军工"
+      ],
+      "profit_driver": "钨价上涨 + 高端刀具放量",
+      "competitive_advantage": "资源储量优势，产业链一体化",
+      "risk_points": [
+        "钨价下跌",
+        "制造业需求回落"
+      ]
+    },
+    "holding": {
+      "symbol": "000657",
+      "name": "Demo Composite Resource",
+      "quantity": 1000.0,
+      "available_quantity": 800.0,
+      "avg_cost": 9.0,
+      "position_role": "short_term",
+      "theme_tags": [
+        "METAL_RESOURCE",
+        "TUNGSTEN",
+        "HIGH_VOLATILITY",
+        "COMPOSITE_EXPOSURE"
+      ],
+      "primary_theme": "METAL_RESOURCE",
+      "user_plan": "Demo plan: composite exposure should be reviewed separately.",
+      "invalid_condition": "Demo invalid condition: composite risk becomes unclear.",
+      "target_max_weight": 15.0,
+      "notes": null,
+      "market_price": 10.0,
+      "market_value": 10000.0,
+      "unrealized_pnl": 1000.0,
+      "unrealized_pnl_pct": 11.11,
+      "price_source": "easyquotation",
+      "data_status": "available",
+      "missing_data": [],
+      "portfolio_weight_pct": 10.0
+    }
+  },
+  "auto_fact": [
+    {
+      "evidence_id": "ev_c5bdade299e74710a21a62dd4015b546",
+      "symbol": "000657",
+      "evidence_type": "realtime_quote",
+      "category": "auto_fact",
+      "title": "Realtime quote snapshot",
+      "value": null,
+      "payload": {
+        "symbol": "000657",
+        "name": "Demo Composite Resource",
+        "price": 10.0,
+        "provider": "phase3_acceptance_demo_quote"
+      },
+      "source": "phase3_acceptance_demo_quote",
+      "source_endpoint": "easyquotation.real",
+      "as_of_time": "2026-05-24T21:56:04.039824",
+      "as_of_date": null,
+      "fetched_at": "2026-05-24T21:56:04.039824",
+      "reliability": "B",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "Quote data may be delayed and should not be interpreted as institutional intent.",
+      "freshness_days": 0,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "ev_5ae86141d69947b4a3a88335c246fec5",
+      "symbol": "000657",
+      "evidence_type": "daily_k_summary",
+      "category": "auto_fact",
+      "title": "Local daily K summary",
+      "value": null,
+      "payload": {
+        "row_count": 5000,
+        "open": 57.24,
+        "high": 62.38,
+        "low": 57.2,
+        "close": 62.38,
+        "volume": 91808038.0,
+        "amount": 5545023114.29,
+        "pct_chg": 9.9982,
+        "return_5d_pct": 10.49,
+        "return_20d_pct": 7.91,
+        "return_60d_pct": 19.02
+      },
+      "source": "local parquet base_market",
+      "source_endpoint": "collector.get_history",
+      "as_of_time": null,
+      "as_of_date": "2026-05-22",
+      "fetched_at": "2026-05-24T21:56:04.039824",
+      "reliability": "B",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "Local daily K is a market fact summary, not a trading conclusion.",
+      "freshness_days": 2,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "ev_b5bdb7da219145a782f44535b175c7e2",
+      "symbol": "000657",
+      "evidence_type": "company_profile",
+      "category": "auto_fact",
+      "title": "Company profile",
+      "value": null,
+      "payload": {
+        "company_name": "中钨高新",
+        "main_business": "有色金属采选与深加工",
+        "core_products": [
+          "数控刀片",
+          "硬质合金",
+          "钨丝"
+        ],
+        "industry_chain_position": "上游资源开采 + 中游深加工",
+        "core_logic": [
+          "高端刀具国产替代",
+          "工业母机产业链",
+          "战略金属管控",
+          "央企资源整合预期",
+          "国防装备采购"
+        ],
+        "concept_tags": [
+          "工业母机",
+          "军工",
+          "央企改革",
+          "小金属",
+          "硬质合金"
+        ],
+        "company_type": [
+          "军工"
+        ],
+        "profit_driver": "钨价上涨 + 高端刀具放量",
+        "competitive_advantage": "资源储量优势，产业链一体化",
+        "risk_points": [
+          "钨价下跌",
+          "制造业需求回落"
+        ]
+      },
+      "source": "stock_meta/Tushare cache/rule inference",
+      "source_endpoint": "build_company_profile",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-24T21:56:04.039824",
+      "reliability": "B",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "Rule-inferred profile fields should be treated as bounded context, not formal disclosure.",
+      "freshness_days": null,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "ev_6e45d0bf31c74339801777baf5ec6a93",
+      "symbol": "000657",
+      "evidence_type": "data_coverage",
+      "category": "auto_fact",
+      "title": "Data coverage",
+      "value": null,
+      "payload": {
+        "provided": [
+          {
+            "key": "company_business",
+            "label": "主营业务及产品结构",
+            "source": "本地公司画像/Tushare缓存/规则推断",
+            "detail": {
+              "main_business": "有色金属采选与深加工",
+              "core_products": [
+                "数控刀片",
+                "硬质合金",
+                "钨丝"
+              ],
+              "industry_chain_position": "上游资源开采 + 中游深加工"
+            }
+          },
+          {
+            "key": "price_overhang",
+            "label": "前高与套牢区分布",
+            "source": "本地日K线近250日",
+            "detail": {
+              "available": true,
+              "previous_high": 71.5,
+              "previous_high_date": "2026-03-03",
+              "latest_close": 62.38,
+              "distance_pct": -12.76,
+              "overhang_volume_pct": 0.6,
+              "source": "本地日K线近250日"
+            }
+          }
+        ],
+        "missing": [
+          {
+            "key": "orders_capacity",
+            "label": "最新订单与产能利用率",
+            "reason": "当前未接入公告/调研纪要/互动易等事件文本源",
+            "possible_sources": [
+              "投资者关系活动记录",
+              "互动易",
+              "定期报告",
+              "公司公告"
+            ]
+          },
+          {
+            "key": "northbound_flow",
+            "label": "北向资金实时流向",
+            "reason": "当前未接入陆股通持股或实时资金流数据",
+            "possible_sources": [
+              "深股通持股",
+              "港交所披露",
+              "交易所/行情数据源"
+            ]
+          },
+          {
+            "key": "institution_holding",
+            "label": "机构持仓变动",
+            "reason": "当前未接入基金季报、十大流通股东或机构持仓聚合数据",
+            "possible_sources": [
+              "基金季报",
+              "十大流通股东",
+              "定期报告",
+              "机构持仓数据库"
+            ]
+          }
+        ],
+        "missing_labels": [
+          "最新订单与产能利用率",
+          "北向资金实时流向",
+          "机构持仓变动"
+        ]
+      },
+      "source": "data_coverage.py",
+      "source_endpoint": "build_data_coverage",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-24T21:56:04.039824",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Use this item to identify available and missing data, not as market evidence.",
+      "freshness_days": null,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "unavailable_dragon_tiger_event_000657.SZ",
+      "symbol": "000657.SZ",
+      "evidence_type": "dragon_tiger_event",
+      "category": "auto_fact",
+      "title": "dragon_tiger_event unavailable",
+      "payload": {
+        "coverage": "dragon_tiger_event",
+        "reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+      },
+      "source": "Stock-Pilot fact service",
+      "source_endpoint": "top_list,top_inst",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-24T21:56:04.046736",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Dragon-tiger facts are unavailable. When available, they reflect public abnormal-trading-day seat structure only, not long-term holding intent.",
+      "freshness_days": null,
+      "data_status": "unavailable",
+      "notes": null
+    },
+    {
+      "evidence_id": "unavailable_disclosure_index_000657.SZ",
+      "symbol": "000657.SZ",
+      "evidence_type": "disclosure_index",
+      "category": "auto_fact",
+      "title": "disclosure_index unavailable",
+      "payload": {
+        "coverage": "disclosure_index",
+        "reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+      },
+      "source": "Stock-Pilot fact service",
+      "source_endpoint": "anns_d,stk_surv",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-24T21:56:04.047805",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Disclosure indexes are unavailable. When available, the system reads index data only, not announcement or survey full text.",
+      "freshness_days": null,
+      "data_status": "unavailable",
+      "notes": null
+    }
+  ],
+  "auto_signal": [
+    {
+      "evidence_id": "ev_0cf99f8fd18c4a369ada281a9ebbf9f8",
+      "symbol": "000657",
+      "evidence_type": "technical_indicator",
+      "category": "auto_signal",
+      "title": "Technical indicators",
+      "value": null,
+      "payload": {
+        "ma5": 57.04,
+        "ma10": 58.35,
+        "ma20": 58.02,
+        "ma30": 55.93,
+        "ma60": 55.88,
+        "rsi14": 58.34,
+        "macd": 1.17
+      },
+      "source": "indicators.py",
+      "source_endpoint": "compute_indicators",
+      "as_of_time": null,
+      "as_of_date": "2026-05-22",
+      "fetched_at": "2026-05-24T21:56:04.039824",
+      "reliability": "C",
+      "llm_usage": "weak_signal_only",
+      "interpretation_limit": "Technical indicators are auxiliary signals and must not be the sole basis for conclusions.",
+      "freshness_days": 2,
+      "data_status": "available",
+      "notes": null
+    }
+  ],
+  "manual_account": {
+    "has_holding": true,
+    "quantity": 1000.0,
+    "available_quantity": 800.0,
+    "avg_cost": 9.0,
+    "market_price": 10.0,
+    "market_price_as_of": null,
+    "market_price_time_status": "unavailable",
+    "quote_time_boundary": "Current quote source does not provide a verifiable quote time; portfolio snapshot time is not market quote time.",
+    "market_value": 10000.0,
+    "unrealized_pnl": 1000.0,
+    "unrealized_pnl_pct": 11.11,
+    "portfolio_weight_pct": 10.0,
+    "position_role": "short_term",
+    "primary_theme": "METAL_RESOURCE",
+    "theme_tags": [
+      "METAL_RESOURCE",
+      "TUNGSTEN",
+      "HIGH_VOLATILITY",
+      "COMPOSITE_EXPOSURE"
+    ],
+    "user_plan": "Demo plan: composite exposure should be reviewed separately.",
+    "invalid_condition": "Demo invalid condition: composite risk becomes unclear.",
+    "target_max_weight": 15.0,
+    "data_status": "available",
+    "missing_data": []
+  },
+  "manual_evidence": [
+    {
+      "evidence_id": "manual_1713ca701f11410881da246e831e5cca",
+      "symbol": "000657",
+      "evidence_type": "shareholder_count_manual",
+      "category": "manual_evidence",
+      "title": "Demo included shareholder-count note",
+      "value": null,
+      "payload": {
+        "symbol": "000657",
+        "evidence_type": "shareholder_count_manual",
+        "title": "Demo included shareholder-count note",
+        "value": null,
+        "text": "Non-sensitive demo evidence: shareholder count manually entered for packet inclusion test.",
+        "as_of_time": null,
+        "as_of_date": "2026-05-20",
+        "source": "phase3_acceptance_demo",
+        "reliability": "B_manual_structured",
+        "llm_usage": "fact_with_limit",
+        "attachment_path": null,
+        "image_reference": null,
+        "notes": null,
+        "include_in_analysis_packet": true,
+        "holder_num": 12345,
+        "end_date": null,
+        "announcement_date": null,
+        "change_from_previous": null,
+        "screenshot": null,
+        "evidence_id": "manual_1713ca701f11410881da246e831e5cca",
+        "recorded_at": "2026-05-24T21:56:03.983841"
+      },
+      "source": "phase3_acceptance_demo",
+      "source_endpoint": null,
+      "as_of_time": null,
+      "as_of_date": "2026-05-20",
+      "fetched_at": "2026-05-24T21:56:03.983841",
+      "reliability": "B_manual_structured",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "手动录入证据，仅在用户选择纳入分析包时使用；需保留来源与日期边界。",
+      "freshness_days": 4,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "manual_e195015d0ec949a39c4738e3964d6170",
+      "symbol": "000657",
+      "evidence_type": "manual_market_observation",
+      "category": "manual_evidence",
+      "title": "Demo included observation",
+      "value": null,
+      "payload": {
+        "symbol": "000657",
+        "evidence_type": "manual_market_observation",
+        "title": "Demo included observation",
+        "value": null,
+        "text": "Non-sensitive demo observation used to verify manual evidence export.",
+        "as_of_time": null,
+        "as_of_date": "2026-05-21",
+        "source": "phase3_acceptance_demo",
+        "reliability": "B_manual_structured",
+        "llm_usage": "fact_with_limit",
+        "attachment_path": null,
+        "image_reference": null,
+        "notes": null,
+        "include_in_analysis_packet": true,
+        "holder_num": null,
+        "end_date": null,
+        "announcement_date": null,
+        "change_from_previous": null,
+        "screenshot": null,
+        "evidence_id": "manual_e195015d0ec949a39c4738e3964d6170",
+        "recorded_at": "2026-05-24T21:56:03.991681"
+      },
+      "source": "phase3_acceptance_demo",
+      "source_endpoint": null,
+      "as_of_time": null,
+      "as_of_date": "2026-05-21",
+      "fetched_at": "2026-05-24T21:56:03.991681",
+      "reliability": "B_manual_structured",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "手动录入证据，仅在用户选择纳入分析包时使用；需保留来源与日期边界。",
+      "freshness_days": 3,
+      "data_status": "available",
+      "notes": null
+    }
+  ],
+  "system_hypothesis": [
+    {
+      "evidence_id": "ev_2a282c88b7ec4a989fd359a13911a230",
+      "symbol": "000657",
+      "evidence_type": "system_market_regime",
+      "category": "system_hypothesis",
+      "title": "Rule-based analysis and market regime",
+      "value": null,
+      "payload": {
+        "analysis": {
+          "trend": "震荡",
+          "signal": "金叉",
+          "support": "10/10",
+          "resistance": "10/10",
+          "summary": "当前RSI=58.3，位于中性区间。MACD维持多头结构，短线相对强势。短期均线呈下行态势。综合来看，短线处于震荡整理阶段"
+        },
+        "market_regime": "事件驱动",
+        "selected_models": [
+          "催化剂模型",
+          "预期差模型",
+          "公司Alpha/行业Beta拆分模型"
+        ]
+      },
+      "source": "Stock-Pilot rule engine",
+      "source_endpoint": "analyze_stock/detect_market_regime/select_models",
+      "as_of_time": null,
+      "as_of_date": "2026-05-22",
+      "fetched_at": "2026-05-24T21:56:04.039824",
+      "reliability": "H",
+      "llm_usage": "hypothesis_only",
+      "interpretation_limit": "System-generated hypothesis only. Do not cite it as a fact.",
+      "freshness_days": 2,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "category": "system_hypothesis",
+      "title": "Portfolio concentration reminder",
+      "source": "Stock-Pilot packet builder",
+      "reliability": "H",
+      "llm_usage": "hypothesis_only",
+      "data_status": "available",
+      "payload": {
+        "symbol": "000657",
+        "portfolio_weight_pct": 10.0,
+        "primary_theme": "METAL_RESOURCE",
+        "theme_tags": [
+          "METAL_RESOURCE",
+          "TUNGSTEN",
+          "HIGH_VOLATILITY",
+          "COMPOSITE_EXPOSURE"
+        ],
+        "risk_parameter_source": "system_default_placeholder",
+        "unconfirmed_by_user": true
+      },
+      "interpretation_limit": "System-generated reminder only; manually question and verify it. Concentration or cash reminders may depend on system default placeholder parameters and are unconfirmed by the user."
+    }
+  ],
+  "missing_data": [
+    {
+      "key": "orders_capacity",
+      "label": "最新订单与产能利用率",
+      "reason": "当前未接入公告/调研纪要/互动易等事件文本源",
+      "possible_sources": [
+        "投资者关系活动记录",
+        "互动易",
+        "定期报告",
+        "公司公告"
+      ]
+    },
+    {
+      "key": "northbound_flow",
+      "label": "北向资金实时流向",
+      "reason": "当前未接入陆股通持股或实时资金流数据",
+      "possible_sources": [
+        "深股通持股",
+        "港交所披露",
+        "交易所/行情数据源"
+      ]
+    },
+    {
+      "key": "institution_holding",
+      "label": "机构持仓变动",
+      "reason": "当前未接入基金季报、十大流通股东或机构持仓聚合数据",
+      "possible_sources": [
+        "基金季报",
+        "十大流通股东",
+        "定期报告",
+        "机构持仓数据库"
+      ]
+    },
+    {
+      "key": "announcement_full_text",
+      "label": "公告正文",
+      "reason": "The system currently fetches announcement index information only and does not read full text. Do not infer order, capacity, or profit impact from the index title.",
+      "possible_sources": [
+        "公告URL",
+        "PDF正文解析"
+      ]
+    },
+    {
+      "key": "survey_full_text",
+      "label": "调研正文",
+      "reason": "The system currently fetches survey index information only and does not read full text. Do not infer survey conclusions, order status, or earnings impact from the index.",
+      "possible_sources": [
+        "公告URL",
+        "调研纪要正文解析"
+      ]
+    }
+  ],
+  "interpretation_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, sector baskets, FX, futures, backtesting, and broker sync are not included in this stage.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention."
+  ],
+  "missing_data_and_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, sector baskets, FX, futures, backtesting, and broker sync are not included in this stage.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",
+    {
+      "key": "orders_capacity",
+      "label": "最新订单与产能利用率",
+      "reason": "当前未接入公告/调研纪要/互动易等事件文本源",
+      "possible_sources": [
+        "投资者关系活动记录",
+        "互动易",
+        "定期报告",
+        "公司公告"
+      ]
+    },
+    {
+      "key": "northbound_flow",
+      "label": "北向资金实时流向",
+      "reason": "当前未接入陆股通持股或实时资金流数据",
+      "possible_sources": [
+        "深股通持股",
+        "港交所披露",
+        "交易所/行情数据源"
+      ]
+    },
+    {
+      "key": "institution_holding",
+      "label": "机构持仓变动",
+      "reason": "当前未接入基金季报、十大流通股东或机构持仓聚合数据",
+      "possible_sources": [
+        "基金季报",
+        "十大流通股东",
+        "定期报告",
+        "机构持仓数据库"
+      ]
+    },
+    {
+      "key": "announcement_full_text",
+      "label": "公告正文",
+      "reason": "The system currently fetches announcement index information only and does not read full text. Do not infer order, capacity, or profit impact from the index title.",
+      "possible_sources": [
+        "公告URL",
+        "PDF正文解析"
+      ]
+    },
+    {
+      "key": "survey_full_text",
+      "label": "调研正文",
+      "reason": "The system currently fetches survey index information only and does not read full text. Do not infer survey conclusions, order status, or earnings impact from the index.",
+      "possible_sources": [
+        "公告URL",
+        "调研纪要正文解析"
+      ]
+    }
+  ],
+  "suggested_questions_for_external_llm": [
+    "Which items in this packet are hard facts, and which are weak auxiliary signals?",
+    "Does the current holding, if any, create excessive theme exposure inside the portfolio?",
+    "Which missing information would most materially change the analysis?",
+    "Is the user's invalid condition specific enough to falsify the trade plan?",
+    "What are the main risks under bullish, neutral, and adverse market scenarios?"
+  ],
+  "llm_questions": [
+    "Which items in this packet are hard facts, and which are weak auxiliary signals?",
+    "Does the current holding, if any, create excessive theme exposure inside the portfolio?",
+    "Which missing information would most materially change the analysis?",
+    "Is the user's invalid condition specific enough to falsify the trade plan?",
+    "What are the main risks under bullish, neutral, and adverse market scenarios?"
+  ]
+}

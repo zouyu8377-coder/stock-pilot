@@ -1,0 +1,24 @@
+{
+  "default_provider": "local_noop",
+  "providers": [
+    {
+      "provider": "local_noop",
+      "display_name": "手工补录 / 本地不解析",
+      "status": "available",
+      "enabled": true,
+      "configured": true,
+      "privacy_boundary": "不发送图片到云端，仅创建可编辑草稿。"
+    },
+    {
+      "provider": "volcengine_ark_vision",
+      "display_name": "云端视觉解析",
+      "status": "configured_not_verified",
+      "enabled": true,
+      "configured": true,
+      "model": "your-vision-model",
+      "base_url_configured": true,
+      "api_key_configured": true,
+      "privacy_boundary": "选择该方式后，将截图发送至已配置的云端视觉模型。"
+    }
+  ]
+}

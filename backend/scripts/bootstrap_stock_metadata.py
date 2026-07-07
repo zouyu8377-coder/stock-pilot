@@ -1,10 +1,9 @@
 from pathlib import Path
 import pandas as pd
 import tushare as ts
+from app.core.config import settings
 
 # ===== 配置 =====
-TOKEN ="b10c8a6089c53e3327b8c89bf3b4d3851eb32d93818bf2549fb6cd32"
-
 OUTPUT_DIR = Path("backend/data/metadata")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -14,7 +13,11 @@ OUTPUT_FILE = OUTPUT_DIR / "stock_meta.parquet"
 def main():
     print("Connecting to Tushare...")
 
-    ts.set_token(TOKEN)
+    token = settings.TUSHARE_TOKEN.strip()
+    if not token:
+        raise SystemExit("Tushare token is not configured. Set backend env var TUSHARE_TOKEN.")
+
+    ts.set_token(token)
     pro = ts.pro_api()
 
     print("Downloading stock metadata...")

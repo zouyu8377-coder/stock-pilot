@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { createChart, CandlestickSeries, LineSeries, ColorType } from 'lightweight-charts'
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+import { API_BASE_URL } from '../api/config'
 
 const props = defineProps<{
   symbol: string

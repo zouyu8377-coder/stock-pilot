@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+python-multipart
 pydantic
 pydantic-settings
 python-dotenv
@@ -10,7 +11,10 @@ openai>=1.30.0
 
 redis
 requests
+pypdf
 
 akshare
 easyquotation
 baostock
+
+pytest

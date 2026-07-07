@@ -1,0 +1,43 @@
+{
+  "source_view": {
+    "platform_guess": "同花顺",
+    "screenshot_displayed_time": null,
+    "warnings": ["synthetic sanitized sample only"]
+  },
+  "account_summary": {
+    "total_assets": 100000,
+    "cash_available": 10000,
+    "total_market_value": 90000,
+    "total_unrealized_pnl": 1200,
+    "repo_amount": null,
+    "repo_available_date": null
+  },
+  "holdings": [
+    {
+      "raw_symbol": "601899",
+      "raw_name": "紫金矿业",
+      "quantity": 1000,
+      "available_quantity": 800,
+      "avg_cost": 30,
+      "screenshot_price": 31.64,
+      "market_value": 31640,
+      "unrealized_pnl": 1640,
+      "unrealized_pnl_pct": 5.47,
+      "warnings": []
+    },
+    {
+      "raw_symbol": "002463",
+      "raw_name": "沪电股份",
+      "quantity": 200,
+      "available_quantity": 200,
+      "avg_cost": 42,
+      "screenshot_price": 44,
+      "market_value": 8800,
+      "unrealized_pnl": 400,
+      "unrealized_pnl_pct": 4.76,
+      "warnings": []
+    }
+  ],
+  "unrecognized_text": ["synthetic account id omitted"],
+  "parse_warnings": []
+}

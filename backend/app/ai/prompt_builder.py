@@ -163,6 +163,7 @@ def build_prompt(stock_data: dict) -> str:
     industry = stock_data.get("industry")
     indicators = stock_data.get("indicators", {})
     analysis = stock_data.get("analysis", {})
+    quant_signal = stock_data.get("quant_signal", {})
     company_profile: CompanyProfile | None = stock_data.get("company_profile")
     strategy_context: StrategyContext | None = stock_data.get("strategy_context")
     data_coverage = stock_data.get("data_coverage")
@@ -176,6 +177,7 @@ def build_prompt(stock_data: dict) -> str:
 
     indicators_str = json.dumps(_compact_for_prompt(indicators), ensure_ascii=False, indent=2)
     analysis_str = json.dumps(_compact_for_prompt(analysis), ensure_ascii=False, indent=2)
+    quant_signal_str = json.dumps(_compact_for_prompt(quant_signal), ensure_ascii=False, indent=2)
 
     profile_section = f"""
 ## 公司画像
@@ -238,6 +240,9 @@ def build_prompt(stock_data: dict) -> str:
 ## AI快速分析结论
 {analysis_str}
 
+## 量化决策边界（规则引擎生成）
+{quant_signal_str}
+
 ---
 
 ## 行业关键因子
@@ -256,9 +261,10 @@ def build_prompt(stock_data: dict) -> str:
 2. 如果没有真实资金流数据，不得声称"北向资金正在流入/流出"，只能写成"需要观察北向资金是否回流"。
 3. 如果没有公告、新闻、财报原文，不得编造具体公告或事件。
 4. 可以基于行业因子提出观察变量，但不能把观察变量写成事实。
-5. 胜率、赔率、风险评分均为主观交易评分，不是统计回测结果。
+5. LLM 输出的胜率、赔率、风险评分仍是主观交易评分；量化模块只有在 backtest.status=available 时才可引用其历史统计，并必须同时说明局限。
 6. 技术指标必须服从交易环境解释，不得机械套用 RSI 超买/超卖结论。
 7. 在趋势主升或事件驱动行情中，MA/RSI/MACD 只作为节奏辅助，不得作为唯一判断依据。
+8. 交易建议不得突破 quant_signal.trade_plan 的止损、最低风险收益比和最大仓位约束；quant_signal 不可用时必须降低置信度。
 
 ---
 
@@ -273,6 +279,7 @@ def build_prompt(stock_data: dict) -> str:
 5. 当前交易假设是什么？
 6. 什么条件出现说明该假设失效？
 7. 当前更适合追涨、低吸、波段持有、观望，还是回避？
+8. 量化动作、波动风险和仓位预算是否支持该结论？若冲突，以更保守的结论为准。
 
 ---
 
@@ -333,6 +340,7 @@ def build_human_prompt(stock_data: dict) -> str:
     industry = stock_data.get("industry")
     indicators = stock_data.get("indicators", {})
     analysis = stock_data.get("analysis", {})
+    quant_signal = stock_data.get("quant_signal", {})
     company_profile: CompanyProfile | None = stock_data.get("company_profile")
     strategy_context: StrategyContext | None = stock_data.get("strategy_context")
     data_coverage = stock_data.get("data_coverage")
@@ -355,6 +363,7 @@ def build_human_prompt(stock_data: dict) -> str:
     for k, v in analysis.items():
         analysis_lines.append(f"- {k}: {v}")
     analysis_text = "\n".join(analysis_lines) if analysis_lines else "（暂无）"
+    quant_signal_text = json.dumps(_compact_for_prompt(quant_signal), ensure_ascii=False, indent=2)
 
     profile_section = f"""
 ## 公司画像
@@ -399,6 +408,9 @@ def build_human_prompt(stock_data: dict) -> str:
 ## AI 快速分析结论
 {analysis_text}
 
+## 量化决策边界（规则引擎生成）
+{quant_signal_text}
+
 ---
 
 ## 行业关键因子
@@ -417,9 +429,10 @@ def build_human_prompt(stock_data: dict) -> str:
 2. 如果没有真实资金流数据，不得声称"北向资金正在流入/流出"，只能写成"需要观察北向资金是否回流"。
 3. 如果没有公告、新闻、财报原文，不得编造具体公告或事件。
 4. 可以基于行业因子提出观察变量，但不能把观察变量写成事实。
-5. 胜率、赔率、风险评分均为主观交易评分，不是统计回测结果。
+5. LLM 输出的胜率、赔率、风险评分仍是主观交易评分；量化模块只有在 backtest.status=available 时才可引用其历史统计，并必须同时说明局限。
 6. 技术指标必须服从交易环境解释，不得机械套用 RSI 超买/超卖结论。
 7. 在趋势主升或事件驱动行情中，MA/RSI/MACD 只作为节奏辅助，不得作为唯一判断依据。
+8. 交易建议不得突破 quant_signal.trade_plan 的止损、最低风险收益比和最大仓位约束；quant_signal 不可用时必须降低置信度。
 
 ---
 
@@ -432,6 +445,7 @@ def build_human_prompt(stock_data: dict) -> str:
 5. 当前交易假设是什么？
 6. 什么条件出现说明该假设失效？
 7. 当前更适合追涨、低吸、波段持有、观望，还是回避？
+8. 量化动作、波动风险和仓位预算是否支持该结论？若冲突，以更保守的结论为准。
 
 ---
 

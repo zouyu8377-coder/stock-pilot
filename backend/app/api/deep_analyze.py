@@ -13,6 +13,7 @@ from app.cache.manager import cache
 from app.collector.metadata_provider import metadata_provider
 from app.collector.router import collector
 from app.company_profile.profile_engine import build_company_profile
+from app.quant.signal_engine import build_quant_signal
 from app.strategy.model_selector import select_models
 from app.strategy.regime_engine import detect_market_regime
 
@@ -49,6 +50,11 @@ def _build_stock_data(symbol: str) -> dict:
         "company_profile": company_profile,
     }
     stock_data["analysis"] = analyze_stock(stock_data)
+    stock_data["quant_signal"] = build_quant_signal(
+        history,
+        symbol=symbol,
+        name=quote.get("name") or "",
+    )
 
     strategy_context = detect_market_regime(stock_data, company_profile)
     select_models(strategy_context)

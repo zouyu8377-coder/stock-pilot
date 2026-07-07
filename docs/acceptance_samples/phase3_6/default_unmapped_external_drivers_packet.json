@@ -1,0 +1,561 @@
+{
+  "meta": {
+    "packet_id": "packet_6a6f17dc16ee40e198b46cfbcc907af5",
+    "packet_version": "analysis_packet.v1",
+    "generated_at": "2026-05-25T02:56:10.244657",
+    "analysis_scope": "single_stock",
+    "target_symbol": "600000",
+    "target_name": "浦发银行",
+    "user_question": "验收样例：未映射普通股外部驱动",
+    "market_data_as_of": "2026-05-25T02:56:10.239342",
+    "daily_k_as_of": "2026-05-22",
+    "portfolio_as_of": null,
+    "source_snapshot_id": "snap_77c3fc3dadd846bab33483b3d71739ec"
+  },
+  "privacy_notice": "This packet is generated locally and may contain personal account information, holdings, costs, cash, repo, trade plans, and manually entered evidence. Stock-Pilot does not send it to any external LLM, does not call deep analysis, and does not upload attachments automatically. External sharing happens only if the user actively copies, downloads, or submits the content elsewhere.",
+  "basic_information": {
+    "symbol": "600000",
+    "name": "浦发银行",
+    "industry": null,
+    "area": null,
+    "listing_information": {
+      "list_date": null,
+      "exchange": null
+    },
+    "company_profile": {
+      "company_name": "浦发银行",
+      "main_business": "存贷款、理财、投行等金融服务",
+      "core_products": [
+        "贷款",
+        "理财",
+        "投行服务"
+      ],
+      "industry_chain_position": "金融服务端",
+      "core_logic": [
+        "息差修复",
+        "资产质量改善",
+        "高股息防御"
+      ],
+      "concept_tags": [],
+      "company_type": [
+        "金融股"
+      ],
+      "profit_driver": "净息差 + 资产规模扩张",
+      "competitive_advantage": "网点覆盖广，客户基础稳",
+      "risk_points": [
+        "息差收窄",
+        "地产不良暴露",
+        "宏观经济下行"
+      ]
+    },
+    "current_holding": {
+      "has_holding": false,
+      "message": "No local holding for this symbol in the current portfolio snapshot."
+    },
+    "data_status": "available"
+  },
+  "stock_profile": {
+    "symbol": "600000",
+    "name": "浦发银行",
+    "profile": {
+      "company_name": "浦发银行",
+      "main_business": "存贷款、理财、投行等金融服务",
+      "core_products": [
+        "贷款",
+        "理财",
+        "投行服务"
+      ],
+      "industry_chain_position": "金融服务端",
+      "core_logic": [
+        "息差修复",
+        "资产质量改善",
+        "高股息防御"
+      ],
+      "concept_tags": [],
+      "company_type": [
+        "金融股"
+      ],
+      "profit_driver": "净息差 + 资产规模扩张",
+      "competitive_advantage": "网点覆盖广，客户基础稳",
+      "risk_points": [
+        "息差收窄",
+        "地产不良暴露",
+        "宏观经济下行"
+      ]
+    },
+    "holding": null
+  },
+  "external_driver_mapping": {
+    "mapping_status": "not_configured",
+    "profile_id": "DEFAULT_UNMAPPED_V1",
+    "symbol": "600000.SH",
+    "message": "当前未为该标的配置专属外部驱动因子。系统仅保留个股自身证据，不自动附加商品、汇率或板块驱动。",
+    "future_extension": "可在后续根据行业、主题或用户观察需求新增映射。",
+    "drivers": [],
+    "boundary": "External-driver mapping is a product configuration used to select observation variables. It does not prove these factors dominate the stock price in the current period and must not be used as a system buy/sell conclusion.",
+    "llm_usage": "context_only",
+    "interpretation_limit": "This mapping selects observation variables only and is not market evidence by itself."
+  },
+  "auto_fact": [
+    {
+      "evidence_id": "ev_834d09816dc04b3a8ec5680df883881c",
+      "symbol": "600000",
+      "evidence_type": "realtime_quote",
+      "category": "auto_fact",
+      "title": "Realtime quote snapshot",
+      "value": null,
+      "payload": {
+        "symbol": "600000",
+        "price": 9.09,
+        "change_pct": 1.45,
+        "name": "浦发银行",
+        "volume": 59945900.0,
+        "provider": "easyquotation",
+        "hot_status": "ready",
+        "market_cap": 3027.5,
+        "float_market_cap": 3027.5,
+        "pe": 6.02,
+        "pb": 0.4,
+        "turnover_rate": 0.18,
+        "volume_ratio": 1.57
+      },
+      "source": "easyquotation",
+      "source_endpoint": "easyquotation.real",
+      "as_of_time": "2026-05-25T02:56:10.239342",
+      "as_of_date": null,
+      "fetched_at": "2026-05-25T02:56:10.239342",
+      "reliability": "B",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "Quote data may be delayed and should not be interpreted as institutional intent.",
+      "freshness_days": 0,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "ev_2d65339e0ccb4a80aff74f9fc069b584",
+      "symbol": "600000",
+      "evidence_type": "daily_k_summary",
+      "category": "auto_fact",
+      "title": "Local daily K summary",
+      "value": null,
+      "payload": {
+        "row_count": 5000,
+        "open": 8.88,
+        "high": 9.03,
+        "low": 8.75,
+        "close": 8.96,
+        "volume": 99003358.0,
+        "amount": 883300246.96,
+        "pct_chg": 1.1287,
+        "return_5d_pct": -1.21,
+        "return_20d_pct": -7.82,
+        "return_60d_pct": -9.4
+      },
+      "source": "local parquet base_market",
+      "source_endpoint": "collector.get_history",
+      "as_of_time": null,
+      "as_of_date": "2026-05-22",
+      "fetched_at": "2026-05-25T02:56:10.239342",
+      "reliability": "B",
+      "llm_usage": "fact_with_limit",
+      "interpretation_limit": "Local daily K is a market fact summary, not a trading conclusion.",
+      "freshness_days": 3,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "ev_424f9791dae848ac88b075ac8ba81a72",
+      "symbol": "600000",
+      "evidence_type": "company_profile",
+      "category": "auto_fact",
+      "title": "Company profile",
+      "value": null,
+      "payload": {
+        "company_name": "浦发银行",
+        "main_business": "存贷款、理财、投行等金融服务",
+        "core_products": [
+          "贷款",
+          "理财",
+          "投行服务"
+        ],
+        "industry_chain_position": "金融服务端",
+        "core_logic": [
+          "息差修复",
+          "资产质量改善",
+          "高股息防御"
+        ],
+        "concept_tags": [],
+        "company_type": [
+          "金融股"
+        ],
+        "profit_driver": "净息差 + 资产规模扩张",
+        "competitive_advantage": "网点覆盖广，客户基础稳",
+        "risk_points": [
+          "息差收窄",
+          "地产不良暴露",
+          "宏观经济下行"
+        ]
+      },
+      "source": "stock_meta/Tushare cache/rule inference",
+      "source_endpoint": "build_company_profile",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-25T02:56:10.239342",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Company profile may mix Tushare fields and rule-inferred fields; treat it as bounded context, not formal disclosure or a hard fact.",
+      "freshness_days": null,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "ev_0b540e99d8b34674baae624723309196",
+      "symbol": "600000",
+      "evidence_type": "data_coverage",
+      "category": "auto_fact",
+      "title": "Data coverage",
+      "value": null,
+      "payload": {
+        "provided": [
+          {
+            "key": "company_business",
+            "label": "主营业务及产品结构",
+            "source": "本地公司画像/Tushare缓存/规则推断",
+            "detail": {
+              "main_business": "存贷款、理财、投行等金融服务",
+              "core_products": [
+                "贷款",
+                "理财",
+                "投行服务"
+              ],
+              "industry_chain_position": "金融服务端"
+            }
+          },
+          {
+            "key": "price_overhang",
+            "label": "前高与套牢区分布",
+            "source": "本地日K线近250日",
+            "detail": {
+              "available": true,
+              "previous_high": 14.8,
+              "previous_high_date": "2025-07-07",
+              "latest_close": 8.96,
+              "distance_pct": -39.46,
+              "overhang_volume_pct": 4.59,
+              "source": "本地日K线近250日"
+            }
+          }
+        ],
+        "missing": [
+          {
+            "key": "orders_capacity",
+            "label": "最新订单与产能利用率",
+            "reason": "当前未接入公告/调研纪要/互动易等事件文本源",
+            "possible_sources": [
+              "投资者关系活动记录",
+              "互动易",
+              "定期报告",
+              "公司公告"
+            ]
+          },
+          {
+            "key": "northbound_flow",
+            "label": "北向资金实时流向",
+            "reason": "当前未接入陆股通持股或实时资金流数据",
+            "possible_sources": [
+              "深股通持股",
+              "港交所披露",
+              "交易所/行情数据源"
+            ]
+          },
+          {
+            "key": "institution_holding",
+            "label": "机构持仓变动",
+            "reason": "当前未接入基金季报、十大流通股东或机构持仓聚合数据",
+            "possible_sources": [
+              "基金季报",
+              "十大流通股东",
+              "定期报告",
+              "机构持仓数据库"
+            ]
+          }
+        ],
+        "missing_labels": [
+          "最新订单与产能利用率",
+          "北向资金实时流向",
+          "机构持仓变动"
+        ]
+      },
+      "source": "data_coverage.py",
+      "source_endpoint": "build_data_coverage",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-25T02:56:10.239342",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Use this item to identify available and missing data, not as market evidence.",
+      "freshness_days": null,
+      "data_status": "available",
+      "notes": null
+    },
+    {
+      "evidence_id": "unavailable_dragon_tiger_event_600000.SH",
+      "symbol": "600000.SH",
+      "evidence_type": "dragon_tiger_event",
+      "category": "auto_fact",
+      "title": "dragon_tiger_event unavailable",
+      "payload": {
+        "coverage": "dragon_tiger_event",
+        "reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+      },
+      "source": "Stock-Pilot fact service",
+      "source_endpoint": "top_list,top_inst",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-25T02:56:10.244657",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Dragon-tiger facts are unavailable. When available, they reflect public abnormal-trading-day seat structure only, not long-term holding intent.",
+      "freshness_days": null,
+      "data_status": "unavailable",
+      "notes": null
+    },
+    {
+      "evidence_id": "unavailable_disclosure_index_600000.SH",
+      "symbol": "600000.SH",
+      "evidence_type": "disclosure_index",
+      "category": "auto_fact",
+      "title": "disclosure_index unavailable",
+      "payload": {
+        "coverage": "disclosure_index",
+        "reason": "Tushare token is not configured. Set backend env var TUSHARE_TOKEN."
+      },
+      "source": "Stock-Pilot fact service",
+      "source_endpoint": "anns_d,stk_surv",
+      "as_of_time": null,
+      "as_of_date": null,
+      "fetched_at": "2026-05-25T02:56:10.245566",
+      "reliability": "B",
+      "llm_usage": "context_only",
+      "interpretation_limit": "Disclosure indexes are unavailable. When available, the system reads index data only, not announcement or survey full text.",
+      "freshness_days": null,
+      "data_status": "unavailable",
+      "notes": null
+    }
+  ],
+  "auto_signal": [
+    {
+      "evidence_id": "ev_9703da56fc684df8a791db31a7c7f62d",
+      "symbol": "600000",
+      "evidence_type": "technical_indicator",
+      "category": "auto_signal",
+      "title": "Technical indicators",
+      "value": null,
+      "payload": {
+        "ma5": 8.96,
+        "ma10": 9.0,
+        "ma20": 9.17,
+        "ma30": 9.42,
+        "ma60": 9.72,
+        "rsi14": 23.08,
+        "macd": -0.23
+      },
+      "source": "indicators.py",
+      "source_endpoint": "compute_indicators",
+      "as_of_time": null,
+      "as_of_date": "2026-05-22",
+      "fetched_at": "2026-05-25T02:56:10.239342",
+      "reliability": "C",
+      "llm_usage": "weak_signal_only",
+      "interpretation_limit": "Technical indicators are auxiliary signals and must not be the sole basis for conclusions.",
+      "freshness_days": 3,
+      "data_status": "available",
+      "notes": null
+    }
+  ],
+  "manual_account": {
+    "has_holding": false,
+    "message": "No local holding for this symbol in the current portfolio snapshot."
+  },
+  "manual_evidence": [],
+  "system_hypothesis": [
+    {
+      "evidence_id": "ev_a6476ba2d7494a77acb32106561fa8d2",
+      "symbol": "600000",
+      "evidence_type": "system_market_regime",
+      "category": "system_hypothesis",
+      "title": "Rule-based analysis and market regime",
+      "value": null,
+      "payload": {
+        "analysis": {
+          "trend": "震荡",
+          "signal": "超卖",
+          "support": "9/9",
+          "resistance": "9/10",
+          "summary": "当前RSI=23.1，短线进入超卖区域，存在技术性反弹需求。MACD仍处于空头区间，趋势偏弱。短期均线呈下行态势。综合来看，短线处于震荡整理阶段"
+        },
+        "market_regime": "震荡观察",
+        "selected_models": [
+          "风险收益比模型",
+          "公司Alpha/行业Beta拆分模型",
+          "预期差模型"
+        ]
+      },
+      "source": "Stock-Pilot rule engine",
+      "source_endpoint": "analyze_stock/detect_market_regime/select_models",
+      "as_of_time": null,
+      "as_of_date": "2026-05-22",
+      "fetched_at": "2026-05-25T02:56:10.239342",
+      "reliability": "H",
+      "llm_usage": "hypothesis_only",
+      "interpretation_limit": "System-generated hypothesis only. Do not cite it as a fact.",
+      "freshness_days": 3,
+      "data_status": "available",
+      "notes": null
+    }
+  ],
+  "missing_data": [
+    {
+      "key": "orders_capacity",
+      "label": "最新订单与产能利用率",
+      "reason": "当前未接入公告/调研纪要/互动易等事件文本源",
+      "possible_sources": [
+        "投资者关系活动记录",
+        "互动易",
+        "定期报告",
+        "公司公告"
+      ]
+    },
+    {
+      "key": "northbound_flow",
+      "label": "北向资金实时流向",
+      "reason": "当前未接入陆股通持股或实时资金流数据",
+      "possible_sources": [
+        "深股通持股",
+        "港交所披露",
+        "交易所/行情数据源"
+      ]
+    },
+    {
+      "key": "institution_holding",
+      "label": "机构持仓变动",
+      "reason": "当前未接入基金季报、十大流通股东或机构持仓聚合数据",
+      "possible_sources": [
+        "基金季报",
+        "十大流通股东",
+        "定期报告",
+        "机构持仓数据库"
+      ]
+    },
+    {
+      "key": "announcement_full_text",
+      "label": "公告正文",
+      "reason": "The system currently fetches announcement index information only and does not read full text. Do not infer order, capacity, or profit impact from the index title.",
+      "possible_sources": [
+        "公告URL",
+        "PDF正文解析"
+      ]
+    },
+    {
+      "key": "survey_full_text",
+      "label": "调研正文",
+      "reason": "The system currently fetches survey index information only and does not read full text. Do not infer survey conclusions, order status, or earnings impact from the index.",
+      "possible_sources": [
+        "公告URL",
+        "调研纪要正文解析"
+      ]
+    }
+  ],
+  "interpretation_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, backtesting, and broker sync are not included in this stage.",
+    "External commodity, FX, ETF, or sector drivers are attached only when a reviewed symbol mapping exists; unmapped symbols do not receive generic macro factors.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",
+    "External-driver mapping is a product configuration used to select observation variables. It does not prove these factors dominate the stock price in the current period and must not be used as a system buy/sell conclusion."
+  ],
+  "missing_data_and_boundaries": [
+    "Automatic shareholder count is not available in this stage.",
+    "Automatic unlock event data is not available in this stage.",
+    "Announcement full text is not read unless manually entered; do not infer business or profit impact from an index title.",
+    "Dragon-tiger list data shows public abnormal trading seat structure only and does not prove long-term capital commitment.",
+    "Moneyflow, margin financing, backtesting, and broker sync are not included in this stage.",
+    "External commodity, FX, ETF, or sector drivers are attached only when a reviewed symbol mapping exists; unmapped symbols do not receive generic macro factors.",
+    "Manual account data uses the user's local snapshot time and may be stale.",
+    "Realtime quote data and low-frequency facts may have different timestamps.",
+    "The current quote provider does not expose a verifiable quote timestamp for portfolio enrichment; portfolio snapshot time is not market quote time.",
+    "Concentration and cash reminders may depend on system default placeholder parameters that have not been confirmed by the user.",
+    "Repo amount is shown separately. It is not treated as fully equivalent to cash unless the user confirms that convention.",
+    "External-driver mapping is a product configuration used to select observation variables. It does not prove these factors dominate the stock price in the current period and must not be used as a system buy/sell conclusion.",
+    {
+      "key": "orders_capacity",
+      "label": "最新订单与产能利用率",
+      "reason": "当前未接入公告/调研纪要/互动易等事件文本源",
+      "possible_sources": [
+        "投资者关系活动记录",
+        "互动易",
+        "定期报告",
+        "公司公告"
+      ]
+    },
+    {
+      "key": "northbound_flow",
+      "label": "北向资金实时流向",
+      "reason": "当前未接入陆股通持股或实时资金流数据",
+      "possible_sources": [
+        "深股通持股",
+        "港交所披露",
+        "交易所/行情数据源"
+      ]
+    },
+    {
+      "key": "institution_holding",
+      "label": "机构持仓变动",
+      "reason": "当前未接入基金季报、十大流通股东或机构持仓聚合数据",
+      "possible_sources": [
+        "基金季报",
+        "十大流通股东",
+        "定期报告",
+        "机构持仓数据库"
+      ]
+    },
+    {
+      "key": "announcement_full_text",
+      "label": "公告正文",
+      "reason": "The system currently fetches announcement index information only and does not read full text. Do not infer order, capacity, or profit impact from the index title.",
+      "possible_sources": [
+        "公告URL",
+        "PDF正文解析"
+      ]
+    },
+    {
+      "key": "survey_full_text",
+      "label": "调研正文",
+      "reason": "The system currently fetches survey index information only and does not read full text. Do not infer survey conclusions, order status, or earnings impact from the index.",
+      "possible_sources": [
+        "公告URL",
+        "调研纪要正文解析"
+      ]
+    }
+  ],
+  "suggested_questions_for_external_llm": [
+    "Which items in this packet are hard facts, and which are weak auxiliary signals?",
+    "Does the current holding, if any, create excessive theme exposure inside the portfolio?",
+    "Which missing information would most materially change the analysis?",
+    "Is the user's invalid condition specific enough to falsify the trade plan?",
+    "What are the main risks under bullish, neutral, and adverse market scenarios?"
+  ],
+  "llm_questions": [
+    "Which items in this packet are hard facts, and which are weak auxiliary signals?",
+    "Does the current holding, if any, create excessive theme exposure inside the portfolio?",
+    "Which missing information would most materially change the analysis?",
+    "Is the user's invalid condition specific enough to falsify the trade plan?",
+    "What are the main risks under bullish, neutral, and adverse market scenarios?"
+  ]
+}

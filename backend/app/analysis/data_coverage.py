@@ -33,6 +33,12 @@ def _truthy_text(value: str | None) -> bool:
     return bool(value and value.strip() and value.strip() not in {"未知", "无"})
 
 
+def _has_reliable_business_profile(company_profile: CompanyProfile | None) -> bool:
+    if not company_profile:
+        return False
+    return _truthy_text(company_profile.main_business) or bool(company_profile.core_products)
+
+
 def _price_structure(history: pd.DataFrame) -> dict:
     high_col = _price_col(history, "high", "最高")
     close_col = _price_col(history, "close", "收盘")
@@ -81,7 +87,7 @@ def _price_structure(history: pd.DataFrame) -> dict:
         "latest_close": round(latest_close, 2),
         "distance_pct": distance_pct,
         "overhang_volume_pct": volume_pressure,
-        "source": "本地日K线近250日",
+        "source": "本地日K近250日",
     }
 
 
@@ -93,26 +99,24 @@ def build_data_coverage(
     provided: list[dict] = []
     missing: list[dict] = []
 
-    if company_profile and (
-        _truthy_text(company_profile.main_business)
-        or company_profile.core_products
-        or _truthy_text(company_profile.industry_chain_position)
-    ):
+    if _has_reliable_business_profile(company_profile):
         provided.append({
             "key": "company_business",
             "label": "主营业务及产品结构",
-            "source": "本地公司画像/Tushare缓存/规则推断",
+            "source": "本地公司画像/Tushare缓存",
+            "data_status": "provided",
             "detail": {
-                "main_business": company_profile.main_business,
-                "core_products": company_profile.core_products,
-                "industry_chain_position": company_profile.industry_chain_position,
+                "main_business": company_profile.main_business if company_profile else None,
+                "core_products": company_profile.core_products if company_profile else [],
+                "industry_chain_position": company_profile.industry_chain_position if company_profile else None,
             },
         })
     else:
         missing.append({
             "key": "company_business",
             "label": "主营业务及产品结构",
-            "reason": "公司画像缺少主营业务或核心产品",
+            "data_status": "context_only_or_missing",
+            "reason": "当前未取得足以作为事实引用的结构化主营业务和核心产品数据；规则画像仅作上下文参考。",
             "possible_sources": ["年报", "半年报", "招股书", "公司官网"],
         })
 
@@ -122,6 +126,7 @@ def build_data_coverage(
             "key": "price_overhang",
             "label": "前高与套牢区分布",
             "source": price_structure.get("source"),
+            "data_status": "provided",
             "detail": price_structure,
         })
     else:
@@ -136,7 +141,7 @@ def build_data_coverage(
         {
             "key": "orders_capacity",
             "label": "最新订单与产能利用率",
-            "reason": "当前未接入公告/调研纪要/互动易等事件文本源",
+            "reason": "当前未接入公告、调研纪要、互动易等事件文本源",
             "possible_sources": ["投资者关系活动记录", "互动易", "定期报告", "公司公告"],
         },
         {

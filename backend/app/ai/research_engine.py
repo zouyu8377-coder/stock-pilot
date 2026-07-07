@@ -192,6 +192,7 @@ def _apply_data_coverage(result: dict, stock_data: dict, allowed_missing: set[st
             if item in allowed_missing
         ]
     result["data_coverage"] = data_coverage
+    result["quant_signal"] = stock_data.get("quant_signal", {})
 
 
 if __name__ == "__main__":

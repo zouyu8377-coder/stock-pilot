@@ -1,0 +1,68 @@
+{
+  "sample_name": "phase3_6_external_driver_sanitized_sample",
+  "generated_for_review": "2026-05-25",
+  "unmapped_symbol": {
+    "external_driver_mapping": {
+      "mapping_status": "not_configured",
+      "profile_id": "DEFAULT_UNMAPPED_V1",
+      "symbol": "600000",
+      "message": "当前未为该标的配置专属外部驱动因子。系统仅保留个股自身证据，不自动附加商品、汇率或板块驱动。",
+      "future_extension": "可在后续根据行业、主题或用户观察需求新增映射。",
+      "drivers": [],
+      "llm_usage": "context_only",
+      "interpretation_limit": "This mapping selects observation variables only and is not market evidence by itself."
+    },
+    "external_driver_auto_fact_count": 0,
+    "expected_behavior": "No generic USD, copper, gold, or sector driver is attached."
+  },
+  "configured_symbol": {
+    "external_driver_mapping": {
+      "mapping_status": "configured",
+      "profile_id": "ZIJIN_RESOURCE_METALS_V1",
+      "symbol": "601899.SH",
+      "drivers": [
+        {
+          "factor_id": "copper_futures",
+          "factor_type": "commodity",
+          "importance": "core_if_available",
+          "provider": "tushare",
+          "endpoint": "fut_daily",
+          "provider_symbol": "CU.SHF",
+          "llm_usage": "context_only"
+        }
+      ],
+      "boundary": "External-driver mapping is a product configuration used to select observation variables. It does not prove these factors dominate the stock price in the current period and must not be used as a system buy/sell conclusion."
+    },
+    "auto_fact_example": {
+      "evidence_type": "external_driver_fact",
+      "category": "auto_fact",
+      "source": "tushare.fut_daily",
+      "source_endpoint": "fut_daily",
+      "as_of_date": "2026-05-22",
+      "data_status": "available",
+      "llm_usage": "fact_with_limit",
+      "payload": {
+        "factor_id": "copper_futures",
+        "display_name": "Copper futures daily price",
+        "trade_date": "20260522",
+        "close": 100.0
+      },
+      "interpretation_limit": "External-driver facts are related background observations only. They do not imply a direct causal effect, valuation impact, or buy/sell conclusion."
+    },
+    "auto_signal_example": {
+      "evidence_type": "external_driver_signal",
+      "category": "auto_signal",
+      "llm_usage": "weak_signal_only",
+      "payload": {
+        "factor_id": "copper_futures",
+        "returns_pct": {
+          "1d": 5.2632,
+          "5d": null,
+          "20d": null
+        }
+      },
+      "interpretation_limit": "External-driver changes are derived observations computed from retrieved daily facts. They are weak context only and must not be interpreted as causality."
+    }
+  },
+  "privacy_note": "This sample is synthetic and contains no account, token, attachment, screenshot, or real export data."
+}

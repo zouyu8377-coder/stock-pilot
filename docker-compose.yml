@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: stock-pilot-backend
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend/data:/app/data
       - ./backend/.env:/app/.env:ro
@@ -25,8 +25,8 @@ services:
       dockerfile: Dockerfile
     container_name: stock-pilot-frontend
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:5173"
     environment:
-      - VITE_API_BASE_URL=http://localhost:8000
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
     depends_on:
       - backend

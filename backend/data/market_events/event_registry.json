@@ -1,0 +1,214 @@
+{
+  "version": "market_events.v2",
+  "updated_at": "2026-06-08",
+  "boundary": "事件注册表仅记录确定日期或高置信日程的波动风险事件；不构成买卖、加仓、减仓或择时指令。",
+  "events": [
+    {
+      "event_id": "us_cpi_2026_06_10",
+      "date": "2026-06-10",
+      "time_et": "08:30",
+      "category": "macro_inflation",
+      "title": "美国 5 月 CPI",
+      "impact_base": 92,
+      "source": "BLS CPI Release Calendar",
+      "source_url": "https://www.bls.gov/schedule/news_release/cpi.htm",
+      "focus_points": ["核心 CPI 环比", "服务通胀", "市场对降息路径的重定价"],
+      "impact_channels": [
+        {
+          "channel": "rates",
+          "label": "利率与折现率",
+          "related_tags": ["AI", "PCB", "SEMICONDUCTOR_EQUIPMENT", "AI_THEME_ETF", "GOLD"],
+          "reason": "通胀数据可能改变利率路径和估值折现率"
+        },
+        {
+          "channel": "usd_real_yield",
+          "label": "美元与实际利率",
+          "related_tags": ["GOLD", "COPPER", "TUNGSTEN"],
+          "reason": "通胀预期和实际利率会影响黄金、美元和资源品定价"
+        }
+      ]
+    },
+    {
+      "event_id": "nvidia_bofa_tech_2026_06_04",
+      "date": "2026-06-04",
+      "time_et": "11:40",
+      "category": "ai_supply_chain",
+      "title": "NVIDIA BofA 全球科技会议",
+      "impact_base": 78,
+      "source": "NVIDIA Investor Relations",
+      "source_url": "https://investor.nvidia.com/news/press-release-details/2026/NVIDIA-Announces-Upcoming-Events-for-Financial-Community/default.aspx",
+      "focus_points": ["AI 算力需求", "数据中心 GPU 供给", "网络与高速互连指引"],
+      "impact_channels": [
+        {
+          "channel": "ai_capex",
+          "label": "AI 资本开支",
+          "related_tags": ["AI", "AI_THEME_ETF", "PCB", "SEMICONDUCTOR_EQUIPMENT"],
+          "reason": "NVIDIA 对 AI 算力需求、GPU 供给和服务器链条预期有风向标意义"
+        },
+        {
+          "channel": "pcb_order_expectation",
+          "label": "PCB 订单预期",
+          "related_tags": ["PCB"],
+          "reason": "AI 服务器和高速互连需求可能影响 PCB 订单预期"
+        }
+      ]
+    },
+    {
+      "event_id": "tsmc_may_revenue_2026_06_10",
+      "date": "2026-06-10",
+      "time_et": "01:30",
+      "category": "ai_supply_chain",
+      "title": "TSMC 5 月营收",
+      "impact_base": 80,
+      "source": "TSMC Financial Calendar",
+      "source_url": "https://investor.tsmc.com/english/financial-calendar",
+      "focus_points": ["AI/HPC 需求", "先进制程稼动率", "半导体供应链景气"],
+      "impact_channels": [
+        {
+          "channel": "foundry_cycle",
+          "label": "晶圆代工景气",
+          "related_tags": ["AI", "AI_THEME_ETF", "SEMICONDUCTOR_EQUIPMENT", "PCB"],
+          "reason": "TSMC 月度营收可作为 AI/HPC 与半导体供应链景气观察"
+        }
+      ]
+    },
+    {
+      "event_id": "fomc_2026_06_16_17",
+      "date": "2026-06-17",
+      "time_et": "14:00",
+      "category": "macro_fed",
+      "title": "FOMC 利率决议与经济预测",
+      "impact_base": 96,
+      "source": "Federal Reserve FOMC Calendar",
+      "source_url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+      "focus_points": ["利率决定", "点阵图", "鲍威尔发布会措辞"],
+      "impact_channels": [
+        {
+          "channel": "rates",
+          "label": "利率与折现率",
+          "related_tags": ["AI", "PCB", "SEMICONDUCTOR_EQUIPMENT", "AI_THEME_ETF", "GOLD"],
+          "reason": "FOMC 可能改变利率路径、风险偏好和长久期资产估值"
+        },
+        {
+          "channel": "usd_real_yield",
+          "label": "美元与实际利率",
+          "related_tags": ["GOLD", "COPPER", "TUNGSTEN"],
+          "reason": "美联储表态会影响美元、实际利率和商品定价"
+        }
+      ]
+    },
+    {
+      "event_id": "micron_q3_2026_06_24",
+      "date": "2026-06-24",
+      "time_et": "17:30",
+      "category": "semiconductor_earnings",
+      "title": "Micron FY26 Q3 财报",
+      "impact_base": 82,
+      "source": "Micron Investor Relations",
+      "source_url": "https://investors.micron.com/index.php/",
+      "focus_points": ["HBM/DRAM 供需", "AI 服务器内存景气", "半导体周期指引"],
+      "impact_channels": [
+        {
+          "channel": "memory_cycle",
+          "label": "存储周期与 HBM",
+          "related_tags": ["AI", "AI_THEME_ETF", "SEMICONDUCTOR_EQUIPMENT", "PCB"],
+          "reason": "Micron 财报可观察 HBM/DRAM 供需和 AI 服务器链景气"
+        }
+      ]
+    },
+    {
+      "event_id": "us_pce_2026_06_25",
+      "date": "2026-06-25",
+      "time_et": "08:30",
+      "category": "macro_inflation",
+      "title": "美国 PCE / 个人收入支出",
+      "impact_base": 84,
+      "source": "BEA Release Calendar",
+      "source_url": "https://www.bea.gov/news/schedule",
+      "focus_points": ["核心 PCE", "个人消费支出", "通胀与增长组合"],
+      "impact_channels": [
+        {
+          "channel": "rates",
+          "label": "利率与折现率",
+          "related_tags": ["AI", "PCB", "SEMICONDUCTOR_EQUIPMENT", "AI_THEME_ETF", "GOLD"],
+          "reason": "PCE 是美联储关注的通胀指标，可能影响利率预期"
+        },
+        {
+          "channel": "growth_demand",
+          "label": "增长与需求预期",
+          "related_tags": ["COPPER", "TUNGSTEN", "PCB"],
+          "reason": "消费与增长组合会影响周期品和制造链需求预期"
+        }
+      ]
+    },
+    {
+      "event_id": "us_jobs_2026_07_02",
+      "date": "2026-07-02",
+      "time_et": "08:30",
+      "category": "macro_jobs",
+      "title": "美国 6 月非农就业",
+      "impact_base": 90,
+      "source": "BLS Employment Situation Calendar",
+      "source_url": "https://www.bls.gov/schedule/news_release/empsit.htm",
+      "focus_points": ["新增非农就业", "失业率", "平均时薪"],
+      "impact_channels": [
+        {
+          "channel": "rates",
+          "label": "利率与折现率",
+          "related_tags": ["AI", "PCB", "SEMICONDUCTOR_EQUIPMENT", "AI_THEME_ETF", "GOLD"],
+          "reason": "就业与薪资数据可能影响美联储政策预期"
+        },
+        {
+          "channel": "growth_demand",
+          "label": "增长与需求预期",
+          "related_tags": ["COPPER", "TUNGSTEN", "PCB"],
+          "reason": "就业强弱会影响市场对经济增长和终端需求的判断"
+        }
+      ]
+    },
+    {
+      "event_id": "tsmc_june_revenue_2026_07_10",
+      "date": "2026-07-10",
+      "time_et": "01:30",
+      "category": "ai_supply_chain",
+      "title": "TSMC 6 月营收",
+      "impact_base": 80,
+      "source": "TSMC Financial Calendar",
+      "source_url": "https://investor.tsmc.com/english/financial-calendar",
+      "focus_points": ["AI/HPC 需求", "先进制程稼动率", "半导体供应链景气"],
+      "impact_channels": [
+        {
+          "channel": "foundry_cycle",
+          "label": "晶圆代工景气",
+          "related_tags": ["AI", "AI_THEME_ETF", "SEMICONDUCTOR_EQUIPMENT", "PCB"],
+          "reason": "TSMC 月度营收可作为 AI/HPC 与半导体供应链景气观察"
+        }
+      ]
+    },
+    {
+      "event_id": "us_cpi_2026_07_14",
+      "date": "2026-07-14",
+      "time_et": "08:30",
+      "category": "macro_inflation",
+      "title": "美国 6 月 CPI",
+      "impact_base": 88,
+      "source": "BLS July 2026 Release Schedule",
+      "source_url": "https://www.bls.gov/schedule/2026/07_sched_list.htm",
+      "focus_points": ["核心 CPI 环比", "住房与服务价格", "下一次 FOMC 前的通胀验证"],
+      "impact_channels": [
+        {
+          "channel": "rates",
+          "label": "利率与折现率",
+          "related_tags": ["AI", "PCB", "SEMICONDUCTOR_EQUIPMENT", "AI_THEME_ETF", "GOLD"],
+          "reason": "通胀数据可能改变利率路径和估值折现率"
+        },
+        {
+          "channel": "usd_real_yield",
+          "label": "美元与实际利率",
+          "related_tags": ["GOLD", "COPPER", "TUNGSTEN"],
+          "reason": "通胀预期和实际利率会影响黄金、美元和资源品定价"
+        }
+      ]
+    }
+  ]
+}
