@@ -281,7 +281,8 @@ def build_market_event_radar(state: PortfolioState, weights: dict[str, float], t
 
     for seed in registry.get("events", []):
         required_tags = _event_required_tags(seed)
-        if required_tags and not (portfolio_tags & required_tags):
+        category = str(seed.get("category") or "")
+        if required_tags and not (portfolio_tags & required_tags) and not category.startswith("macro_"):
             continue
         try:
             event_date = date.fromisoformat(seed["date"])
@@ -403,6 +404,10 @@ def build_dashboard(
 
     market_event_radar = build_market_event_radar(state, weights)
     theme_evidence_radar = context.get("theme_evidence_radar", {})
+    overseas_tech_chain = context.get("overseas_tech_chain", {
+        "data_status": "not_built",
+        "boundary": "Dashboard consumes overseas_tech_chain from the account-analysis context when available.",
+    })
     attractiveness_radar = build_attractiveness_radar(
         state,
         trends=trends,
@@ -435,6 +440,7 @@ def build_dashboard(
         "data_gaps": context.get("data_gaps", []),
         "market_event_radar": market_event_radar,
         "theme_evidence_radar": theme_evidence_radar,
+        "overseas_tech_chain": overseas_tech_chain,
         "attractiveness_radar": attractiveness_radar,
         "external_ai_tasks": context.get("suggested_questions_for_external_llm", []),
         "boundaries": context.get("ai_analysis_boundary", {}),

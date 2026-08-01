@@ -122,6 +122,34 @@ def test_zero_quantity_symbol_is_saved_as_watchlist_without_asset_exposure(tmp_p
     assert {item["symbol"] for item in state.metrics.position_weights} == {"002463"}
 
 
+def test_negative_diluted_cost_preserves_pnl_amount_without_percentage(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = PortfolioService(tmp_path)
+
+    state = service.save_snapshot(PortfolioSnapshotInput(
+        cash_available=10000,
+        positions=[
+            PortfolioPositionInput(
+                symbol="002463",
+                name="HD",
+                quantity=200,
+                avg_cost=-10.746,
+                directions=["PCB"],
+            ),
+        ],
+    ))
+
+    position = state.snapshot.positions[0]
+    assert position.avg_cost == -10.746
+    assert position.unrealized_pnl == pytest.approx(22149.2)
+    assert position.unrealized_pnl_pct is None
+    assert "avg_cost_invalid" not in position.missing_data
+    assert state.metrics.current_holding_cost_basis == pytest.approx(-2149.2)
+    assert state.metrics.current_holding_unrealized_pnl == pytest.approx(22149.2)
+    assert state.metrics.current_holding_unrealized_pnl_pct is None
+    assert state.metrics.current_holding_unrealized_pnl_status == "available_amount_only"
+
+
 def test_dashboard_separates_watchlist_from_active_exposure(tmp_path, monkeypatch):
     monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
     service = PortfolioService(tmp_path)

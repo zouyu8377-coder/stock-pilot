@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   createPortfolioAnalysisPacket,
+  confirmPortfolioImportDraft,
   getPortfolio,
+  getPortfolioImportParserProviders,
   getPortfolioSemanticSuggestions,
   getPortfolioSnapshot,
   getStockQuote,
+  rejectPortfolioImportDraft,
   savePortfolio,
   searchStocks,
+  suggestPortfolioTradeReason,
+  updatePortfolioImportDraft,
+  uploadPortfolioScreenshot,
   type HoldingSemanticSuggestion,
   type PortfolioPosition,
+  type PortfolioImportDraft,
+  type PortfolioParserProviderStatus,
   type PortfolioState,
   type StockQuoteInfo,
   type StockSearchItem,
@@ -55,6 +63,22 @@ const rowMatches = ref<StockSearchItem[]>([])
 const searchLoading = ref(false)
 const saveError = ref('')
 const saveNotice = ref('')
+const importFileInput = ref<HTMLInputElement | null>(null)
+const importSection = ref<HTMLElement | null>(null)
+const importFile = ref<File | null>(null)
+const importKind = ref<'current_holdings' | 'trade_history'>('current_holdings')
+const importDropActive = ref(false)
+const tradeApplyMode = ref<'record_only' | 'apply'>('record_only')
+const tradeDecisionReason = ref('')
+const tradeReasonQuestions = ref<string[]>([])
+const tradeReasonLoading = ref(false)
+const importProviderStatus = ref<PortfolioParserProviderStatus | null>(null)
+const importDraft = ref<PortfolioImportDraft | null>(null)
+const importConsent = ref(false)
+const importLoading = ref(false)
+const importConfirming = ref(false)
+const importError = ref('')
+const importNotice = ref('')
 let searchTimer: number | undefined
 
 const snapshotPreview = ref('')
@@ -87,6 +111,34 @@ const accountDraft = ref({
 const fmt = (v?: number | null, suffix = '') => {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return '-'
   return `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`
+}
+
+const props = defineProps<{
+  openImportKind?: 'current_holdings' | 'trade_history' | null
+  openImportRequest?: number
+}>()
+
+const visionProvider = computed(() =>
+  importProviderStatus.value?.providers.find((item) => item.provider === 'volcengine_ark_vision'),
+)
+const visionAvailable = computed(() => visionProvider.value?.status === 'configured_not_verified')
+const importRows = computed(() => importDraft.value?.holding_rows_draft || [])
+const importTransactionRows = computed(() => importDraft.value?.transaction_rows_draft || [])
+const importRowCount = computed(() => (
+  importDraft.value?.screenshot_kind === 'trade_history'
+    ? importTransactionRows.value.length
+    : importRows.value.length
+))
+const importAction = (row: Record<string, any>) => {
+  const symbol = compactSymbol(String(row.normalized_symbol || row.raw_symbol_text || ''))
+  const previous = state.value?.snapshot.positions.find((item) => compactSymbol(item.symbol) === symbol)
+  const before = Number(previous?.quantity || 0)
+  const after = Number(row.quantity || 0)
+  if (!previous && after > 0) return { label: '新建仓', before, after }
+  if (previous && after === 0) return { label: '清仓', before, after }
+  if (after > before) return { label: '加仓', before, after }
+  if (after < before) return { label: '减仓', before, after }
+  return { label: '数量不变', before, after }
 }
 
 const signedFmt = (v?: number | null, suffix = '') => {
@@ -181,7 +233,9 @@ const rowCostValue = (row: ManualRow) => rowQuantity(row) * rowAvgCost(row)
 const totalMarketValue = computed(() => manualRows.value.reduce((sum, row) => sum + rowMarketValue(row), 0))
 const totalCostValue = computed(() => manualRows.value.reduce((sum, row) => sum + rowCostValue(row), 0))
 const currentHoldingPnl = computed(() => totalMarketValue.value - totalCostValue.value)
-const currentHoldingPnlPct = computed(() => totalCostValue.value ? (currentHoldingPnl.value / totalCostValue.value) * 100 : null)
+const currentHoldingPnlPct = computed(() =>
+  totalCostValue.value > 0 ? (currentHoldingPnl.value / totalCostValue.value) * 100 : null,
+)
 const computedTotalAssets = computed(() =>
   totalMarketValue.value + Number(accountDraft.value.cash_available || 0) + Number(accountDraft.value.repo_amount || 0),
 )
@@ -196,8 +250,11 @@ const investedRatio = computed(() => computedTotalAssets.value ? totalMarketValu
 const validRows = computed(() => manualRows.value.filter((row) => {
   if (!row.symbol) return false
   const quantity = rowQuantity(row)
-  const avgCost = rowAvgCost(row)
-  return quantity >= 0 && (quantity === 0 || avgCost > 0)
+  const hasCost = row.avg_cost !== null
+    && row.avg_cost !== undefined
+    && String(row.avg_cost).trim() !== ''
+    && Number.isFinite(Number(row.avg_cost))
+  return quantity >= 0 && (quantity === 0 || hasCost)
 }))
 const marketValueSortedIds = () =>
   [...manualRows.value]
@@ -323,7 +380,12 @@ const applySuggestionToRow = (row: ManualRow) => {
 const load = async () => {
   loading.value = true
   try {
-    state.value = await getPortfolio()
+    const [nextState, nextProviderStatus] = await Promise.all([
+      getPortfolio(),
+      getPortfolioImportParserProviders(),
+    ])
+    state.value = nextState
+    importProviderStatus.value = nextProviderStatus
     await loadSuggestions()
     accountDraft.value.cash_available = state.value.snapshot.cash_available
     accountDraft.value.account_actual_total_cost = state.value.snapshot.account_actual_total_cost ?? null
@@ -343,6 +405,167 @@ const load = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const selectImportFile = () => importFileInput.value?.click()
+
+const resetImportSelection = () => {
+  importFile.value = null
+  importDraft.value = null
+  importConsent.value = false
+  importError.value = ''
+  importNotice.value = ''
+  tradeApplyMode.value = 'record_only'
+  tradeDecisionReason.value = ''
+  tradeReasonQuestions.value = []
+  if (importFileInput.value) importFileInput.value.value = ''
+}
+
+const setImportKind = (kind: 'current_holdings' | 'trade_history') => {
+  if (importKind.value === kind) return
+  importKind.value = kind
+  resetImportSelection()
+}
+
+const acceptImportFile = (file?: File | null) => {
+  if (!file) return false
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    importError.value = '仅支持 PNG、JPEG 或 WebP 图片。'
+    return false
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    importError.value = '图片不能超过 8MB。'
+    return false
+  }
+  importFile.value = file
+  importDraft.value = null
+  importError.value = ''
+  importNotice.value = ''
+  return true
+}
+
+const recognizePortfolioScreenshot = async () => {
+  if (!importFile.value || !importConsent.value || importLoading.value) return
+  importLoading.value = true
+  importError.value = ''
+  importNotice.value = `正在上传并识别${importKind.value === 'trade_history' ? '交易行为' : '当前持仓'}截图...`
+  try {
+    importDraft.value = await uploadPortfolioScreenshot(importFile.value, {
+      screenshot_kind: importKind.value,
+      parser_provider: 'volcengine_ark_vision',
+      cloud_send_consent: true,
+      user_notice_acknowledged_at: new Date().toISOString(),
+    })
+    if (importDraft.value.screenshot_kind === 'trade_history') {
+      tradeApplyMode.value = importDraft.value.transaction_apply_recommendation === 'apply' ? 'apply' : 'record_only'
+      importNotice.value = `已生成 ${importTransactionRows.value.length} 条待确认成交，尚未写入交易台账。`
+    } else {
+      importNotice.value = `已生成 ${importRows.value.length} 条待确认持仓，尚未修改正式账户。`
+    }
+  } catch (error: any) {
+    importError.value = error?.response?.data?.detail || error?.message || '识图失败'
+  } finally {
+    importLoading.value = false
+  }
+}
+
+const recognizeAcceptedFile = async (accepted: boolean) => {
+  if (!accepted || !importFile.value) return
+  if (!visionAvailable.value) {
+    importError.value = '云端解析当前不可用，请检查模型配置。'
+    return
+  }
+  if (!importConsent.value) {
+    importNotice.value = '图片已选择；勾选云端解析同意后，点击“识别为草稿”。'
+    return
+  }
+  await recognizePortfolioScreenshot()
+}
+
+const onImportFileSelected = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  await recognizeAcceptedFile(acceptImportFile(input.files?.[0]))
+}
+
+const onImportDrop = async (event: DragEvent) => {
+  importDropActive.value = false
+  await recognizeAcceptedFile(acceptImportFile(event.dataTransfer?.files?.[0]))
+}
+
+const onImportConsentChanged = async () => {
+  if (importConsent.value && importFile.value && !importDraft.value) {
+    await recognizePortfolioScreenshot()
+  }
+}
+
+const confirmImportedPortfolio = async () => {
+  if (!importDraft.value) return
+  importConfirming.value = true
+  importError.value = ''
+  try {
+    const isTrade = importDraft.value.screenshot_kind === 'trade_history'
+    const payload = isTrade
+      ? {
+          transaction_rows_draft: importDraft.value.transaction_rows_draft.map((row) => ({
+            ...row,
+            confirmed_by_user: true,
+          })),
+        }
+      : {
+          account_summary_draft: importDraft.value.account_summary_draft,
+          holding_rows_draft: importDraft.value.holding_rows_draft.map((row) => ({
+            ...row,
+            confirmed_by_user: true,
+          })),
+        }
+    importDraft.value = await updatePortfolioImportDraft(importDraft.value.draft_id, payload)
+    await confirmPortfolioImportDraft(importDraft.value.draft_id, {
+      apply_transactions_to_portfolio: isTrade ? tradeApplyMode.value === 'apply' : true,
+      user_reason: isTrade ? tradeDecisionReason.value : undefined,
+    })
+    importNotice.value = isTrade
+      ? tradeApplyMode.value === 'apply'
+        ? '成交记录已写入交易台账，并已生成更新后的正式持仓快照。'
+        : '成交记录已写入交易台账；当前正式持仓未重复调整。'
+      : '持仓截图已确认并保存为新的正式组合快照。'
+    importDraft.value = null
+    importFile.value = null
+    importConsent.value = false
+    tradeDecisionReason.value = ''
+    tradeReasonQuestions.value = []
+    if (importFileInput.value) importFileInput.value.value = ''
+    await load()
+  } catch (error: any) {
+    importError.value = error?.response?.data?.detail || error?.message || '确认保存失败'
+  } finally {
+    importConfirming.value = false
+  }
+}
+
+const generateTradeReasonDraft = async () => {
+  if (!importDraft.value || importDraft.value.screenshot_kind !== 'trade_history') return
+  tradeReasonLoading.value = true
+  importError.value = ''
+  try {
+    const result = await suggestPortfolioTradeReason(importDraft.value.draft_id)
+    tradeDecisionReason.value = result.reason_summary
+    tradeReasonQuestions.value = result.questions || []
+  } catch (error: any) {
+    importError.value = error?.response?.data?.detail || error?.message || '交易理由草稿生成失败'
+  } finally {
+    tradeReasonLoading.value = false
+  }
+}
+
+const discardImportDraft = async () => {
+  if (importDraft.value) {
+    try {
+      await rejectPortfolioImportDraft(importDraft.value.draft_id)
+    } catch {
+      // Local UI cleanup remains available even if the draft was already removed.
+    }
+  }
+  resetImportSelection()
 }
 
 const scheduleSearch = (row: ManualRow) => {
@@ -586,6 +809,23 @@ const copyPortfolioPacket = async () => {
   packetCopied.value = true
 }
 
+const openImport = async (kind: 'current_holdings' | 'trade_history') => {
+  expanded.value = true
+  setImportKind(kind)
+  await nextTick()
+  importSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+defineExpose({ openImport })
+
+watch(
+  () => props.openImportRequest,
+  () => {
+    if (props.openImportKind) openImport(props.openImportKind)
+  },
+  { immediate: true },
+)
+
 onMounted(load)
 </script>
 
@@ -603,6 +843,272 @@ onMounted(load)
       <div v-if="loading" class="text-xs text-muted-foreground">加载组合...</div>
 
       <template v-else>
+        <div ref="importSection" class="scroll-mt-20 border-y border-border py-3">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 class="text-xs font-semibold text-foreground">账户截图导入</h3>
+              <p class="mt-1 text-[11px] leading-5 text-muted-foreground">
+                MiniMax M3 仅生成待确认草稿；持仓快照与成交记录分别处理。
+              </p>
+            </div>
+            <div class="text-right text-[11px] text-muted-foreground">
+              <div>{{ visionProvider?.model || 'minimax-m3' }}</div>
+              <div>{{ visionAvailable ? '云端解析已配置' : '云端解析不可用' }}</div>
+            </div>
+          </div>
+
+          <div class="mt-3 inline-flex border border-border text-xs">
+            <button
+              type="button"
+              :class="['h-8 px-3', importKind === 'current_holdings' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary']"
+              @click="setImportKind('current_holdings')"
+            >
+              当前持仓截图
+            </button>
+            <button
+              type="button"
+              :class="['h-8 border-l border-border px-3', importKind === 'trade_history' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary']"
+              @click="setImportKind('trade_history')"
+            >
+              交易行为截图
+            </button>
+          </div>
+
+          <div
+            :class="[
+              'mt-3 flex min-h-[112px] cursor-pointer flex-col items-center justify-center border border-dashed px-4 py-5 text-center transition-colors',
+              importDropActive ? 'border-primary bg-primary/10' : 'border-border hover:bg-secondary/30',
+            ]"
+            @click="selectImportFile"
+            @dragenter.prevent="importDropActive = true"
+            @dragover.prevent="importDropActive = true"
+            @dragleave.prevent="importDropActive = false"
+            @drop.prevent="onImportDrop"
+          >
+            <input
+              ref="importFileInput"
+              class="hidden"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              @change="onImportFileSelected"
+            />
+            <div class="text-xs font-medium text-foreground">
+              {{ importFile ? importFile.name : `拖拽或点击选择${importKind === 'trade_history' ? '交易行为' : '当前持仓'}截图` }}
+            </div>
+            <div class="mt-1 text-[11px] text-muted-foreground">PNG、JPEG、WebP，最大 8MB</div>
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-center gap-3 text-xs">
+            <label class="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <input v-model="importConsent" type="checkbox" @click.stop @change="onImportConsentChanged" />
+              <span>同意将截图发送至火山引擎 MiniMax M3</span>
+            </label>
+            <button
+              type="button"
+              class="h-8 rounded bg-primary px-3 font-medium disabled:opacity-50"
+              :disabled="!visionAvailable || !importFile || !importConsent || importLoading"
+              @click="recognizePortfolioScreenshot"
+            >
+              {{ importLoading ? '识别中...' : '识别为草稿' }}
+            </button>
+          </div>
+
+          <div v-if="importDraft" class="mt-3 space-y-3">
+            <div class="grid grid-cols-2 border border-border text-xs md:grid-cols-4">
+              <label v-if="importDraft.screenshot_kind === 'current_holdings'" class="border-b border-r border-border p-2 md:border-b-0">
+                <span class="text-[10px] text-muted-foreground">总资产</span>
+                <input v-model.number="importDraft.account_summary_draft.total_assets_ocr" class="mt-1 h-7 w-full bg-input px-2 font-mono" type="number" />
+              </label>
+              <label v-if="importDraft.screenshot_kind === 'current_holdings'" class="border-b border-border p-2 md:border-b-0 md:border-r">
+                <span class="text-[10px] text-muted-foreground">可用现金</span>
+                <input v-model.number="importDraft.account_summary_draft.cash_available_ocr" class="mt-1 h-7 w-full bg-input px-2 font-mono" type="number" />
+              </label>
+              <div v-if="importDraft.screenshot_kind === 'trade_history'" class="border-b border-r border-border p-2 md:border-b-0">
+                <div class="text-[10px] text-muted-foreground">截图类型</div>
+                <div class="mt-1 text-sm font-semibold text-foreground">交易行为</div>
+              </div>
+              <div v-if="importDraft.screenshot_kind === 'trade_history'" class="border-b border-border p-2 md:border-b-0 md:border-r">
+                <div class="text-[10px] text-muted-foreground">应用建议</div>
+                <div class="mt-1 text-sm font-semibold text-foreground">
+                  {{ importDraft.transaction_apply_recommendation === 'apply' ? '可应用' : importDraft.transaction_apply_recommendation === 'record_only' ? '仅记录' : '需核对' }}
+                </div>
+              </div>
+              <div class="border-r border-border p-2">
+                <div class="text-[10px] text-muted-foreground">识别行数</div>
+                <div class="mt-1 font-mono text-sm font-semibold">{{ importRowCount }}</div>
+              </div>
+              <div class="p-2">
+                <div class="text-[10px] text-muted-foreground">Token 使用</div>
+                <div class="mt-1 font-mono text-sm font-semibold">{{ importDraft.provider_usage?.total_tokens || '--' }}</div>
+              </div>
+            </div>
+
+            <div v-if="importDraft.screenshot_kind === 'current_holdings'" class="overflow-x-auto border border-border">
+              <table class="w-full min-w-[920px] table-fixed text-xs">
+                <colgroup>
+                  <col class="w-[110px]" />
+                  <col class="w-[150px]" />
+                  <col class="w-[105px]" />
+                  <col class="w-[105px]" />
+                  <col class="w-[105px]" />
+                  <col class="w-[105px]" />
+                  <col class="w-[150px]" />
+                  <col class="w-[190px]" />
+                </colgroup>
+                <thead class="bg-secondary/40 text-muted-foreground">
+                  <tr>
+                    <th class="px-2 py-2 text-left">代码</th>
+                    <th class="px-2 py-2 text-left">名称</th>
+                    <th class="px-2 py-2 text-right">持仓</th>
+                    <th class="px-2 py-2 text-right">可用</th>
+                    <th class="px-2 py-2 text-right" title="支持券商摊薄口径下的负成本">成本</th>
+                    <th class="px-2 py-2 text-right">截图现价</th>
+                    <th class="px-2 py-2 text-left">相对上次快照</th>
+                    <th class="px-2 py-2 text-left">校验</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in importRows" :key="row.row_id" class="border-t border-border align-top">
+                    <td class="p-2"><input v-model="row.raw_symbol_text" class="h-8 w-full bg-input px-2 font-mono" placeholder="可留空" /></td>
+                    <td class="p-2"><input v-model="row.raw_name_text" class="h-8 w-full bg-input px-2" /></td>
+                    <td class="p-2"><input v-model.number="row.quantity" class="h-8 w-full bg-input px-2 text-right font-mono" type="number" /></td>
+                    <td class="p-2"><input v-model.number="row.available_quantity" class="h-8 w-full bg-input px-2 text-right font-mono" type="number" /></td>
+                    <td class="p-2"><input v-model.number="row.avg_cost" class="h-8 w-full bg-input px-2 text-right font-mono" type="number" step="0.001" /></td>
+                    <td class="p-2"><input v-model.number="row.broker_screenshot_price" class="h-8 w-full bg-input px-2 text-right font-mono" type="number" step="0.001" /></td>
+                    <td class="p-2">
+                      <div class="font-medium text-foreground">{{ importAction(row).label }}</div>
+                      <div class="mt-1 font-mono text-[10px] text-muted-foreground">{{ importAction(row).before }} → {{ importAction(row).after }}</div>
+                    </td>
+                    <td class="p-2">
+                      <div v-if="row.normalized_symbol" class="font-mono text-[10px] text-positive">{{ row.normalized_symbol }}</div>
+                      <div v-for="warning in row.validation_warnings" :key="warning" class="mt-1 text-[10px] leading-4 text-warning">{{ warning }}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else class="overflow-x-auto border border-border">
+              <table class="w-full min-w-[860px] table-fixed text-xs">
+                <colgroup>
+                  <col class="w-[120px]" />
+                  <col class="w-[170px]" />
+                  <col class="w-[90px]" />
+                  <col class="w-[120px]" />
+                  <col class="w-[120px]" />
+                  <col class="w-[140px]" />
+                  <col class="w-[210px]" />
+                </colgroup>
+                <thead class="bg-secondary/40 text-muted-foreground">
+                  <tr>
+                    <th class="px-2 py-2 text-left">代码</th>
+                    <th class="px-2 py-2 text-left">证券名称</th>
+                    <th class="px-2 py-2 text-left">方向</th>
+                    <th class="px-2 py-2 text-right">成交均价</th>
+                    <th class="px-2 py-2 text-right">成交量</th>
+                    <th class="px-2 py-2 text-right">成交额</th>
+                    <th class="px-2 py-2 text-left">校验</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in importTransactionRows" :key="row.row_id" class="border-t border-border align-top">
+                    <td class="p-2"><input v-model="row.raw_symbol_text" class="h-8 w-full bg-input px-2 font-mono" placeholder="可留空" /></td>
+                    <td class="p-2"><input v-model="row.raw_name_text" class="h-8 w-full bg-input px-2" /></td>
+                    <td class="p-2">
+                      <select v-model="row.side" class="h-8 w-full bg-input px-2">
+                        <option value="buy">买入</option>
+                        <option value="sell">卖出</option>
+                      </select>
+                    </td>
+                    <td class="p-2"><input v-model.number="row.average_price" class="h-8 w-full bg-input px-2 text-right font-mono" type="number" step="0.001" /></td>
+                    <td class="p-2"><input v-model.number="row.quantity" class="h-8 w-full bg-input px-2 text-right font-mono" type="number" /></td>
+                    <td class="p-2"><input v-model.number="row.amount" class="h-8 w-full bg-input px-2 text-right font-mono" type="number" step="0.001" /></td>
+                    <td class="p-2">
+                      <div v-if="row.normalized_symbol" class="font-mono text-[10px] text-positive">{{ row.normalized_symbol }}</div>
+                      <div v-for="warning in row.validation_warnings" :key="warning" class="mt-1 text-[10px] leading-4 text-warning">{{ warning }}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-if="importDraft.screenshot_kind === 'trade_history'" class="border border-border p-3">
+              <div class="text-xs font-medium text-foreground">交易记录处理方式</div>
+              <div class="mt-2 grid gap-2 md:grid-cols-2">
+                <label :class="['flex cursor-pointer gap-2 border p-3 text-xs', tradeApplyMode === 'record_only' ? 'border-primary bg-primary/10' : 'border-border']">
+                  <input v-model="tradeApplyMode" type="radio" value="record_only" />
+                  <span>
+                    <span class="block font-medium text-foreground">仅记录交易</span>
+                    <span class="mt-1 block text-[11px] leading-5 text-muted-foreground">当前持仓截图已包含这些成交时使用，不重复加减仓。</span>
+                  </span>
+                </label>
+                <label :class="['flex cursor-pointer gap-2 border p-3 text-xs', tradeApplyMode === 'apply' ? 'border-primary bg-primary/10' : 'border-border']">
+                  <input v-model="tradeApplyMode" type="radio" value="apply" />
+                  <span>
+                    <span class="block font-medium text-foreground">记录并更新持仓</span>
+                    <span class="mt-1 block text-[11px] leading-5 text-muted-foreground">按成交量调整持仓与现金，买入按成交额计算加权成本。</span>
+                  </span>
+                </label>
+              </div>
+              <div
+                v-if="importDraft.transaction_apply_reason"
+                :class="['mt-2 text-[11px] leading-5', importDraft.transaction_apply_recommendation === 'apply' ? 'text-positive' : 'text-warning']"
+              >
+                系统建议：{{ importDraft.transaction_apply_reason }}
+              </div>
+              <div class="mt-3 border-t border-border pt-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div class="text-xs font-medium text-foreground">交易理由</div>
+                    <div class="mt-1 text-[11px] text-muted-foreground">作为事后复盘依据；DeepSeek 草稿必须由你确认或修改。</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="h-8 rounded border border-border px-3 text-xs text-foreground hover:bg-secondary disabled:opacity-50"
+                    :disabled="tradeReasonLoading"
+                    @click="generateTradeReasonDraft"
+                  >
+                    {{ tradeReasonLoading ? '生成中...' : 'AI 生成理由草稿' }}
+                  </button>
+                </div>
+                <textarea
+                  v-model="tradeDecisionReason"
+                  rows="3"
+                  class="mt-2 w-full resize-y rounded border border-border bg-background px-3 py-2 text-xs leading-5 text-foreground"
+                  placeholder="例如：降低高波动敞口；兑现部分利润；切换到更有把握的方向。"
+                ></textarea>
+                <div v-if="tradeReasonQuestions.length" class="mt-2 text-[11px] leading-5 text-warning">
+                  待补充：{{ tradeReasonQuestions.join('；') }}
+                </div>
+              </div>
+            </div>
+
+            <div v-if="importDraft.parse_warnings.length" class="space-y-1 text-[11px] text-warning">
+              <div v-for="warning in importDraft.parse_warnings" :key="warning">{{ warning }}</div>
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="text-[11px] text-muted-foreground">
+                {{ importDraft.screenshot_kind === 'trade_history'
+                  ? '确认后写入交易台账；只有选择“记录并更新持仓”时才生成新持仓快照。'
+                  : '确认后保存新快照；旧快照保留，用于推导加仓、减仓、建仓和清仓记录。' }}
+              </div>
+              <div class="flex gap-2">
+                <button type="button" class="h-8 rounded border border-border px-3 text-muted-foreground" :disabled="importConfirming" @click="discardImportDraft">放弃草稿</button>
+                <button type="button" class="h-8 rounded bg-primary px-3 font-medium disabled:opacity-50" :disabled="importConfirming" @click="confirmImportedPortfolio">
+                  {{ importConfirming
+                    ? '保存中...'
+                    : importDraft.screenshot_kind === 'trade_history'
+                      ? tradeApplyMode === 'apply' ? '确认交易并更新持仓' : '确认并记录交易'
+                      : '确认并更新持仓' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="importNotice" class="mt-2 text-xs text-positive">{{ importNotice }}</div>
+          <div v-if="importError" class="mt-2 text-xs text-negative">{{ importError }}</div>
+        </div>
+
         <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
           <div class="rounded bg-secondary/40 p-3" :title="`当前持仓浮动盈亏：${signedFmt(currentHoldingPnl)} ${signedFmt(currentHoldingPnlPct, '%')}`">
             <div class="text-muted-foreground">当前估算总资产</div>
@@ -674,7 +1180,7 @@ onMounted(load)
               <tr>
                 <th class="px-2 py-2 text-left">标的</th>
                 <th class="px-2 py-2 text-right">持仓</th>
-                <th class="px-2 py-2 text-right">成本</th>
+                <th class="px-2 py-2 text-right" title="支持卖出获利后形成的负摊薄成本">成本</th>
                 <th class="px-2 py-2 text-right">现价 / 涨跌</th>
                 <th class="px-2 py-2 text-right">
                   <button class="w-full text-right hover:text-foreground" type="button" @click="toggleMarketValueSort">
@@ -751,7 +1257,7 @@ onMounted(load)
                   <div v-if="row.quoteLoading || searchLoading" class="mt-1 text-[11px] text-muted-foreground">查询中...</div>
                 </td>
                 <td class="p-2"><input v-model.number="row.quantity" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
-                <td class="p-2"><input v-model.number="row.avg_cost" class="h-9 w-full rounded bg-input px-2 text-right font-mono" min="0" type="number" /></td>
+                <td class="p-2"><input v-model.number="row.avg_cost" class="h-9 w-full rounded bg-input px-2 text-right font-mono" step="0.001" type="number" /></td>
                 <td class="p-2 text-right font-mono">
                   <div>{{ fmt(displayPrice(row)) }}</div>
                   <div :class="['text-[11px]', Number(row.quote?.change_pct || 0) >= 0 ? 'text-negative' : 'text-positive']">

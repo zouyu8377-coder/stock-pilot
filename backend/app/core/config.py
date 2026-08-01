@@ -5,6 +5,10 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
+    AGENT_REVIEW_MODEL: str = ""
+    AGENT_REVIEW_MAX_TOKENS: int = 6000
+    AGENT_REVIEW_TIMEOUT_SECONDS: int = 180
+    AGENT_REVIEW_REQUEST_TIMEOUT_SECONDS: int = 240
     TUSHARE_TOKEN: str = ""
     TUSHARE_RATE_LIMIT_SECONDS: int = 0
     TUSHARE_CACHE_ROOT: str = "data/tushare"

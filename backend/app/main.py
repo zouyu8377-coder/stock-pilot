@@ -11,9 +11,12 @@ from app.api.analysis_packet import router as analysis_packet_router
 from app.api.snapshot import router as snapshot_router
 from app.api.facts import router as facts_router
 from app.api.portfolio import router as portfolio_router
+from app.api.rotation import router as rotation_router
+from app.api.agent_context import router as agent_context_router
+from app.api.agent_review import router as agent_review_router
 from app.core.config import settings
 
-APP_VERSION = "v3.6I.22"
+APP_VERSION = "v4.0.0"
 
 app = FastAPI(
     title="Stock Copilot API",
@@ -38,6 +41,9 @@ app.include_router(analysis_packet_router, prefix="/api")
 app.include_router(snapshot_router, prefix="/api")
 app.include_router(facts_router, prefix="/api")
 app.include_router(portfolio_router, prefix="/api")
+app.include_router(rotation_router, prefix="/api")
+app.include_router(agent_context_router, prefix="/api")
+app.include_router(agent_review_router, prefix="/api")
 
 
 async def _disclosure_verification_loop() -> None:
@@ -48,12 +54,42 @@ async def _disclosure_verification_loop() -> None:
         await asyncio.sleep(max(60, settings.DISCLOSURE_INDEX_CHECK_MINUTES * 60))
 
 
+async def _agent_automation_loop() -> None:
+    from app.agent_review.automation import (
+        mark_premarket_cycle_completed,
+        mark_scheduled_cycle_completed,
+        run_premarket_cycle,
+        run_automatic_cycle,
+        should_run_premarket_cycle,
+        should_run_scheduled_cycle,
+    )
+
+    while True:
+        if should_run_premarket_cycle():
+            try:
+                await asyncio.to_thread(run_premarket_cycle)
+                mark_premarket_cycle_completed()
+            except Exception as exc:
+                print(f"[AgentAutomation] Premarket cycle failed: {str(exc)[:500]}")
+        if should_run_scheduled_cycle():
+            try:
+                await asyncio.to_thread(run_automatic_cycle, trigger="scheduled")
+                mark_scheduled_cycle_completed()
+            except Exception as exc:
+                print(f"[AgentAutomation] Scheduled cycle failed: {str(exc)[:500]}")
+        await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def startup_event():
     """Run the background cold-data refresh check on startup."""
     from app.core.data_updater import check_and_update
+    from app.rotation.service import refresh_rotation_if_needed
+
     asyncio.create_task(check_and_update())
+    asyncio.create_task(asyncio.to_thread(refresh_rotation_if_needed))
     asyncio.create_task(_disclosure_verification_loop())
+    asyncio.create_task(_agent_automation_loop())
 
 
 @app.get("/health")

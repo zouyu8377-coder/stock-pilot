@@ -19,6 +19,7 @@ from app.facts.common import to_ts_code
 from app.facts.disclosure_service import get_disclosure_facts
 from app.facts.dragon_tiger_service import get_dragon_tiger_facts
 from app.facts.etf_service import SUPPORTED_ETFS, get_etf_facts
+from app.overseas_tech_chain import build_overseas_tech_chain
 from app.portfolio.dashboard import build_market_event_radar
 from app.theme_evidence import build_theme_evidence_radar, load_theme_evidence_registry
 from app.services.etf_share_service import ETF_SHARE_LIMIT, etf_share_service
@@ -834,6 +835,7 @@ def build_portfolio_packet(
         event_weights,
         market_event_radar=market_event_radar,
     )
+    overseas_tech_chain = build_overseas_tech_chain(state)
     missing_data = _clean_text([
         *data_gaps,
         *[
@@ -964,6 +966,7 @@ def build_portfolio_packet(
         "etf_share_observations": etf_share_observations,
         "market_event_radar": market_event_radar,
         "theme_evidence_radar": theme_evidence_radar,
+        "overseas_tech_chain": overseas_tech_chain,
         "external_driver_summary": external_driver_summary,
         "data_gaps": missing_data,
         "ai_analysis_boundary": {
@@ -1269,6 +1272,7 @@ def build_account_analysis_context(
             "etf_share_observations": packet.get("etf_share_observations", {}),
             "market_event_radar": packet.get("market_event_radar", {}),
             "theme_evidence_radar": packet.get("theme_evidence_radar", {}),
+            "overseas_tech_chain": packet.get("overseas_tech_chain", {}),
             "primary_direction_grouping": packet.get("primary_direction_grouping", packet.get("primary_theme_exposure", [])),
             "all_direction_observations": packet["related_theme_observations"],
             "risk_observations": packet["related_risk_observations"],
@@ -1497,6 +1501,7 @@ def build_account_analysis_context(
         "etf_share_observations": packet.get("etf_share_observations", {}),
         "market_event_radar": packet.get("market_event_radar", {}),
         "theme_evidence_radar": _compact_theme_evidence_radar(packet.get("theme_evidence_radar", {})),
+        "overseas_tech_chain": _compact_overseas_tech_chain(packet.get("overseas_tech_chain", {})),
         "primary_direction_grouping": primary_direction_grouping,
         "all_direction_observations": {
             "direction_observations": all_direction_observations,
@@ -1575,6 +1580,119 @@ def _compact_theme_evidence_radar(radar: dict[str, Any]) -> dict[str, Any]:
         "themes": themes,
         "boundary": radar.get("boundary"),
     }
+
+
+def _compact_overseas_tech_chain(chain: dict[str, Any]) -> dict[str, Any]:
+    indicators = []
+    for item in chain.get("indicators", []):
+        if item.get("data_status") == "available" or item.get("related_holdings"):
+            indicators.append({
+                "name": item.get("name"),
+                "symbol": item.get("symbol"),
+                "market": item.get("market"),
+                "category": item.get("category"),
+                "latest_price": item.get("latest_price"),
+                "change_1d_pct": item.get("change_1d_pct"),
+                "change_5d_pct": item.get("change_5d_pct"),
+                "change_20d_pct": item.get("change_20d_pct"),
+                "ma5": item.get("ma5"),
+                "ma20": item.get("ma20"),
+                "relative_ma20_pct": item.get("relative_ma20_pct"),
+                "trend_state": item.get("trend_state"),
+                "data_time": item.get("data_time"),
+                "data_status": item.get("data_status"),
+                "related_holdings": (item.get("related_holdings") or [])[:5],
+                "mapping_reason": item.get("mapping_reason"),
+                "risk_note": item.get("risk_note"),
+            })
+    return {
+        "generated_at": chain.get("generated_at"),
+        "provider": chain.get("provider"),
+        "data_status": chain.get("data_status"),
+        "indicator_count": chain.get("indicator_count"),
+        "available_indicator_count": chain.get("available_indicator_count"),
+        "risk_level": chain.get("risk_level", {}),
+        "account_sensitivity_summary": chain.get("account_sensitivity_summary", {}),
+        "open_sentiment_observation": chain.get("open_sentiment_observation"),
+        "sentiment_path": chain.get("sentiment_path", []),
+        "leading_signals": chain.get("leading_signals", []),
+        "event_watchlist": chain.get("event_watchlist", []),
+        "indicators": indicators[:18],
+        "boundary": chain.get("boundary"),
+    }
+
+
+def _overseas_tech_chain_markdown(chain: dict[str, Any]) -> str:
+    if not chain:
+        return "## 海外风险偏好与全球科技链映射\n\n- 当前没有生成海外科技链数据。\n"
+    risk = chain.get("risk_level") or {}
+    sensitivity = chain.get("account_sensitivity_summary") or {}
+    indicators = chain.get("indicators") or []
+
+    def cell(value: Any) -> str:
+        if value is None or value == "":
+            return "-"
+        if isinstance(value, float):
+            return f"{value:.2f}"
+        if isinstance(value, list):
+            return "、".join(str(item) for item in value) or "-"
+        return str(value).replace("|", "/").replace("\n", " ")
+
+    def pct(value: Any) -> str:
+        if value is None:
+            return "-"
+        try:
+            return f"{float(value):+.2f}%"
+        except (TypeError, ValueError):
+            return cell(value)
+
+    lines = [
+        "## 海外风险偏好与全球科技链映射",
+        "",
+        f"- 风险等级：{cell(risk.get('level'))}。{cell(risk.get('judgment'))}",
+        f"- 科技成长相关暴露：{pct(sensitivity.get('tech_growth_exposure_pct'))}",
+        f"- 开盘观察：{cell(chain.get('open_sentiment_observation'))}",
+        "",
+        "### 海外科技链映射表",
+        "",
+        "| 指标 | 市场 | 分类 | 最新涨跌 | 5日 | 20日 | 相对MA20 | 状态 | 映射持仓 | 观察 |",
+        "|---|---|---|---:|---:|---:|---:|---|---|---|",
+    ]
+    for item in indicators[:12]:
+        holdings = "、".join(
+            holding.get("name") or holding.get("symbol") or "-"
+            for holding in (item.get("related_holdings") or [])[:4]
+        ) or "-"
+        if item.get("data_status") != "available":
+            latest = "不可用"
+        else:
+            latest = pct(item.get("change_1d_pct"))
+        lines.append(
+            f"| {cell(item.get('name') or item.get('symbol'))} | {cell(item.get('market'))} | {cell(item.get('category'))} | "
+            f"{latest} | {pct(item.get('change_5d_pct'))} | {pct(item.get('change_20d_pct'))} | "
+            f"{pct(item.get('relative_ma20_pct'))} | {cell(item.get('trend_state') or item.get('data_status'))} | "
+            f"{cell(holdings)} | {cell(item.get('risk_note') or item.get('missing_reason'))} |"
+        )
+    watchlist = chain.get("event_watchlist") or []
+    if watchlist:
+        lines.extend([
+            "",
+            "### 海外科技链事件观察清单",
+            "",
+            "| 分组 | 观察对象 | 观察重点 | 日程状态 |",
+            "|---|---|---|---|",
+        ])
+        for item in watchlist:
+            lines.append(
+                f"| {cell(item.get('group'))} | {cell(item.get('items') or [])} | "
+                f"{cell(item.get('observation'))} | {cell(item.get('schedule_status'))} |"
+            )
+    lines.extend([
+        "",
+        chain.get("boundary") or "海外指标仅作为外部风险偏好观察，不构成买卖、加仓、减仓或择时指令。",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def _theme_evidence_markdown(radar: dict[str, Any], *, compact: bool) -> str:
@@ -1823,6 +1941,7 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     etf_share_obs = context.get("etf_share_observations", {})
     market_event_radar = context.get("market_event_radar", {})
     theme_evidence_radar = context.get("theme_evidence_radar", {})
+    overseas_tech_chain = context.get("overseas_tech_chain", {})
     primary_direction_grouping = context.get("primary_direction_grouping", [])
     all_directions = context.get("all_direction_observations", {})
     risk_obs = context.get("risk_observations", {})
@@ -1992,6 +2111,8 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         lines.append("")
         lines.append("ETF 份额变化仅作为资金变化观察证据，不构成买卖、加减仓或价格方向判断。")
         lines.append("")
+
+    lines.append(_overseas_tech_chain_markdown(overseas_tech_chain))
 
     event_items = market_event_radar.get("events", []) if isinstance(market_event_radar, dict) else []
     if event_items:
@@ -2200,6 +2321,10 @@ def render_packet_markdown(packet: dict[str, Any], mode: str = "audit") -> str:
             "## Market Event Radar",
             "Known upcoming events are volatility-risk context only, not timing instructions.",
             f"```json\n{json.dumps(packet.get('market_event_radar', {}), ensure_ascii=False, indent=2, default=str)}\n```",
+            "",
+            "## Overseas Tech Chain Mapping",
+            "Overseas indicators are delayed external risk-appetite observations only.",
+            f"```json\n{json.dumps(packet.get('overseas_tech_chain', {}), ensure_ascii=False, indent=2, default=str)}\n```",
             "",
             _theme_evidence_markdown(packet.get("theme_evidence_radar", {}), compact=False),
             "## Primary Theme Exposure",

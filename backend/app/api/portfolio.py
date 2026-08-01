@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import asdict
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
@@ -6,7 +7,11 @@ from app.disclosure_verification import refresh_portfolio_disclosure_verificatio
 from app.portfolio import portfolio_service
 from app.analysis_packet.packet_service import build_account_analysis_context
 from app.portfolio.dashboard_cache import get_dashboard_bundle, invalidate_dashboard_cache
-from app.portfolio.import_schemas import PortfolioImportDraftUpdate, PortfolioScreenshotImportOptions
+from app.portfolio.import_schemas import (
+    PortfolioImportConfirmOptions,
+    PortfolioImportDraftUpdate,
+    PortfolioScreenshotImportOptions,
+)
 from app.portfolio.import_service import portfolio_import_service, provider_statuses
 from app.portfolio.schemas import (
     HoldingSemanticBatchUpdate,
@@ -16,6 +21,7 @@ from app.portfolio.schemas import (
     TradeSimulationRequest,
 )
 from app.services.portfolio_etf_share_sync import sync_new_etf_share_data
+from app.agent_review.service import suggest_trade_reason
 
 router = APIRouter()
 
@@ -158,6 +164,7 @@ def get_portfolio_import_parser_providers():
 @router.post("/portfolio/import/screenshot")
 async def upload_portfolio_screenshot(
     file: UploadFile = File(...),
+    screenshot_kind: str = Form("current_holdings"),
     parser_provider: str = Form("local_noop"),
     cloud_send_consent: bool = Form(False),
     user_notice_acknowledged_at: str | None = Form(None),
@@ -169,6 +176,7 @@ async def upload_portfolio_screenshot(
             content_type=file.content_type or "",
             content=content,
             options=PortfolioScreenshotImportOptions(
+                screenshot_kind=screenshot_kind,
                 parser_provider=parser_provider,
                 cloud_send_consent=cloud_send_consent,
                 user_notice_acknowledged_at=user_notice_acknowledged_at,
@@ -219,10 +227,18 @@ def rerun_portfolio_import_parse(draft_id: str):
 
 
 @router.post("/portfolio/import/drafts/{draft_id}/confirm")
-def confirm_portfolio_import_draft(draft_id: str):
+def confirm_portfolio_import_draft(
+    draft_id: str,
+    payload: PortfolioImportConfirmOptions | None = None,
+):
     try:
+        options = payload or PortfolioImportConfirmOptions()
         previous_snapshot = portfolio_service.load_snapshot()
-        result = portfolio_import_service.confirm_draft(draft_id)
+        result = portfolio_import_service.confirm_draft(
+            draft_id,
+            apply_transactions_to_portfolio=options.apply_transactions_to_portfolio,
+            user_reason=options.user_reason,
+        )
         invalidate_dashboard_cache()
         etf_share_update = sync_new_etf_share_data(previous_snapshot, result["state"].snapshot)
     except FileNotFoundError as exc:
@@ -234,8 +250,40 @@ def confirm_portfolio_import_draft(draft_id: str):
         "data": {
             "draft": result["draft"].model_dump(mode="json"),
             "portfolio": result["state"].model_dump(mode="json"),
+            "transaction_batch": result.get("transaction_batch"),
+            "operation_samples": result.get("operation_samples", []),
         },
         "etf_share_update": [asdict(item) for item in etf_share_update],
+    }
+
+
+@router.post("/portfolio/import/drafts/{draft_id}/suggest-reason")
+async def suggest_portfolio_trade_reason(draft_id: str):
+    try:
+        draft = portfolio_import_service.get_draft(draft_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Import draft not found") from exc
+    if draft.screenshot_kind != "trade_history":
+        raise HTTPException(status_code=422, detail="仅交易行为截图支持生成交易理由草稿")
+    if not draft.cloud_send_consent:
+        raise HTTPException(status_code=422, detail="需要先同意将结构化成交信息发送至已配置模型")
+    transactions = [
+        row.model_dump(mode="json")
+        for row in draft.transaction_rows_draft
+    ]
+    positions = portfolio_service.get_state().snapshot.model_dump(mode="json").get("positions", [])
+    try:
+        result = await asyncio.to_thread(suggest_trade_reason, transactions, positions)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"交易理由草稿生成失败：{str(exc)}") from exc
+    return {"success": True, "data": result}
+
+
+@router.get("/portfolio/transactions")
+def get_portfolio_transactions(limit: int = Query(50, ge=1, le=500)):
+    return {
+        "success": True,
+        "items": portfolio_import_service.trade_ledger.list_batches(limit),
     }
 
 

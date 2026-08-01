@@ -39,15 +39,17 @@ def _synthetic_closure_service(tmp_path, monkeypatch) -> PortfolioService:
     return service
 
 
-def test_closure_frontend_exposes_manual_flow_without_cloud_vision_entry():
+def test_closure_frontend_exposes_confirmed_cloud_vision_draft_flow():
     root = Path(__file__).resolve().parents[2]
     portfolio_panel = (root / "frontend" / "src" / "components" / "PortfolioPanel.vue").read_text(encoding="utf-8")
     single_panel = (root / "frontend" / "src" / "components" / "AnalysisPacketPanel.vue").read_text(encoding="utf-8")
 
     assert "Generate Portfolio Packet" in portfolio_panel
     assert "Generate Stock Packet" in single_panel
-    assert "uploadPortfolioScreenshot" not in portfolio_panel
-    assert "volcengine_ark_vision" not in portfolio_panel
+    assert "uploadPortfolioScreenshot" in portfolio_panel
+    assert "volcengine_ark_vision" in portfolio_panel
+    assert "confirmPortfolioImportDraft" in portfolio_panel
+    assert "同意将截图发送至火山引擎 MiniMax M3" in portfolio_panel
     assert "Generate Portfolio Packet" not in single_panel
 
 

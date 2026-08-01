@@ -20,6 +20,7 @@ const notice = ref('')
 const state = ref<PortfolioState | null>(null)
 const dashboard = ref<PortfolioDashboard | null>(null)
 const packetMarkdown = ref('')
+const packetCopied = ref(false)
 const researchMode = ref<'theme' | 'position'>('theme')
 const selectedThemeId = ref('')
 
@@ -44,6 +45,9 @@ const marketEvents = computed(() => eventRadar.value?.events || [])
 const nextMarketEvent = computed(() => eventRadar.value?.next_event)
 const themeEvidenceRadar = computed(() => dashboard.value?.theme_evidence_radar)
 const themeEvidenceRows = computed(() => themeEvidenceRadar.value?.themes || [])
+const overseasTechChain = computed(() => dashboard.value?.overseas_tech_chain)
+const overseasIndicators = computed(() => overseasTechChain.value?.indicators || [])
+const overseasSensitiveHoldings = computed(() => overseasTechChain.value?.account_sensitivity_summary?.sensitive_holdings || [])
 const attractivenessRadar = computed(() => dashboard.value?.attractiveness_radar)
 
 watch(themeEvidenceRows, (themes) => {
@@ -322,6 +326,70 @@ const scoreTone = (score?: number | null) => {
   return 'text-negative'
 }
 
+const trendAssessmentForPosition = (row: Record<string, any>) => {
+  const dimensions = row.attractiveness?.dimensions || []
+  const trendDimension = dimensions.find((item: Record<string, any>) => item.key === 'trend_strength')
+  const trendScore = trendDimension?.score === null || trendDimension?.score === undefined
+    ? null
+    : Number(trendDimension.score)
+  const return20 = row.trend?.return_20d_pct === null || row.trend?.return_20d_pct === undefined
+    ? null
+    : Number(row.trend.return_20d_pct)
+  const priceVsMa20 = row.trend?.price_vs_ma20_pct === null || row.trend?.price_vs_ma20_pct === undefined
+    ? null
+    : Number(row.trend.price_vs_ma20_pct)
+  const limitDown = Boolean(
+    row.attractiveness?.executionConstraints?.limit_down
+    || row.attractiveness?.execution_constraints?.limit_down,
+  )
+  const severe = limitDown
+    || (trendScore !== null && trendScore <= 20)
+    || (return20 !== null && return20 <= -15)
+    || (priceVsMa20 !== null && priceVsMa20 <= -8)
+  const weak = severe
+    || (trendScore !== null && trendScore < 45)
+    || (return20 !== null && return20 < -5)
+    || (priceVsMa20 !== null && priceVsMa20 < -3)
+  return { severe, weak, limitDown, trendScore, return20, priceVsMa20 }
+}
+
+const targetedHoldingSummary = (
+  row: Record<string, any>,
+  score: number,
+  attractionScore: number,
+) => {
+  const weight = Number(row.portfolio_weight_pct || 0)
+  const trend = trendAssessmentForPosition(row)
+  const trendDetail = trend.return20 !== null
+    ? `近20日约 ${fmt(trend.return20, '%')}`
+    : trend.priceVsMa20 !== null
+      ? `现价相对 MA20 ${fmt(trend.priceVsMa20, '%')}`
+      : ''
+  if (trend.severe && weight < 3 && score >= 55) {
+    return `当前趋势明显走坏${trendDetail ? `（${trendDetail}）` : ''}，但持仓权重仅 ${fmt(weight, '%')}，继续减持对账户风险改善有限，暂无进一步减持必要；暂不加仓，等待趋势企稳或持仓逻辑出现新证据。`
+  }
+  if (trend.severe && weight < 3) {
+    return `当前趋势明显走坏${trendDetail ? `（${trendDetail}）` : ''}，持仓权重虽仅 ${fmt(weight, '%')}，但健康度也已偏弱；暂不加仓，并复核持仓逻辑是否仍然成立。`
+  }
+  if (trend.severe) {
+    return `当前趋势明显走坏${trendDetail ? `（${trendDetail}）` : ''}，持仓权重 ${fmt(weight, '%')}；暂不加仓，并优先复核持仓逻辑与风险承受范围。`
+  }
+  if (trend.weak && weight < 3) {
+    return `趋势偏弱，但持仓权重仅 ${fmt(weight, '%')}，维持低仓观察比继续减持更有意义；等待走势修复后再评估。`
+  }
+  if (score >= 75) {
+    return attractionScore >= 55
+      ? '持仓逻辑健康，吸引力尚未达到增配候选门槛。'
+      : '持仓逻辑健康，但当前新增风险敞口的吸引力不足。'
+  }
+  if (score >= 55) {
+    return attractionScore >= 55
+      ? '健康度与吸引力均为中性，维持当前仓位。'
+      : '现有逻辑尚可，但新增风险敞口缺少赔率或催化支持。'
+  }
+  return '综合状态偏弱，维持仓位同时提高风险关注。'
+}
+
 const dimensionMeaning = (dimension: Record<string, any>) => {
   const score = dimension.score === null || dimension.score === undefined ? null : Number(dimension.score)
   const key = String(dimension.key || '')
@@ -364,10 +432,13 @@ const actionBreakdownForPosition = (row: Record<string, any>) => {
   const blockers = row.attractiveness?.accountConstraints?.blockers || []
   const execution = row.attractiveness?.executionConstraints || {}
   const hardBlocked = blockers.length > 0 || execution.limit_up || execution.limit_down
+  const trend = trendAssessmentForPosition(row)
   const holdPermit = clamp(health * 0.7 + Math.min(healthCoverage, 100) * 0.3)
   const addPermitRaw = clamp(attraction * 0.52 + readiness * 0.28 + Math.min(attractionCoverage, 100) * 0.2)
   const addPermit = hardBlocked ? Math.min(addPermitRaw, 45) : addPermitRaw
-  const riskPressure = clamp((100 - health) * 0.72 + Math.max(0, weight - 10) * 1.2 + (healthCoverage < 55 ? 10 : 0) - (attraction >= 70 ? 8 : 0))
+  const trendRisk = trend.severe ? 25 : trend.weak ? 10 : 0
+  const executionRisk = trend.limitDown ? 8 : 0
+  const riskPressure = clamp((100 - health) * 0.72 + Math.max(0, weight - 10) * 1.2 + (healthCoverage < 55 ? 10 : 0) - (attraction >= 70 ? 8 : 0) + trendRisk + executionRisk)
   return [
     {
       label: '持有许可',
@@ -385,7 +456,7 @@ const actionBreakdownForPosition = (row: Record<string, any>) => {
       label: '减仓压力',
       score: riskPressure,
       tone: riskPressure >= 70 ? 'text-negative' : riskPressure >= 45 ? 'text-warning' : 'text-positive',
-      help: riskPressure >= 70 ? '需要评估降低风险暴露。' : riskPressure >= 45 ? '风险不高但需要跟踪。' : '目前没有明显减仓压力。',
+      help: riskPressure >= 70 ? '需要评估降低风险暴露。' : riskPressure >= 45 ? '存在一定减仓压力，需结合仓位影响判断。' : '目前没有明显减仓压力。',
     },
   ]
 }
@@ -395,6 +466,8 @@ const operationMeaningForPosition = (row: Record<string, any>) => {
   const attraction = row.attractiveness?.score === null || row.attractiveness?.score === undefined ? 0 : Number(row.attractiveness.score)
   const active = Number(row.quantity || 0) > 0
   const action = String(row.conclusion?.action || '')
+  const trend = trendAssessmentForPosition(row)
+  const weight = Number(row.portfolio_weight_pct || 0)
   if (action.includes('减仓')) return '操作含义：不是机械卖出，而是进入风险复核优先级；若修复信号不足，应考虑降低风险暴露。'
   if (action.includes('利润保护')) return '操作含义：已有收益或趋势贡献较强，但仓位风险也高，重点是保护利润而不是继续追增。'
   if (action.includes('小幅增持')) return '操作含义：接近增持候选，但还缺少更强证据或更好的价格条件。'
@@ -402,6 +475,8 @@ const operationMeaningForPosition = (row: Record<string, any>) => {
     return '操作含义：可以进入候选清单，但仍需要价格、事件或账户空间确认，不等于立即买入。'
   }
   if (!active) return '操作含义：仍是观察对象，未同时满足健康度、吸引力和账户约束。'
+  if (trend.severe && weight < 3) return '操作含义：走势已明显转弱，但低仓位下继续减持的风险改善有限；保持观察、停止加仓，并等待趋势或基本面证据修复。'
+  if (trend.severe) return '操作含义：走势已明显转弱，停止加仓并提高风险复核优先级；是否减仓取决于仓位影响和持仓逻辑是否继续恶化。'
   if (health < 40) return '操作含义：优先检查是否需要降低风险，而不是寻找加仓理由。'
   if (health >= 55 && attraction < 70) return '操作含义：持有理由尚可，但新增买入理由不足，当前更适合维持仓位。'
   return '操作含义：维持当前仓位，等待证据、趋势或事件触发新的动作。'
@@ -441,6 +516,7 @@ const conclusionForPosition = (row: Record<string, any>, health: Record<string, 
   const opportunityScore = Number(row.opportunity_score || 0)
   const trendState = String(row.trend?.trend_state || '')
   const strategyObservation = String(row.trend?.strategy_observation || '')
+  const trendAssessment = trendAssessmentForPosition(row)
   const confidenceResult = confidenceAssessment(
     coverage,
     attractiveness.coverage,
@@ -544,14 +620,18 @@ const conclusionForPosition = (row: Record<string, any>, health: Record<string, 
       rank: 130 + attractionScore + opportunityScore,
     }
   }
-  const status = score >= 75 ? '偏正面' : score >= 55 ? '中性' : '偏弱'
-  const tone = score >= 75
+  const status = trendAssessment.severe ? '趋势明显走弱' : score >= 75 ? '偏正面' : score >= 55 ? '中性' : '偏弱'
+  const tone = trendAssessment.severe
+      ? 'border-amber-300/50 bg-amber-300/10 text-amber-200'
+      : score >= 75
       ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200'
       : score >= 55
       ? 'border-sky-400/40 bg-sky-400/10 text-sky-100'
       : 'border-amber-300/50 bg-amber-300/10 text-amber-200'
   return {
-    action: score >= 75
+    action: trendAssessment.severe
+      ? weight < 3 && score >= 55 ? '低仓位观察' : '弱势持有观察'
+      : score >= 75
       ? '持有，暂不加仓'
       : score >= 55
         ? '中性持有'
@@ -561,15 +641,7 @@ const conclusionForPosition = (row: Record<string, any>, health: Record<string, 
     confidenceReasons: confidenceResult.reasons,
     jointCoverage,
     status,
-    summary: score >= 75
-      ? attractionScore >= 55
-        ? '持仓逻辑健康，吸引力尚未达到增配候选门槛。'
-        : '持仓逻辑健康，但当前新增风险敞口的吸引力不足。'
-      : score >= 55
-        ? attractionScore >= 55
-          ? '健康度与吸引力均为中性，维持当前仓位。'
-          : '现有逻辑尚可，但新增风险敞口缺少赔率或催化支持。'
-        : '综合状态偏弱，维持仓位同时提高风险关注。',
+    summary: targetedHoldingSummary(row, score, attractionScore),
     reasons: [`健康度 ${score}，吸引力 ${attractionScore}`, ...attractiveness.topReasons],
     change: score < 55
       ? '健康度跌破 40 且覆盖率足够时，升级为降低风险评估。'
@@ -751,6 +823,7 @@ const load = async (force = false) => {
 
 const generatePacket = async () => {
   packetLoading.value = true
+  packetCopied.value = false
   notice.value = ''
   try {
     const result = await createPortfolioAnalysisPacket()
@@ -761,6 +834,19 @@ const generatePacket = async () => {
     error.value = err?.response?.data?.detail || err?.message || '组合证据包生成失败'
   } finally {
     packetLoading.value = false
+  }
+}
+
+const copyPacketMarkdown = async () => {
+  if (!packetMarkdown.value) return
+  try {
+    await navigator.clipboard.writeText(packetMarkdown.value)
+    packetCopied.value = true
+    window.setTimeout(() => {
+      packetCopied.value = false
+    }, 1600)
+  } catch (err: any) {
+    error.value = err?.message || '复制证据包失败'
   }
 }
 
@@ -777,9 +863,6 @@ onMounted(load)
       </div>
       <div class="flex gap-2 text-xs">
         <button class="h-9 rounded bg-secondary px-3 text-foreground" :disabled="loading" @click="load(true)">刷新</button>
-        <button class="h-9 rounded bg-primary px-3 text-primary-foreground" :disabled="packetLoading" @click="generatePacket">
-          {{ packetLoading ? '生成中...' : '刷新证据包' }}
-        </button>
       </div>
     </div>
 
@@ -791,6 +874,7 @@ onMounted(load)
     </div>
 
     <template v-if="!loading && state">
+      <slot name="intelligence" />
       <div class="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3 text-sm">
         <div class="min-h-24 rounded border border-border bg-card p-3">
           <div class="text-muted-foreground">当前估算总资产</div>
@@ -838,11 +922,16 @@ onMounted(load)
             <h2 class="mt-1 text-xl font-semibold text-foreground">{{ accountConclusion.verdict }}</h2>
             <p class="mt-2 text-sm text-muted-foreground">{{ accountConclusion.summary }}</p>
           </div>
-          <div class="rounded border border-border/70 bg-card/60 px-3 py-2 text-center text-xs">
-            <div class="text-muted-foreground">置信度</div>
+          <div class="group relative rounded border border-border/70 bg-card/60 px-3 py-2 text-center text-xs">
+            <div class="cursor-help text-slate-200 underline decoration-dotted underline-offset-4">置信度</div>
             <div class="mt-1 font-semibold text-foreground">{{ accountConclusion.confidence }}</div>
             <div class="mt-1 font-mono text-muted-foreground">联合覆盖 {{ accountConclusion.jointCoverage }}%</div>
             <div class="mt-1 text-muted-foreground">健康 {{ accountConclusion.healthCoverage }}% · 吸引力 {{ accountConclusion.attractionCoverage }}%</div>
+            <div class="pointer-events-none invisible absolute right-0 top-full z-40 mt-2 w-72 rounded border border-slate-500 bg-slate-950 p-3 text-left text-xs leading-5 text-slate-200 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
+              <div class="font-medium text-white">账户结论置信度</div>
+              <div class="mt-1">来源：全部标的的健康度覆盖率与吸引力覆盖率，联合覆盖取两者较低值，并检查两套评分是否明显冲突。</div>
+              <div class="mt-1 text-slate-400">当前健康覆盖 {{ accountConclusion.healthCoverage }}%，吸引力覆盖 {{ accountConclusion.attractionCoverage }}%，联合覆盖 {{ accountConclusion.jointCoverage }}%。覆盖不足只降低置信度，不自动给出中性结论。</div>
+            </div>
           </div>
         </div>
         <div v-if="accountConclusion.confidenceReasons.length" class="mt-3 text-xs leading-5 text-warning">
@@ -878,24 +967,53 @@ onMounted(load)
                     <div class="font-mono text-xl font-semibold text-foreground">{{ row.health.score }}</div>
                     <div class="mt-1 text-xs font-medium text-slate-300">健康度</div>
                   </div>
-                  <div class="rounded border border-sky-400/40 bg-sky-400/10 px-2 py-2">
+                  <div class="group relative rounded border border-sky-400/40 bg-sky-400/10 px-2 py-2">
                     <div class="font-mono text-xl font-semibold text-sky-200">{{ row.attractiveness.score ?? '-' }}</div>
-                    <div class="mt-1 text-xs font-medium text-sky-200">
+                    <div class="mt-1 cursor-help text-xs font-medium text-sky-200 underline decoration-dotted underline-offset-4">
                       吸引力
                       <span v-if="row.attractiveness.scoreChange !== null" :class="['mt-1 block whitespace-nowrap text-xs', Number(row.attractiveness.scoreChange) >= 0 ? 'text-emerald-300' : 'text-rose-300']">
                         · 较上次 {{ signedFmt(row.attractiveness.scoreChange) }}
                       </span>
                     </div>
+                    <div class="pointer-events-none invisible absolute left-1/2 top-full z-40 mt-2 w-80 max-w-[calc(100vw-3rem)] -translate-x-1/2 rounded border border-sky-400/50 bg-slate-950 p-3 text-left text-xs leading-5 text-slate-200 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
+                      <div class="font-medium text-white">吸引力 {{ row.attractiveness.score ?? '缺数据' }}/100</div>
+                      <div class="mt-1">按可用维度重新归一加权：证据变化30%、趋势与相对强度25%、估值与价格位置20%、催化15%、交易可执行性10%。</div>
+                      <div class="mt-2 space-y-1 text-slate-400">
+                        <div v-for="dimension in row.attractiveness.dimensions" :key="`${row.symbol}-attraction-tip-${dimension.key}`">
+                          {{ dimension.label }} {{ dimension.score ?? '缺数据' }}分 · 覆盖 {{ dimension.coverage ?? 0 }}%
+                        </div>
+                      </div>
+                      <div class="mt-2 text-slate-400">当前总覆盖 {{ row.attractiveness.coverage }}%；缺失维度不会被填成50分。</div>
+                    </div>
                   </div>
-                  <div class="rounded border border-emerald-400/40 bg-emerald-400/10 px-2 py-2">
+                  <div class="group relative rounded border border-emerald-400/40 bg-emerald-400/10 px-2 py-2">
                     <div class="font-mono text-xl font-semibold text-emerald-200">{{ row.attractiveness.accountReadiness }}</div>
-                    <div class="mt-1 text-xs font-medium text-emerald-200">准备度</div>
+                    <div class="mt-1 cursor-help text-xs font-medium text-emerald-200 underline decoration-dotted underline-offset-4">准备度</div>
+                    <div class="pointer-events-none invisible absolute right-0 top-full z-40 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded border border-emerald-400/50 bg-slate-950 p-3 text-left text-xs leading-5 text-slate-200 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
+                      <div class="font-medium text-white">账户准备度 {{ row.attractiveness.accountReadiness }}/100</div>
+                      <div class="mt-1">衡量账户是否还有新增风险敞口的空间，不评价股票本身好坏。</div>
+                      <div class="mt-2 text-slate-400">单票仓位余量30% + 主题仓位余量30% + 高于现金底线的余量25% + 当前可交易性15%。</div>
+                      <div class="mt-2 text-slate-400">
+                        单票余量 {{ row.attractiveness.accountConstraints.position_headroom_pct ?? '-' }}% ·
+                        主题余量 {{ row.attractiveness.accountConstraints.theme_headroom_pct ?? '-' }}% ·
+                        现金余量 {{ row.attractiveness.accountConstraints.cash_headroom_pct ?? '-' }}%
+                      </div>
+                      <div v-if="row.attractiveness.accountConstraints.blockers?.length" class="mt-2 text-amber-300">限制：{{ row.attractiveness.accountConstraints.blockers.join('；') }}</div>
+                    </div>
                   </div>
                 </div>
               </div>
               <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span :class="['inline-flex shrink-0 items-center rounded border bg-background/50 px-2.5 py-1.5 text-sm font-semibold', row.conclusion.tone]">{{ row.conclusion.action }}</span>
-                <span class="min-w-0 text-sm leading-5 text-slate-300">状态：{{ row.conclusion.status }} · 置信度 {{ row.conclusion.confidence }}</span>
+                <span class="group relative min-w-0 text-sm leading-5 text-slate-300">
+                  状态：{{ row.conclusion.status }} ·
+                  <span class="cursor-help underline decoration-dotted underline-offset-4">置信度 {{ row.conclusion.confidence }}</span>
+                  <span class="pointer-events-none invisible absolute left-0 top-full z-40 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded border border-slate-500 bg-slate-950 p-3 text-left text-xs leading-5 text-slate-200 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
+                    <span class="block font-medium text-white">该标的结论置信度</span>
+                    <span class="mt-1 block">健康覆盖 {{ row.health.coverage }}%，吸引力覆盖 {{ row.attractiveness.coverage }}%，联合覆盖取较低值 {{ row.conclusion.jointCoverage }}%。</span>
+                    <span class="mt-1 block text-slate-400">同时检查健康度与吸引力、以及吸引力内部维度是否存在明显分歧。低置信度表示证据不足，不等于结论偏空。</span>
+                  </span>
+                </span>
               </div>
               <p class="mt-2 text-sm leading-6 text-slate-300">{{ row.conclusion.summary }}</p>
               <p class="mt-1 text-sm leading-6 text-foreground">{{ operationMeaningForPosition(row) }}</p>
@@ -1118,6 +1236,102 @@ onMounted(load)
         </div>
       </details>
 
+      <div class="rounded border border-border bg-card">
+        <div class="flex flex-col gap-3 border-b border-border px-3 py-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-foreground">海外风险偏好与科技链映射</h2>
+            <p class="mt-1 text-xs leading-5 text-muted-foreground">
+              {{ overseasTechChain?.open_sentiment_observation || '等待组合证据包生成海外科技链映射。' }}
+            </p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 lg:min-w-[460px]">
+            <div class="rounded bg-secondary/25 p-2">
+              <div class="text-muted-foreground">风险等级</div>
+              <div class="mt-1 font-mono text-foreground">{{ overseasTechChain?.risk_level?.level || '-' }}</div>
+            </div>
+            <div class="rounded bg-secondary/25 p-2">
+              <div class="text-muted-foreground">科技暴露</div>
+              <div class="mt-1 font-mono text-foreground">{{ fmt(overseasTechChain?.account_sensitivity_summary?.tech_growth_exposure_pct, '%') }}</div>
+            </div>
+            <div class="rounded bg-secondary/25 p-2">
+              <div class="text-muted-foreground">可用指标</div>
+              <div class="mt-1 font-mono text-foreground">{{ overseasTechChain?.available_indicator_count ?? 0 }} / {{ overseasTechChain?.indicator_count ?? 0 }}</div>
+            </div>
+            <div class="rounded bg-secondary/25 p-2">
+              <div class="text-muted-foreground">数据源</div>
+              <div class="mt-1 break-words font-mono text-foreground">{{ overseasTechChain?.provider || '-' }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="grid gap-4 p-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[860px] table-fixed text-xs">
+              <colgroup>
+                <col class="w-[170px]" />
+                <col class="w-[90px]" />
+                <col class="w-[150px]" />
+                <col class="w-[80px]" />
+                <col class="w-[80px]" />
+                <col class="w-[90px]" />
+                <col class="w-[160px]" />
+                <col class="w-[220px]" />
+              </colgroup>
+              <thead class="bg-secondary/30 text-muted-foreground">
+                <tr>
+                  <th class="px-3 py-2 text-left">指标</th>
+                  <th class="px-3 py-2 text-left">市场</th>
+                  <th class="px-3 py-2 text-left">分类</th>
+                  <th class="px-3 py-2 text-right">1日</th>
+                  <th class="px-3 py-2 text-right">5日</th>
+                  <th class="px-3 py-2 text-right">相对MA20</th>
+                  <th class="px-3 py-2 text-left">状态</th>
+                  <th class="px-3 py-2 text-left">映射持仓</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in overseasIndicators.slice(0, 12)" :key="item.symbol" class="border-t border-border/60 align-top">
+                  <td class="px-3 py-2">
+                    <div class="font-medium text-foreground">{{ item.name || item.symbol }}</div>
+                    <div class="mt-1 font-mono text-muted-foreground">{{ item.symbol }}</div>
+                  </td>
+                  <td class="px-3 py-2 text-muted-foreground">{{ item.market || '-' }}</td>
+                  <td class="px-3 py-2 text-muted-foreground">{{ item.category || '-' }}</td>
+                  <td class="px-3 py-2 text-right font-mono" :class="Number(item.change_1d_pct || 0) < 0 ? 'text-negative' : 'text-positive'">{{ signedFmt(item.change_1d_pct, '%') }}</td>
+                  <td class="px-3 py-2 text-right font-mono" :class="Number(item.change_5d_pct || 0) < 0 ? 'text-negative' : 'text-positive'">{{ signedFmt(item.change_5d_pct, '%') }}</td>
+                  <td class="px-3 py-2 text-right font-mono" :class="Number(item.relative_ma20_pct || 0) < 0 ? 'text-warning' : 'text-sky-200'">{{ signedFmt(item.relative_ma20_pct, '%') }}</td>
+                  <td class="px-3 py-2 text-muted-foreground">{{ item.trend_state || item.data_status || '-' }}</td>
+                  <td class="px-3 py-2 text-muted-foreground">
+                    <span v-for="holding in (item.related_holdings || []).slice(0, 3)" :key="`${item.symbol}-${holding.symbol}`" class="mr-1 inline-block rounded bg-secondary/60 px-1.5 py-0.5">
+                      {{ holding.name || holding.symbol }}
+                    </span>
+                    <span v-if="!item.related_holdings?.length">-</span>
+                  </td>
+                </tr>
+                <tr v-if="!overseasIndicators.length">
+                  <td colspan="8" class="px-3 py-4 text-center text-xs text-muted-foreground">暂无海外科技链数据。生成或刷新组合证据包后展示。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="space-y-3 text-xs">
+            <div class="rounded border border-border/70 bg-secondary/10 p-3">
+              <div class="font-medium text-foreground">账户敏感持仓</div>
+              <div class="mt-2 space-y-2 text-muted-foreground">
+                <div v-for="holding in overseasSensitiveHoldings.slice(0, 6)" :key="holding.symbol" class="flex items-center justify-between gap-3">
+                  <span>{{ holding.name || holding.symbol }}</span>
+                  <span class="font-mono">{{ fmt(holding.portfolio_weight_pct, '%') }}</span>
+                </div>
+                <div v-if="!overseasSensitiveHoldings.length">暂无映射持仓。</div>
+              </div>
+            </div>
+            <div class="rounded border border-border/70 bg-secondary/10 p-3">
+              <div class="font-medium text-foreground">判断边界</div>
+              <p class="mt-2 leading-5 text-muted-foreground">{{ overseasTechChain?.boundary || '海外指标仅作为外部风险偏好观察，不构成交易指令。' }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <details class="rounded border border-border bg-card">
         <summary class="cursor-pointer px-3 py-3 text-sm font-medium text-foreground">
           查看事件、数据质量与系统边界
@@ -1177,8 +1391,30 @@ onMounted(load)
       </details>
 
       <div class="rounded border border-border bg-card">
-        <details>
-          <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">账户明细与原始证据包</summary>
+        <details open>
+          <summary class="cursor-pointer px-3 py-2">
+            <div class="inline-flex w-[calc(100%-1.25rem)] flex-wrap items-center justify-between gap-2 align-middle">
+              <span class="text-xs font-medium text-muted-foreground">账户明细与原始证据包</span>
+              <span class="flex gap-2">
+                <button
+                  type="button"
+                  class="h-8 rounded bg-secondary px-3 text-xs text-foreground disabled:opacity-50"
+                  :disabled="!packetMarkdown"
+                  @click.stop="copyPacketMarkdown"
+                >
+                  {{ packetCopied ? '已复制' : 'Copy Markdown' }}
+                </button>
+                <button
+                  type="button"
+                  class="h-8 rounded bg-primary px-3 text-xs text-primary-foreground disabled:opacity-50"
+                  :disabled="packetLoading"
+                  @click.stop="generatePacket"
+                >
+                  {{ packetLoading ? '生成中...' : '刷新证据包' }}
+                </button>
+              </span>
+            </div>
+          </summary>
           <div class="grid gap-3 border-t border-border p-3 lg:grid-cols-2">
             <div>
               <div class="mb-2 text-xs font-medium text-foreground">持仓与观察池</div>

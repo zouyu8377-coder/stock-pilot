@@ -12,7 +12,8 @@ KNOWN_SYMBOLS = {
     "002463": "沪电股份",
     "000657": "中钨高新",
     "159934": "黄金ETF",
-    "159382": "创业板ETF",
+    "159929": "医药ETF汇添富",
+    "159382": "创业板人工智能ETF",
 }
 
 
@@ -48,6 +49,15 @@ def resolve_symbol_or_name(symbol_text: str = "", name_text: str = "") -> tuple[
         return ts_code, name, "exact_code_match", candidates, warnings
 
     if raw_name:
+        known_matches = [
+            (code_value, known_name)
+            for code_value, known_name in KNOWN_SYMBOLS.items()
+            if raw_name in known_name or known_name in raw_name
+        ]
+        if len(known_matches) == 1:
+            code_value, known_name = known_matches[0]
+            candidate = _with_driver(SymbolCandidate(symbol=to_ts_code(code_value), name=known_name))
+            return candidate.symbol, candidate.name, "name_candidate_match", [candidate], warnings
         for item in metadata_provider.search(raw_name, limit=8):
             candidate = _with_driver(SymbolCandidate(
                 symbol=to_ts_code(item["symbol"]),
@@ -56,10 +66,6 @@ def resolve_symbol_or_name(symbol_text: str = "", name_text: str = "") -> tuple[
                 area=item.get("area"),
             ))
             candidates.append(candidate)
-        if not candidates:
-            for code_value, known_name in KNOWN_SYMBOLS.items():
-                if raw_name in known_name or known_name in raw_name:
-                    candidates.append(_with_driver(SymbolCandidate(symbol=to_ts_code(code_value), name=known_name)))
         if len(candidates) == 1:
             first = candidates[0]
             return first.symbol, first.name, "name_candidate_match", candidates, warnings

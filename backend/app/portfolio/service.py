@@ -303,13 +303,11 @@ class PortfolioService:
             if base.quantity < 0:
                 missing_data.append("quantity_invalid")
             is_watchlist = base.quantity == 0
-            if base.avg_cost <= 0 and not is_watchlist:
-                missing_data.append("avg_cost_invalid")
             can_value = price is not None and base.quantity >= 0
-            can_pnl = can_value and base.avg_cost > 0
+            can_pnl = can_value and not is_watchlist
             market_value = price * base.quantity if can_value else None
             pnl = (price - base.avg_cost) * base.quantity if can_pnl else None
-            pnl_pct = ((price / base.avg_cost - 1) * 100) if can_pnl else None
+            pnl_pct = ((price / base.avg_cost - 1) * 100) if can_pnl and base.avg_cost > 0 else None
             data = base.model_dump()
             data["name"] = _canonical_name(base.symbol, base.name or quote_name)
             positions.append(PortfolioPosition(
@@ -352,6 +350,7 @@ class PortfolioService:
         total_cost_basis = 0.0
         total_unrealized_pnl = 0.0
         excluded_symbols: list[str] = []
+        nonpositive_cost_symbols: list[str] = []
 
         for p in snapshot.positions:
             if p.missing_data:
@@ -379,8 +378,10 @@ class PortfolioService:
                 )
 
             # Cost basis and unrealized PnL aggregation
-            if p.avg_cost is not None and p.avg_cost > 0 and p.quantity is not None and p.quantity >= 0:
+            if p.avg_cost is not None and p.quantity is not None and p.quantity >= 0:
                 total_cost_basis += p.avg_cost * p.quantity
+                if p.avg_cost <= 0:
+                    nonpositive_cost_symbols.append(p.symbol)
                 if p.market_price is not None and p.market_price > 0:
                     total_unrealized_pnl += (p.market_price - p.avg_cost) * p.quantity
                 else:
@@ -423,7 +424,20 @@ class PortfolioService:
 
         pnl_status = "available"
         if excluded_symbols:
-            pnl_status = "partial" if total_cost_basis > 0 else "unavailable"
+            pnl_status = "partial"
+        elif nonpositive_cost_symbols:
+            pnl_status = "available_amount_only"
+            warnings.append(
+                "部分持仓使用零或负摊薄成本；盈亏金额可用，收益率百分比不适用："
+                + ", ".join(nonpositive_cost_symbols)
+            )
+        has_holding_cost = bool(active_positions)
+        pnl_pct_available = (
+            has_holding_cost
+            and not excluded_symbols
+            and not nonpositive_cost_symbols
+            and total_cost_basis > 0
+        )
 
         actual_cost = snapshot.account_actual_total_cost if snapshot.account_actual_total_cost and snapshot.account_actual_total_cost > 0 else None
         account_total_pnl = (total_assets - actual_cost) if actual_cost else None
@@ -469,13 +483,13 @@ class PortfolioService:
             cash_ratio_pct=_round(cash_ratio),
             repo_ratio_pct=_round(snapshot.repo_amount / total_assets * 100),
             invested_ratio_pct=_round(total_market_value / total_assets * 100),
-            total_cost_basis=_round(total_cost_basis) if total_cost_basis > 0 else None,
-            total_unrealized_pnl=_round(total_unrealized_pnl) if total_cost_basis > 0 else None,
-            total_unrealized_pnl_pct=_round(total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis > 0 else None,
+            total_cost_basis=_round(total_cost_basis) if has_holding_cost else None,
+            total_unrealized_pnl=_round(total_unrealized_pnl) if has_holding_cost else None,
+            total_unrealized_pnl_pct=_round(total_unrealized_pnl / total_cost_basis * 100) if pnl_pct_available else None,
             total_unrealized_pnl_status=pnl_status,
-            current_holding_cost_basis=_round(total_cost_basis) if total_cost_basis > 0 else None,
-            current_holding_unrealized_pnl=_round(total_unrealized_pnl) if total_cost_basis > 0 else None,
-            current_holding_unrealized_pnl_pct=_round(total_unrealized_pnl / total_cost_basis * 100) if total_cost_basis > 0 else None,
+            current_holding_cost_basis=_round(total_cost_basis) if has_holding_cost else None,
+            current_holding_unrealized_pnl=_round(total_unrealized_pnl) if has_holding_cost else None,
+            current_holding_unrealized_pnl_pct=_round(total_unrealized_pnl / total_cost_basis * 100) if pnl_pct_available else None,
             current_holding_unrealized_pnl_status=pnl_status,
             valuation_snapshot_id=valuation_snapshot_id,
             valuation_generated_at=valuation_generated_at,
@@ -553,6 +567,8 @@ class PortfolioService:
                     avg_cost = p.avg_cost
                     if request.side == TradeSide.BUY:
                         avg_cost = ((p.avg_cost * p.quantity) + trade_value) / new_qty
+                    else:
+                        avg_cost = ((p.avg_cost * p.quantity) - trade_value) / new_qty
                     new_positions.append(PortfolioPositionInput(
                         symbol=p.symbol,
                         name=p.name or request.name,

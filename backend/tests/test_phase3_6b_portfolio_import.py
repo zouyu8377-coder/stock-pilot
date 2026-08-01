@@ -7,7 +7,8 @@ from app.api import portfolio as portfolio_api
 from app.main import app
 from app.portfolio.import_schemas import HoldingRowDraft, PortfolioImportDraftUpdate
 from app.portfolio.import_service import PortfolioImportService, provider_statuses
-from app.portfolio.ocr_provider import OcrResult
+from app.portfolio.ocr_provider import OcrResult, VolcengineArkVisionPortfolioImageParser
+from app.portfolio.schemas import PortfolioSnapshotInput
 from app.portfolio.service import PortfolioService
 from app.portfolio.symbol_resolver import resolve_symbol_or_name
 
@@ -36,7 +37,7 @@ class MockVisionProvider:
         self.status = status
         self.called = False
 
-    def parse_image(self, image_path: Path) -> OcrResult:
+    def parse_image(self, image_path: Path, screenshot_kind: str = "current_holdings") -> OcrResult:
         self.called = True
         if self.status != "draft_parsed":
             return OcrResult(
@@ -52,6 +53,35 @@ class MockVisionProvider:
             structured_payload=self.payload or _mock_vision_payload(),
             warnings=["mock cloud vision for sanitized test only"],
         )
+
+
+def _mock_trade_payload():
+    return {
+        "source_view": {"platform_guess": "同花顺", "screenshot_displayed_time": None, "warnings": []},
+        "transactions": [
+            {
+                "raw_symbol": None,
+                "raw_name": "中国人寿",
+                "side": "buy",
+                "average_price": 40.33,
+                "quantity": 100,
+                "amount": 4033,
+                "occurred_at": None,
+                "warnings": [],
+            },
+            {
+                "raw_symbol": None,
+                "raw_name": "药明康德",
+                "side": "sell",
+                "average_price": 125.586,
+                "quantity": 100,
+                "amount": 12558.6,
+                "occurred_at": None,
+                "warnings": [],
+            },
+        ],
+        "parse_warnings": [],
+    }
 
 
 def _mock_vision_payload():
@@ -165,6 +195,14 @@ def test_symbol_resolver_code_name_conflict_and_name_candidates():
     assert status in {"name_candidate_match", "unresolved"}
     assert symbol == "601899.SH" or candidates
 
+    symbol, name, status, candidates, warnings = resolve_symbol_or_name("", "医药ETF汇添富")
+    assert symbol == "159929.SZ"
+    assert status == "name_candidate_match"
+
+    symbol, name, status, candidates, warnings = resolve_symbol_or_name("", "创业板人工智能ET")
+    assert symbol == "159382.SZ"
+    assert status == "name_candidate_match"
+
 
 def test_update_confirm_creates_new_snapshot_with_separated_prices(tmp_path, monkeypatch):
     monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
@@ -197,6 +235,54 @@ def test_update_confirm_creates_new_snapshot_with_separated_prices(tmp_path, mon
     assert first.available_quantity == 800
     assert first.confirmed_by_user is True
     assert service.portfolio_service.list_manual_evidence()[0].include_in_analysis_packet is False
+
+
+def test_holdings_screenshot_preserves_confirmed_account_cost(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = _service(tmp_path, "601899 紫金矿业 1000 800 30.00 31.64 31640 1640 5.47")
+    service.portfolio_service.save_snapshot(PortfolioSnapshotInput(
+        total_assets=100000,
+        cash_available=10000,
+        account_actual_total_cost=120000,
+        positions=[],
+    ))
+    draft = service.create_draft_from_upload("sanitized.png", "image/png", b"fake")
+
+    result = service.confirm_draft(draft.draft_id)
+
+    assert result["state"].snapshot.account_actual_total_cost == 120000
+    assert result["state"].metrics.account_total_pnl < 0
+
+
+def test_holdings_screenshot_preserves_confirmed_position_semantics(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = _service(tmp_path, "601899 紫金矿业 1000 800 30.00 31.64 31640 1640 5.47")
+    service.portfolio_service.save_snapshot(PortfolioSnapshotInput(
+        total_assets=100000,
+        cash_available=10000,
+        positions=[{
+            "symbol": "601899.SH",
+            "name": "紫金矿业",
+            "quantity": 900,
+            "avg_cost": 29,
+            "primary_theme": "铜",
+            "theme_tags": ["铜"],
+            "directions": ["铜"],
+            "risk_flags": ["HIGH_VOLATILITY"],
+            "semantic_classification_status": "user_confirmed",
+            "semantic_classification_source": "manual_confirmed_from_system_suggestion",
+        }],
+    ))
+    draft = service.create_draft_from_upload("sanitized.png", "image/png", b"fake")
+
+    result = service.confirm_draft(draft.draft_id)
+    position = result["state"].snapshot.positions[0]
+
+    assert position.directions == ["铜"]
+    assert position.primary_theme == "铜"
+    assert position.risk_flags == ["HIGH_VOLATILITY"]
+    assert position.semantic_classification_status == "user_confirmed"
+    assert position.semantic_classification_source == "manual_confirmed_from_system_suggestion"
 
 
 def test_confirm_blocks_unresolved_required_fields(tmp_path):
@@ -262,6 +348,78 @@ def test_provider_status_does_not_expose_api_key(monkeypatch):
     assert cloud["api_key_configured"] is True
 
 
+class _VisionResponse:
+    status_code = 200
+    text = ""
+
+    def __init__(self, content: str, finish_reason: str = "stop"):
+        self.content = content
+        self.finish_reason = finish_reason
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {
+            "choices": [{
+                "finish_reason": self.finish_reason,
+                "message": {"content": self.content},
+            }],
+            "usage": {
+                "prompt_tokens": 900,
+                "completion_tokens": 700,
+                "total_tokens": 1600,
+            },
+        }
+
+
+def test_minimax_vision_contract_normalizes_output_and_records_usage(tmp_path, monkeypatch):
+    image = tmp_path / "sample.jpg"
+    image.write_bytes(b"image")
+    payload = _mock_vision_payload()
+    payload["holdings"][0]["warnings"] = ["a" * 100, "second", "ignored"]
+    captured = {}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured["payload"] = json
+        return _VisionResponse(f"```json\n{__import__('json').dumps(payload, ensure_ascii=False)}\n```")
+
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_ENABLED", True)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_BASE_URL", "https://ark.example/v3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_API_KEY", "secret")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MODEL", "minimax-m3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MAX_TOKENS", 4096)
+
+    result = VolcengineArkVisionPortfolioImageParser(http_post=fake_post).parse_image(image)
+
+    assert result.status == "draft_parsed"
+    assert result.model_name == "minimax-m3"
+    assert result.usage == {"prompt_tokens": 900, "completion_tokens": 700, "total_tokens": 1600}
+    assert captured["payload"]["max_tokens"] == 4096
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    first = result.structured_payload["holdings"][0]
+    assert "recommendation" not in first
+    assert len(first["warnings"]) == 2
+    assert len(first["warnings"][0]) == 80
+
+
+def test_minimax_vision_rejects_truncated_response(tmp_path, monkeypatch):
+    image = tmp_path / "sample.jpg"
+    image.write_bytes(b"image")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_ENABLED", True)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_BASE_URL", "https://ark.example/v3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_API_KEY", "secret")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MODEL", "minimax-m3")
+
+    parser = VolcengineArkVisionPortfolioImageParser(
+        http_post=lambda *_args, **_kwargs: _VisionResponse('{"holdings":[', "length"),
+    )
+    result = parser.parse_image(image)
+
+    assert result.status == "cloud_parse_failed"
+    assert "token 上限" in (result.error_summary or "")
+
+
 def test_cloud_provider_requires_consent_before_any_parse(tmp_path):
     service = _service(tmp_path)
 
@@ -318,6 +476,113 @@ def test_cloud_failure_falls_back_to_manual_review_without_snapshot(tmp_path, mo
     assert draft.holding_rows_draft == []
     assert draft.provider_error_summary == "mock timeout"
     assert not (tmp_path / "portfolio" / "default_portfolio.json").exists()
+
+
+def test_trade_screenshot_record_only_writes_ledger_without_changing_portfolio(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    provider = MockVisionProvider(payload=_mock_trade_payload())
+    service = _service(tmp_path)
+    monkeypatch.setattr(service, "_provider_for", lambda provider_name: provider)
+    service.portfolio_service.save_snapshot(PortfolioSnapshotInput(**{
+        "cash_available": 50000,
+        "positions": [
+            {"symbol": "603259", "name": "药明康德", "quantity": 500, "avg_cost": 120},
+        ],
+    }))
+    before = service.portfolio_service.load_snapshot()
+    draft = service.create_draft_from_upload(
+        "trades.png",
+        "image/png",
+        b"fake",
+        options={
+            "screenshot_kind": "trade_history",
+            "parser_provider": "volcengine_ark_vision",
+            "cloud_send_consent": True,
+        },
+    )
+
+    result = service.confirm_draft(draft.draft_id, apply_transactions_to_portfolio=False)
+    after = service.portfolio_service.load_snapshot()
+
+    assert len(draft.transaction_rows_draft) == 2
+    assert result["transaction_batch"]["applied_to_portfolio"] is False
+    assert before.snapshot_id == after.snapshot_id
+    assert service.trade_ledger.list_batches()[0]["transactions"][0]["side"] == "buy"
+
+
+def test_trade_screenshot_can_apply_confirmed_transactions(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    provider = MockVisionProvider(payload=_mock_trade_payload())
+    service = _service(tmp_path)
+    monkeypatch.setattr(service, "_provider_for", lambda provider_name: provider)
+    service.portfolio_service.save_snapshot(PortfolioSnapshotInput(**{
+        "cash_available": 50000,
+        "positions": [
+            {"symbol": "603259", "name": "药明康德", "quantity": 500, "avg_cost": 120},
+        ],
+    }))
+    draft = service.create_draft_from_upload(
+        "trades.png",
+        "image/png",
+        b"fake",
+        options={
+            "screenshot_kind": "trade_history",
+            "parser_provider": "volcengine_ark_vision",
+            "cloud_send_consent": True,
+        },
+    )
+    result = service.confirm_draft(draft.draft_id, apply_transactions_to_portfolio=True)
+    snapshot = result["state"].snapshot
+    positions = {position.symbol.split(".", 1)[0]: position for position in snapshot.positions}
+
+    assert positions["601628"].quantity == 100
+    assert positions["601628"].avg_cost == 40.33
+    assert positions["603259"].quantity == 400
+    assert positions["603259"].avg_cost == pytest.approx(118.6035)
+    assert snapshot.cash_available == pytest.approx(58525.6)
+    assert result["transaction_batch"]["applied_to_portfolio"] is True
+
+
+def test_trade_screenshot_sale_can_create_negative_diluted_cost(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.portfolio.service.collector.get_quote", _fake_quote)
+    service = _service(tmp_path)
+    service.portfolio_service.save_snapshot(PortfolioSnapshotInput(**{
+        "cash_available": 0,
+        "positions": [
+            {"symbol": "603259", "name": "药明康德", "quantity": 500, "avg_cost": 120},
+        ],
+    }))
+    provider = MockVisionProvider(payload={
+        "source_view": {"platform_guess": "同花顺", "screenshot_displayed_time": None, "warnings": []},
+        "transactions": [{
+            "raw_symbol": "603259",
+            "raw_name": "药明康德",
+            "side": "sell",
+            "average_price": 200,
+            "quantity": 400,
+            "amount": 80000,
+            "occurred_at": None,
+            "warnings": [],
+        }],
+        "parse_warnings": [],
+    })
+    monkeypatch.setattr(service, "_provider_for", lambda provider_name: provider)
+
+    draft = service.create_draft_from_upload(
+        "trades.png",
+        "image/png",
+        b"fake",
+        options={
+            "screenshot_kind": "trade_history",
+            "parser_provider": "volcengine_ark_vision",
+            "cloud_send_consent": True,
+        },
+    )
+    result = service.confirm_draft(draft.draft_id, apply_transactions_to_portfolio=True)
+    position = result["state"].snapshot.positions[0]
+
+    assert position.quantity == 100
+    assert position.avg_cost == -200
 
 
 def test_cloud_confirm_source_and_block_available_quantity_over_quantity(tmp_path, monkeypatch):

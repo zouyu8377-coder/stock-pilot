@@ -1,0 +1,2 @@
+model,provider,model_version,reasoning_setting,case_id,run_number,hard_fail,hard_fail_reason,schema_score_0_2,factual_score_0_3,uncertainty_score_0_2,action_score_0_1,verification_score_0_1,clarity_score_0_1,total_score_0_10,latency_ms,input_tokens,output_tokens,estimated_cost,notes
+MODEL_NAME,PROVIDER,VERSION,SETTING,SP-01,1,false,,0,0,0,0,0,0,0,,,,,

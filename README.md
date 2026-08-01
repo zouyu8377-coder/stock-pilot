@@ -1,6 +1,6 @@
 # Stock-Pilot
 
-本地化 A 股账户驾驶舱与 AI 分析上下文工具。Stock-Pilot 不是自动交易系统，也不直接给出买卖指令；它把行情、持仓、成本、主题、事件、证据和数据缺口整理成可审计的账户上下文，帮助用户在本地完成投资复盘、风险检查和外部 AI 分析准备。
+本地化 A 股账户决策辅助与 AI Agent 实践项目，当前版本为 **v4.0.0**。Stock-Pilot 不是自动交易系统，也不直接给出买卖指令；它把行情、持仓、交易、成本、主题、事件、证据和数据缺口整理成可审计的账户上下文，并持续跟踪建议、执行与后续结果。
 
 ## Demo
 
@@ -10,15 +10,26 @@
 
 ## 当前重点能力
 
-- **账户驾驶舱**：展示当前估算总资产、仓位/现金、最大主题暴露、最大单票、账户加权健康度、平均吸引力和下一个重要事件。
+- **三层工作区**：一级入口收束为“驾驶舱、持仓与交易、发现与研究”，分别负责决策、事实维护和机会探索。
+- **账户驾驶舱**：集中展示资产与风险、最新 AI 复盘、待办任务、月度验证结果、重要事件和轮动机会 Top 3。
+- **AI 复盘闭环**：自动生成结构化复盘和取证任务，记录建议生命周期，并定期验证建议或已确认调仓的后续表现。
 - **组合级结论**：按持仓权重输出账户结论、持仓健康度、吸引力、准备度、风险队列、机会队列和改变结论的条件。
+- **轮动机会雷达**：以“潜在机会、早期转强、强势但等回踩、暂不参与”表达机会阶段，并公开对应 ETF 或龙头代理标的。
 - **事件雷达**：跟踪 CPI、非农、FOMC、TSMC、Micron 等宏观和产业事件，提示事件窗口、影响方向和相关持仓。
 - **主题证据雷达**：围绕 AI 服务器/PCB、有色金属、半导体设备、显示面板、绿电等方向组织证据、风险和覆盖度。
 - **吸引力雷达**：基于趋势、估值/价格位置、催化剂、执行约束、账户约束等维度，形成可解释的新增风险敞口观察分。
-- **组合维护**：手动维护账户快照、现金、成本、持仓角色、方向标签、风险标签和用户计划，保存后进入 Portfolio Packet。
+- **持仓与交易**：支持手动维护账户快照，也可拖拽导入持仓截图或交易截图；识别结果必须经用户确认，交易可独立留痕或用于更新当前持仓。
 - **新股/未上市标的纳入**：支持将已申购但未上市的新股作为 `ipo_subscription` 纳入组合上下文，使用发行价/手动成本进行本地估值，并在数据边界中标注行情缺口。
 - **单票与组合 Packet**：生成单票分析包、组合分析包和 AccountAnalysisContext，便于复制给外部 LLM 进行进一步分析。
-- **隐私边界**：账户数据默认本地处理；只有用户主动复制、导出或提交时，才进入外部分析流程。
+- **隐私边界**：账户数据默认保存在本地；截图只有在用户明确同意并主动上传时才发送给已配置的视觉模型。
+
+## 产品结构
+
+| 工作区 | 核心问题 | 主要内容 |
+| --- | --- | --- |
+| 驾驶舱 | 今天需要关注和处理什么？ | 账户状态、AI 复盘摘要、待办、结果验证、事件与轮动机会 |
+| 持仓与交易 | 当前事实是什么？ | 持仓、现金、截图导入、交易流水、历史快照、组合证据包 |
+| 发现与研究 | 还有哪些方向值得核查？ | 轮动雷达、代理标的、个股分析、主题与事件研究 |
 
 ## 项目结构
 
@@ -30,10 +41,13 @@ Stock-Pilot/
 │  │  ├─ ai/                LLM 请求与提示词构建
 │  │  ├─ analysis/          技术指标与基础分析
 │  │  ├─ analysis_packet/   单票/组合 Packet 与账户上下文
+│  │  ├─ agent_context/     Agent 可读取的结构化上下文
+│  │  ├─ agent_review/      自动复盘、任务、结果评价和月报
 │  │  ├─ attractiveness/    吸引力雷达
 │  │  ├─ collector/         行情与历史数据采集
-│  │  ├─ portfolio/         组合快照、驾驶舱、导入、IPO 注册表
+│  │  ├─ portfolio/         组合快照、驾驶舱、截图导入和交易流水
 │  │  ├─ quant/             量化信号与趋势证据
+│  │  ├─ rotation/          轮动代理池、阶段判断与本地缓存
 │  │  └─ theme_evidence/    主题证据雷达
 │  ├─ data/                 本地数据、缓存和组合快照
 │  └─ requirements.txt
@@ -53,8 +67,8 @@ Stock-Pilot/
 | 前端 | Vue 3, Vite, TypeScript, Tailwind CSS, lightweight-charts |
 | 后端 | FastAPI, Pydantic, pandas, pyarrow |
 | 数据 | 本地 parquet, portfolio JSON, Tushare/akshare/easyquotation 缓存 |
-| AI | OpenAI-compatible LLM API, Prompt Builder, AccountAnalysisContext |
-| 工程 | Docker Compose, pytest, GitHub README demo assets |
+| AI | OpenAI-compatible LLM API, MiniMax M3 视觉识别, Agent Review, AccountAnalysisContext |
+| 工程 | Docker Compose, pytest, Playwright/Vue 构建检查, GitHub README demo assets |
 
 ## 快速开始
 
@@ -132,7 +146,16 @@ docker-compose up --build
 | `GET /api/portfolio` | 读取本地组合状态 |
 | `PUT /api/portfolio` | 保存组合快照 |
 | `GET /api/portfolio/dashboard` | 账户驾驶舱数据 |
+| `POST /api/portfolio/import/screenshot` | 生成持仓或交易截图待确认草稿 |
+| `GET /api/portfolio/transactions` | 读取已确认交易流水 |
+| `GET /api/rotation/summary` | 读取轮动机会阶段与代理标的 |
 | `GET /api/portfolio/account-analysis-context` | 账户级 AI 上下文 |
+| `GET /api/agent/context/daily-review` | 本地 Agent 每日复盘上下文 |
+| `GET /api/agent/context/portfolio` | 本地 Agent 组合审计上下文 |
+| `GET /api/agent/context/rotation` | 本地 Agent 轮动机会上下文 |
+| `GET /api/agent/context/stock/{symbol}` | 本地 Agent 个股研究上下文 |
+| `POST /api/agent/review/cycle` | 执行一次复盘、取证与跟踪循环 |
+| `GET /api/agent/review/outcomes` | 读取建议及调仓结果评价 |
 | `POST /api/analysis-packet/single/{symbol}` | 生成单票 Packet |
 | `POST /api/analysis-packet/portfolio` | 生成组合 Packet |
 | `GET /api/stocks/search` | 股票/ETF/新股搜索 |

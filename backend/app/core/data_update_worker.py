@@ -9,6 +9,7 @@ from app.core.data_updater import (
     run_sync_update,
 )
 from app.core.etf_data_updater import load_etf_update_status, run_sync_etf_update
+from app.rotation.service import build_rotation_bundle
 
 
 def main():
@@ -61,6 +62,11 @@ def main():
             run_sync_etf_update(target_date, priority_only=False)
         else:
             print(f"[DataUpdaterWorker] ETF data already updated to {target_date}, skip ETF update")
+        rotation = build_rotation_bundle()
+        print(
+            "[DataUpdaterWorker] rotation evidence rebuilt: "
+            f"as_of={rotation.get('as_of')}, sectors={len(rotation.get('sectors', []))}"
+        )
     finally:
         try:
             UPDATE_LOCK_FILE.unlink()

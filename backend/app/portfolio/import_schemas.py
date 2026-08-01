@@ -22,6 +22,7 @@ ImportStatus = Literal[
 ]
 
 ParserProviderName = Literal["local_noop", "volcengine_ark_vision"]
+ScreenshotKind = Literal["current_holdings", "trade_history"]
 
 
 class SymbolCandidate(BaseModel):
@@ -83,12 +84,32 @@ class HoldingRowDraft(BaseModel):
     confirmed_by_user: bool = False
 
 
+class TransactionRowDraft(BaseModel):
+    row_id: str = Field(default_factory=lambda: f"trade_row_{uuid4().hex}")
+    raw_symbol_text: str = ""
+    raw_name_text: str = ""
+    raw_side_text: str = ""
+    normalized_symbol: str | None = None
+    normalized_name: str | None = None
+    symbol_match_status: str = "unresolved"
+    symbol_candidates: list[SymbolCandidate] = Field(default_factory=list)
+    side: Literal["buy", "sell"] | None = None
+    average_price: float | None = None
+    quantity: float | None = None
+    amount: float | None = None
+    occurred_at: datetime | None = None
+    row_confidence: float = 0
+    validation_warnings: list[str] = Field(default_factory=list)
+    confirmed_by_user: bool = False
+
+
 class PortfolioImportDraft(BaseModel):
     draft_id: str = Field(default_factory=lambda: f"draft_{uuid4().hex}")
     source_type: str = "broker_screenshot"
     source_name: str = "同花顺持仓截图"
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     image_reference: str
+    screenshot_kind: ScreenshotKind = "current_holdings"
     parser_provider: str = "local_noop"
     cloud_send_consent: bool = False
     user_notice_acknowledged_at: datetime | None = None
@@ -101,9 +122,17 @@ class PortfolioImportDraft(BaseModel):
     screenshot_displayed_time: str | None = None
     account_summary_draft: AccountSummaryDraft = Field(default_factory=AccountSummaryDraft)
     holding_rows_draft: list[HoldingRowDraft] = Field(default_factory=list)
+    transaction_rows_draft: list[TransactionRowDraft] = Field(default_factory=list)
+    transaction_apply_recommendation: Literal["apply", "record_only", "review_required"] | None = None
+    transaction_apply_reason: str | None = None
+    saved_transaction_batch_id: str | None = None
     parse_warnings: list[str] = Field(default_factory=list)
     unrecognized_fields: list[str] = Field(default_factory=list)
     provider_error_summary: str | None = None
+    provider_model: str | None = None
+    provider_prompt_version: str | None = None
+    provider_finish_reason: str | None = None
+    provider_usage: dict[str, int] = Field(default_factory=dict)
     confirmed_at: datetime | None = None
     saved_snapshot_id: str | None = None
 
@@ -111,10 +140,17 @@ class PortfolioImportDraft(BaseModel):
 class PortfolioImportDraftUpdate(BaseModel):
     account_summary_draft: AccountSummaryDraft | None = None
     holding_rows_draft: list[HoldingRowDraft] | None = None
+    transaction_rows_draft: list[TransactionRowDraft] | None = None
     parse_warnings: list[str] | None = None
 
 
 class PortfolioScreenshotImportOptions(BaseModel):
+    screenshot_kind: ScreenshotKind = "current_holdings"
     parser_provider: ParserProviderName = "local_noop"
     cloud_send_consent: bool = False
     user_notice_acknowledged_at: datetime | None = None
+
+
+class PortfolioImportConfirmOptions(BaseModel):
+    apply_transactions_to_portfolio: bool = True
+    user_reason: str | None = Field(default=None, max_length=500)

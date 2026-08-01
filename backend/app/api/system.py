@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.core.data_updater import get_last_trading_date, load_update_status
 from app.core.etf_data_updater import load_etf_update_status
+from app.rotation.service import load_rotation_status
 
 router = APIRouter()
 
@@ -21,6 +22,7 @@ def _shape_status(status: dict, target_date: str) -> dict:
         "last_trading_date": status.get("last_trading_date"),
         "completed_count": completed,
         "failed_count": failed,
+        "stale_count": int(status.get("stale_count") or 0),
         "total_symbols": total,
         "remaining_count": remaining or 0,
         "processed_count": int(status.get("processed_count") or 0),
@@ -45,14 +47,17 @@ def _shape_status(status: dict, target_date: str) -> dict:
 def cold_data_status():
     status = load_update_status()
     etf_status = load_etf_update_status()
+    rotation_status = load_rotation_status()
     target_date = status.get("target_date") or get_last_trading_date().isoformat()
     shaped = _shape_status(status, target_date)
     etf_shaped = _shape_status(etf_status, target_date)
+    rotation_shaped = _shape_status(rotation_status, rotation_status.get("target_date") or target_date)
 
     return {
         **shaped,
         "components": {
             "stock": shaped,
             "etf": etf_shaped,
+            "rotation": rotation_shaped,
         },
     }

@@ -15,15 +15,20 @@ from app.core.config import settings
 PORTFOLIO_VISION_EXTRACTION_PROMPT = """
 你是证券持仓截图结构化提取器，不是投资顾问。
 
-请仅根据图片中清晰可见的文字和数字，提取账户摘要与持仓行数据，返回严格 JSON。
-不得推测图片中不存在的信息，不得补全不清晰数字，不得提供投资分析或买卖建议。
-对于不确定字段，返回 null，并在 warnings 中说明。
-股票代码与股票名称仅提取图片可见原文，后续由本地系统标准化校验。
+任务：仅提取图片中清晰可见的账户摘要和全部持仓行。
+规则：
+1. 只输出一个 JSON 对象；禁止 Markdown、代码围栏、解释和思考过程。
+2. 不得推测、补全或给出投资建议；图片未显示或不确定的字段必须为 null。
+3. 成本/现价通常在同一列上下排列，必须按表头顺序读取。
+4. 异常负成本、负盈亏或异常百分比必须保留图片原值，不得修正。
+5. 股票代码不可见时 raw_symbol=null，不得用名称代替代码。
+6. warnings 每行最多 2 条，parse_warnings 最多 4 条，每条不超过 40 个汉字。
+7. 禁止增加下列结构之外的字段，数值不得带逗号、货币符号或百分号。
 
-返回结构必须等价于：
+输出结构：
 {
   "source_view": {
-    "platform_guess": "同花顺或 null",
+    "platform_guess": null,
     "screenshot_displayed_time": null,
     "warnings": []
   },
@@ -52,8 +57,47 @@ PORTFOLIO_VISION_EXTRACTION_PROMPT = """
   "unrecognized_text": [],
   "parse_warnings": []
 }
-图片未显示的字段必须返回 null。不要输出投资建议或买卖结论。
 """.strip()
+PORTFOLIO_VISION_PROMPT_VERSION = "portfolio_vision.minimax.v2"
+TRADE_VISION_PROMPT_VERSION = "trade_vision.minimax.v1"
+TRADE_VISION_EXTRACTION_PROMPT = """
+你是证券成交截图结构化提取器，不是投资顾问。
+
+任务：仅提取图片中清晰可见的全部成交记录。
+规则：
+1. 只输出一个 JSON 对象；禁止 Markdown、代码围栏、解释和思考过程。
+2. 不得推测代码、成交日期或其他未显示信息；未显示字段必须为 null。
+3. 买入标准化为 buy，卖出标准化为 sell。
+4. 必须分别提取成交均价、成交量和成交额，不得使用行情现价替代。
+5. 数值不得带逗号、货币符号或单位；异常值按图片原文保留。
+6. warnings 每行最多 2 条，parse_warnings 最多 4 条，每条不超过 40 个汉字。
+7. 禁止增加下列结构之外的字段。
+
+输出结构：
+{
+  "source_view": {
+    "platform_guess": null,
+    "screenshot_displayed_time": null,
+    "warnings": []
+  },
+  "transactions": [
+    {
+      "raw_symbol": null,
+      "raw_name": null,
+      "side": null,
+      "average_price": null,
+      "quantity": null,
+      "amount": null,
+      "occurred_at": null,
+      "warnings": []
+    }
+  ],
+  "parse_warnings": []
+}
+""".strip()
+MAX_HOLDING_ROWS = 80
+MAX_WARNING_ITEMS = 4
+MAX_WARNING_LENGTH = 80
 
 
 @dataclass
@@ -64,12 +108,16 @@ class OcrResult:
     warnings: list[str] | None = None
     structured_payload: dict[str, Any] | None = None
     error_summary: str | None = None
+    model_name: str | None = None
+    prompt_version: str | None = None
+    finish_reason: str | None = None
+    usage: dict[str, int] | None = None
 
 
 class PortfolioImageParserProvider(Protocol):
     provider_name: str
 
-    def parse_image(self, image_path: Path) -> OcrResult:
+    def parse_image(self, image_path: Path, screenshot_kind: str = "current_holdings") -> OcrResult:
         ...
 
 
@@ -120,6 +168,79 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     raise ValueError("model response is not strict JSON")
 
 
+def _warnings(value: Any, limit: int = MAX_WARNING_ITEMS) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [
+        str(item).strip()[:MAX_WARNING_LENGTH]
+        for item in value[:limit]
+        if str(item).strip()
+    ]
+
+
+def _normalize_structured_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    source = payload.get("source_view") if isinstance(payload.get("source_view"), dict) else {}
+    account = payload.get("account_summary") if isinstance(payload.get("account_summary"), dict) else {}
+    account_fields = (
+        "total_assets",
+        "cash_available",
+        "total_market_value",
+        "total_unrealized_pnl",
+        "repo_amount",
+        "repo_available_date",
+    )
+    holding_fields = (
+        "raw_symbol",
+        "raw_name",
+        "quantity",
+        "available_quantity",
+        "avg_cost",
+        "screenshot_price",
+        "market_value",
+        "unrealized_pnl",
+        "unrealized_pnl_pct",
+    )
+    holdings: list[dict[str, Any]] = []
+    for item in (payload.get("holdings") or [])[:MAX_HOLDING_ROWS]:
+        if not isinstance(item, dict):
+            continue
+        row = {key: item.get(key) for key in holding_fields}
+        row["warnings"] = _warnings(item.get("warnings"), limit=2)
+        holdings.append(row)
+    return {
+        "source_view": {
+            "platform_guess": source.get("platform_guess"),
+            "screenshot_displayed_time": source.get("screenshot_displayed_time"),
+            "warnings": _warnings(source.get("warnings")),
+        },
+        "account_summary": {key: account.get(key) for key in account_fields},
+        "holdings": holdings,
+        "unrecognized_text": _warnings(payload.get("unrecognized_text")),
+        "parse_warnings": _warnings(payload.get("parse_warnings")),
+    }
+
+
+def _normalize_trade_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    source = payload.get("source_view") if isinstance(payload.get("source_view"), dict) else {}
+    transactions: list[dict[str, Any]] = []
+    fields = ("raw_symbol", "raw_name", "side", "average_price", "quantity", "amount", "occurred_at")
+    for item in (payload.get("transactions") or [])[:MAX_HOLDING_ROWS]:
+        if not isinstance(item, dict):
+            continue
+        row = {key: item.get(key) for key in fields}
+        row["warnings"] = _warnings(item.get("warnings"), limit=2)
+        transactions.append(row)
+    return {
+        "source_view": {
+            "platform_guess": source.get("platform_guess"),
+            "screenshot_displayed_time": source.get("screenshot_displayed_time"),
+            "warnings": _warnings(source.get("warnings")),
+        },
+        "transactions": transactions,
+        "parse_warnings": _warnings(payload.get("parse_warnings")),
+    }
+
+
 def volcengine_ark_vision_status() -> dict[str, Any]:
     if not settings.VOLCENGINE_ARK_VISION_ENABLED:
         return {
@@ -154,6 +275,8 @@ def volcengine_ark_vision_status() -> dict[str, Any]:
         "base_url_configured": True,
         "api_key_configured": True,
         "timeout_seconds": settings.VOLCENGINE_ARK_VISION_TIMEOUT,
+        "max_output_tokens": settings.VOLCENGINE_ARK_VISION_MAX_TOKENS,
+        "prompt_version": PORTFOLIO_VISION_PROMPT_VERSION,
     }
 
 
@@ -163,7 +286,7 @@ class VolcengineArkVisionPortfolioImageParser:
     def __init__(self, http_post: Any | None = None):
         self.http_post = http_post or requests.post
 
-    def parse_image(self, image_path: Path) -> OcrResult:
+    def parse_image(self, image_path: Path, screenshot_kind: str = "current_holdings") -> OcrResult:
         status = volcengine_ark_vision_status()
         if status["status"] != "configured_not_verified":
             return OcrResult(
@@ -184,14 +307,22 @@ class VolcengineArkVisionPortfolioImageParser:
             url = settings.VOLCENGINE_ARK_VISION_BASE_URL.rstrip("/")
             if not url.endswith("/chat/completions"):
                 url = f"{url}/chat/completions"
+            trade_mode = screenshot_kind == "trade_history"
+            prompt = TRADE_VISION_EXTRACTION_PROMPT if trade_mode else PORTFOLIO_VISION_EXTRACTION_PROMPT
+            prompt_version = TRADE_VISION_PROMPT_VERSION if trade_mode else PORTFOLIO_VISION_PROMPT_VERSION
+            user_instruction = (
+                "提取这张成交截图中的全部交易行，只返回 JSON。"
+                if trade_mode
+                else "提取这张持仓截图中的账户摘要和全部持仓行，只返回 JSON。"
+            )
             payload: dict[str, Any] = {
                 "model": settings.VOLCENGINE_ARK_VISION_MODEL,
                 "messages": [
-                    {"role": "system", "content": PORTFOLIO_VISION_EXTRACTION_PROMPT},
+                    {"role": "system", "content": prompt},
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "请仅提取这张持仓截图中的账户摘要和持仓行，返回严格 JSON。"},
+                            {"type": "text", "text": user_instruction},
                             {"type": "image_url", "image_url": {"url": data_url}},
                         ],
                     },
@@ -216,16 +347,30 @@ class VolcengineArkVisionPortfolioImageParser:
                 body = (response.text or "")[:500]
                 raise RuntimeError(f"HTTP {response.status_code}: {body}") from exc
             data = response.json()
-            content = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content", "")
+            choice = (data.get("choices") or [{}])[0]
+            finish_reason = choice.get("finish_reason")
+            content = (choice.get("message") or {}).get("content", "")
             if isinstance(content, list):
                 content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
-            parsed = _extract_json_object(str(content))
+            if finish_reason == "length":
+                raise ValueError("模型输出达到 token 上限，已拒绝不完整 JSON")
+            raw_payload = _extract_json_object(str(content))
+            parsed = _normalize_trade_payload(raw_payload) if trade_mode else _normalize_structured_payload(raw_payload)
+            usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
             return OcrResult(
                 provider_name=self.provider_name,
                 status="draft_parsed",
                 raw_text="[cloud vision structured JSON omitted]",
                 warnings=["云端视觉识别结果为待核对草稿，确认前不会写入正式账户快照。"],
                 structured_payload=parsed,
+                model_name=settings.VOLCENGINE_ARK_VISION_MODEL,
+                prompt_version=prompt_version,
+                finish_reason=finish_reason,
+                usage={
+                    "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+                    "completion_tokens": int(usage.get("completion_tokens") or 0),
+                    "total_tokens": int(usage.get("total_tokens") or 0),
+                },
             )
         except requests.Timeout as exc:
             return OcrResult(

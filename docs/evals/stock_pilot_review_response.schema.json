@@ -1,0 +1,154 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "review_type",
+    "data_status",
+    "conclusions",
+    "verification_tasks",
+    "summary"
+  ],
+  "properties": {
+    "review_type": {
+      "type": "string",
+      "enum": [
+        "daily_review",
+        "portfolio_review",
+        "rotation_review",
+        "stock_review"
+      ]
+    },
+    "data_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "usable",
+        "stale_evidence_refs",
+        "missing_evidence_refs",
+        "summary"
+      ],
+      "properties": {
+        "usable": {
+          "type": "boolean"
+        },
+        "stale_evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing_evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "conclusions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "conclusion_id",
+          "type",
+          "subject",
+          "claim",
+          "confidence",
+          "evidence_refs",
+          "counter_evidence_refs",
+          "action_semantics",
+          "invalidation_conditions"
+        ],
+        "properties": {
+          "conclusion_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "opportunity",
+              "risk",
+              "watch",
+              "no_conclusion"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "counter_evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "action_semantics": {
+            "type": "string"
+          },
+          "invalidation_conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "verification_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "priority",
+          "subject",
+          "task",
+          "reason"
+        ],
+        "properties": {
+          "priority": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "task": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  }
+}

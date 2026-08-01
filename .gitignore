@@ -56,6 +56,12 @@ backend/data/cache/
 backend/data/history/
 backend/data/indicators/
 backend/data/deep_analysis/
+backend/data/evals/
+backend/data/agent_reviews/
+backend/data/agent_tasks/
+backend/data/agent_outcomes/
+backend/data/agent_automation/
+backend/data/agent_learning/
 backend/data/analysis_snapshots/
 backend/data/portfolio/
 backend/data/portfolio_imports/
