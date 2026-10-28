@@ -10,12 +10,13 @@ class CollectorRouter:
     - provider failover
     """
 
-    def __init__(self):
+    def __init__(self, *, allow_mock: bool = False):
         self.providers = [
             EasyQuotationProvider(),
             LocalColdQuoteProvider(),
-            MockRealtimeProvider(),
         ]
+        if allow_mock:
+            self.providers.append(MockRealtimeProvider())
         self.history_provider = BaseMarketProvider()
 
     def get_quote(self, symbol: str):

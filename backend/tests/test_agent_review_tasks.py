@@ -325,6 +325,10 @@ def test_spaced_etf_name_and_financial_type_resolve_to_disclosure(task_store):
 
 
 def test_disclosure_snapshot_combines_public_facts_and_local_verification(monkeypatch):
+    from app.disclosure_verification import service
+    monkeypatch.setattr(service, "verify_symbol_disclosures", lambda symbol: {
+        "status": "verified", "counts": {"supported": 1},
+    })
     monkeypatch.setattr(
         tasks,
         "get_disclosure_facts",

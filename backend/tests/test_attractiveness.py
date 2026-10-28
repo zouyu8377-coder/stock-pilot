@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.attractiveness import service
 from app.portfolio.schemas import PortfolioPositionInput, PortfolioSnapshotInput
 from app.portfolio.service import PortfolioService
@@ -7,6 +9,15 @@ from app.portfolio.service import PortfolioService
 
 def _quote(symbol: str):
     return {"symbol": symbol, "name": symbol, "price": 100, "provider": "test"}
+
+
+@pytest.fixture(autouse=True)
+def _disable_remote_disclosures(monkeypatch):
+    monkeypatch.setattr(
+        service,
+        "get_disclosure_facts",
+        lambda symbol: {"data_status": "unavailable", "data": {"announcements": [], "surveys": []}},
+    )
 
 
 def test_attractiveness_scores_available_dimensions_without_neutral_valuation(tmp_path, monkeypatch):
@@ -68,18 +79,19 @@ def test_attractiveness_scores_available_dimensions_without_neutral_valuation(tm
     )
 
     row = radar["positions"][0]
-    valuation = next(item for item in row["dimensions"] if item["key"] == "valuation_consensus")
+    valuation = next(item for item in row["dimensions"] if item["key"] == "valuation_reference")
     assert row["score"] >= 65
     assert row["coverage"] < 100
     assert valuation["score"] is None
     assert valuation["coverage"] == 0
+    assert valuation["weight"] == 0
     assert row["execution_constraints"]["t_plus_one_modeled"] is False
     assert row["execution_constraints"]["all_existing_holdings_available"] is True
     assert "account_constraints" in row
     assert 0 <= row["account_readiness_score"] <= 100
 
 
-def test_local_price_position_fills_valuation_dimension(monkeypatch):
+def test_local_price_position_is_a_complete_weighted_dimension(monkeypatch):
     monkeypatch.setattr(
         service,
         "get_valuation_reference",
@@ -91,11 +103,11 @@ def test_local_price_position_fills_valuation_dimension(monkeypatch):
         },
     )
 
-    dimension = service._valuation_dimension("002463", 40, {"symbols": {}})
+    dimension = service._price_position_dimension(service.get_valuation_reference("002463"))
 
     assert dimension["score"] == 75
-    assert dimension["coverage"] == 60
-    assert "自身3年价格分位" in dimension["reasons"][0]
+    assert dimension["coverage"] == 30
+    assert "价格分位" in dimension["reasons"][0]
 
 
 def test_etf_share_fact_fills_evidence_without_theme_mapping():
@@ -132,10 +144,30 @@ def test_attractiveness_uses_multi_institution_target_price_reference(tmp_path, 
         persist_history=True,
     )
 
-    valuation = next(item for item in radar["positions"][0]["dimensions"] if item["key"] == "valuation_consensus")
+    valuation = next(item for item in radar["positions"][0]["dimensions"] if item["key"] == "valuation_reference")
     assert valuation["score"] > 50
     assert valuation["coverage"] > 0
     assert valuation["reference"]["implied_upside_pct"] == 25.0
+
+
+def test_announcement_index_provides_neutral_evidence_before_primary_text_verification():
+    dimension = service._evidence_dimension(
+        {},
+        disclosure={
+            "data_status": "available",
+            "data": {
+                "announcements": [{"ann_date": "2026-08-15", "title": "临时公告"}],
+                "surveys": [],
+                "announcement_source": "cninfo.official",
+            },
+        },
+        trend={"data_status": "available"},
+    )
+
+    assert dimension["score"] == 50
+    assert dimension["coverage"] == 50
+    assert dimension["evidence_sources"]["announcement_index"] is True
+    assert dimension["evidence_sources"]["primary_text_verified"] is False
 
 
 def test_evidence_change_compares_previous_snapshot():

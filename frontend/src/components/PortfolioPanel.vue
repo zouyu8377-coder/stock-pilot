@@ -53,6 +53,7 @@ const supportedDirections = ['COPPER', 'GOLD', 'PCB', 'AI', 'SEMICONDUCTOR_EQUIP
 const positionRoles = ['core', 'trend', 'defensive', 'short_term', 'observation', 'unclassified']
 
 const expanded = ref(false)
+const emit = defineEmits<{ (event: 'account-saved'): void; (event: 'close'): void }>()
 const loading = ref(false)
 const saving = ref(false)
 const state = ref<PortfolioState | null>(null)
@@ -170,6 +171,13 @@ const themeLabelMap: Record<string, string> = {
   TUNGSTEN: '钨',
   PCB: 'PCB',
   SEMICONDUCTOR_EQUIPMENT: '半导体设备',
+  CXO: 'CXO',
+  INNOVATION_DRUG: '创新药',
+  MEDICAL_ETF: '医药ETF',
+  INSURANCE: '保险',
+  MOLYBDENUM: '钼',
+  EV_AUTOMOTIVE: '新能源车 / 整车',
+  METAL_RESOURCE: '金属资源',
   OTHER: '其他',
   UNCLASSIFIED: '待分类',
   HIGH_VOLATILITY: '高波动',
@@ -535,6 +543,7 @@ const confirmImportedPortfolio = async () => {
     tradeReasonQuestions.value = []
     if (importFileInput.value) importFileInput.value.value = ''
     await load()
+    emit('account-saved')
   } catch (error: any) {
     importError.value = error?.response?.data?.detail || error?.message || '确认保存失败'
   } finally {
@@ -831,12 +840,12 @@ onMounted(load)
 
 <template>
   <section class="mb-4 overflow-hidden rounded-lg border border-border bg-card">
-    <button class="flex w-full items-center justify-between px-4 py-3 text-left" @click="expanded = !expanded">
-      <div>
+    <button class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left" @click="expanded = !expanded">
+      <div class="min-w-0">
         <h2 class="text-sm font-semibold text-foreground">组合与手动账户快照</h2>
         <p class="text-[11px] text-muted-foreground">手动维护持仓、确认主题归属与持仓角色；保存后进入 Portfolio Packet 和未来账户级 AI 输入。</p>
       </div>
-      <span class="text-xs text-muted-foreground">{{ expanded ? '收起' : '展开' }}</span>
+      <span class="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{{ expanded ? '收起' : '展开' }}</span>
     </button>
 
     <div v-if="expanded" class="space-y-4 border-t border-border p-4">
@@ -1120,7 +1129,7 @@ onMounted(load)
           </div>
           <div class="rounded bg-secondary/40 p-3">
             <div class="text-muted-foreground">账户总盈亏</div>
-            <div v-if="accountTotalPnl !== null" :class="['font-mono text-base font-semibold', accountTotalPnl >= 0 ? 'text-negative' : 'text-positive']">
+            <div v-if="accountTotalPnl !== null" :class="['font-mono text-base font-semibold', accountTotalPnl >= 0 ? 'text-market-up' : 'text-market-down']">
               {{ signedFmt(accountTotalPnl) }} <span class="text-xs">{{ signedFmt(accountTotalPnlPct, '%') }}</span>
             </div>
             <div v-else class="text-xs font-medium text-muted-foreground">
@@ -1260,7 +1269,7 @@ onMounted(load)
                 <td class="p-2"><input v-model.number="row.avg_cost" class="h-9 w-full rounded bg-input px-2 text-right font-mono" step="0.001" type="number" /></td>
                 <td class="p-2 text-right font-mono">
                   <div>{{ fmt(displayPrice(row)) }}</div>
-                  <div :class="['text-[11px]', Number(row.quote?.change_pct || 0) >= 0 ? 'text-negative' : 'text-positive']">
+                  <div :class="['text-[11px]', Number(row.quote?.change_pct || 0) > 0 ? 'text-market-up' : Number(row.quote?.change_pct || 0) < 0 ? 'text-market-down' : 'text-muted-foreground']">
                     {{ row.asset_type === 'ipo_subscription' && !row.quote?.change_pct ? 'IPO/待上市' : signedFmt(row.quote?.change_pct, '%') }}
                   </div>
                 </td>

@@ -60,8 +60,8 @@ def _weight_map(state: PortfolioState, weights: dict[str, float] | None) -> dict
     return result
 
 
-def _position_tags(position: PortfolioPosition) -> set[str]:
-    return {
+def _position_tags(position: PortfolioPosition, ai_classification: dict[str, Any] | None = None) -> set[str]:
+    result = {
         str(tag).strip().upper()
         for tag in [
             *(position.directions or []),
@@ -70,6 +70,38 @@ def _position_tags(position: PortfolioPosition) -> set[str]:
         ]
         if str(tag).strip()
     }
+    if ai_classification and float(ai_classification.get("confidence") or 0) >= 0.6:
+        result.update(str(tag).strip().upper() for tag in ai_classification.get("directions", []) if str(tag).strip())
+    return result
+
+
+def _ai_mapping(ai_classification: dict[str, Any]) -> dict[str, Any]:
+    directions = {str(item).upper() for item in ai_classification.get("directions", [])}
+    base = {
+        "role_in_theme": ai_classification.get("role") or "AI 分类主题关联",
+        "relation_strength": "medium",
+        "thesis_status": "needs_verification",
+        "open_questions": ["最新公告或定期报告能否验证主营、收入、订单或利润的主题相关性？"],
+        "invalid_condition": "AI 分类与公司公告正文或产品披露不一致。",
+    }
+    if "CXO" in directions:
+        return {**base, "role_in_theme": "CXO 研发生产外包服务", "open_questions": ["在手订单或客户项目需求是否改善？", "产能利用率、收入增长与利润率是否同步验证？", "海外政策、客户研发投入是否改变经营预期？"], "invalid_condition": "订单、产能利用率或收入增长持续弱于预期，或海外政策显著恶化。"}
+    if "INNOVATION_DRUG" in directions:
+        return {
+            **base,
+            "role_in_theme": "创新药研发与商业化主体",
+            "open_questions": [
+                "核心管线的临床、审批、商业化或新适应症进展是否符合预期？",
+                "产品放量、收入增长、研发投入与利润率能否持续验证业绩逻辑？",
+                "医保、集采、监管政策与竞争格局是否改变预期回报或估值溢价？",
+            ],
+            "invalid_condition": "核心管线临床、审批或商业化显著不及预期；收入和利润增长不能支撑估值逻辑；或医保、集采、监管与竞争环境明显恶化。",
+        }
+    if "MEDICAL_ETF" in directions:
+        return {**base, "role_in_theme": "医药行业 ETF 暴露", "open_questions": ["成分股结构是否仍代表医药主线？", "医药政策与创新药监管环境是否发生方向性变化？", "份额或资金流能否验证主题资金关注？"], "invalid_condition": "成分结构明显偏离医药主线，且政策或资金流持续转弱。"}
+    if "INSURANCE" in directions:
+        return {**base, "role_in_theme": "保险经营与投资收益敏感资产", "open_questions": ["保费、新业务价值和投资收益是否与定期报告一致？", "利率与资本市场变化如何影响资产端和负债端？"], "invalid_condition": "保费、投资收益或偿付能力证据持续走弱。"}
+    return base
 
 
 def _event_channels(market_event_radar: dict[str, Any] | None) -> set[str]:
@@ -101,6 +133,7 @@ def _related_position(
     mapping: dict[str, Any],
     matched_tags: list[str],
     weight_pct: float,
+    ai_classification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from app.disclosure_verification import load_disclosure_verification
 
@@ -130,6 +163,7 @@ def _related_position(
         "open_questions": list(mapping.get("open_questions") or [])[:3],
         "invalid_condition": mapping.get("invalid_condition") or "主题相关证据无法持续验证。",
         "announcement_verification": verification,
+        "ai_direction_classification": ai_classification or None,
     }
 
 
@@ -141,6 +175,8 @@ def build_theme_evidence_radar(
     market_event_radar: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     registry = theme_registry or load_theme_evidence_registry()
+    from app.direction_classification import get_direction_classifications
+    ai_by_symbol = get_direction_classifications().get("by_symbol", {})
     weight_by_symbol = _weight_map(state, weights)
     active_event_channels = _event_channels(market_event_radar)
     themes: list[dict[str, Any]] = []
@@ -156,22 +192,31 @@ def build_theme_evidence_radar(
 
         for position in state.snapshot.positions:
             symbol = _compact_symbol(position.symbol)
-            tags = _position_tags(position)
+            ai_classification = ai_by_symbol.get(symbol)
+            tags = _position_tags(position, ai_classification)
             mapping = mappings.get(symbol)
             matched_theme = sorted(tags & theme_tags)
             matched_candidate = sorted(tags & candidate_tags)
-            if not mapping and not matched_theme and not matched_candidate:
+            ai_theme_hit = bool(ai_classification and seed.get("theme_id") in (ai_classification.get("theme_ids") or []))
+            if not mapping and not matched_theme and not matched_candidate and not ai_theme_hit:
                 continue
 
+            if ai_theme_hit and "AI_CLASSIFIED" not in matched_theme:
+                matched_theme.append("AI_CLASSIFIED")
             direct_theme_hit = direct_theme_hit or bool(matched_theme)
             candidate_hit = candidate_hit or bool(matched_candidate)
             high_volatility = high_volatility or "HIGH_VOLATILITY" in set(position.risk_flags or [])
-            fallback_mapping = {
-                "role_in_theme": "标签命中的主题候选，产业链角色待核验",
+            ai_role = (ai_classification or {}).get("role")
+            fallback_mapping = _ai_mapping(ai_classification) if ai_classification else {
+                "role_in_theme": ai_role or "标签命中的主题候选，产业链角色待核验",
                 "relation_strength": "weak",
                 "thesis_status": "weak_relation_needs_verification",
-                "open_questions": ["标签关联是否能够由收入、订单或利润证据验证？"],
-                "invalid_condition": "仅有标签关联，缺少业务或利润证据。",
+                "open_questions": [
+                    "AI方向关联是否能够由主营、收入、订单或利润证据验证？"
+                    if ai_classification else "标签关联是否能够由收入、订单或利润证据验证？"
+                ],
+                "invalid_condition": "AI方向分类与公告正文或主营披露不一致，或缺少业务与利润证据。"
+                if ai_classification else "仅有标签关联，缺少业务或利润证据。",
             }
             related.append(
                 _related_position(
@@ -179,6 +224,7 @@ def build_theme_evidence_radar(
                     mapping or fallback_mapping,
                     sorted(set([*matched_theme, *matched_candidate])),
                     weight_by_symbol.get(symbol, 0.0),
+                    ai_classification,
                 )
             )
 

@@ -39,6 +39,16 @@ class ReviewItem(BaseModel):
     counter_evidence_refs: list[str] = Field(default_factory=list, max_length=3)
     action_semantics: str = Field(max_length=120)
     invalidation_conditions: list[str] = Field(default_factory=list, max_length=2)
+    suggested_action: Literal["hold", "increase", "reduce", "watch", "wait"] = "watch"
+    trigger_condition: str = Field(default="", max_length=120)
+    horizon: str = Field(default="", max_length=40)
+    target_symbols: list[str] = Field(default_factory=list, max_length=3)
+    account_impact: str = Field(default="", max_length=120)
+    decision_basis: list[str] = Field(default_factory=list, max_length=3)
+    counter_scenario: str = Field(default="", max_length=160)
+    technical_analysis: str = Field(default="", max_length=180)
+    news_analysis: str = Field(default="", max_length=180)
+    confidence_reason: str = Field(default="", max_length=160)
 
 
 class VerificationTask(BaseModel):
@@ -76,7 +86,8 @@ class DecisionFocus(BaseModel):
 class DailyOperationReflection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action_id: str = Field(min_length=1, max_length=80)
+    # Snapshot-derived operation ids include two UUIDs plus the symbol.
+    action_id: str = Field(min_length=1, max_length=220)
     symbol: str = Field(pattern=r"^\d{6}$")
     name: str = Field(max_length=30)
     action_type: Literal["buy", "sell"]

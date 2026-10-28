@@ -1,6 +1,8 @@
 import asyncio
 import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
@@ -26,6 +28,8 @@ from app.agent_review.automation import (
     run_automatic_cycle,
     update_automation_settings,
 )
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 from app.agent_review.outcomes import (
     annotate_portfolio_action,
     capture_portfolio_actions,
@@ -40,8 +44,164 @@ from app.agent_review.learning_policy import learning_policy_snapshot
 router = APIRouter(prefix="/agent/review", tags=["agent-review"])
 _review_lock = asyncio.Lock()
 
+from app.agent_review import plans
+from app.agent_review import discussion
+
+
+@router.get("/discussion")
+def discussion_status():
+    try:
+        return {"data": discussion.status()}
+    except BlockingIOError as exc:
+        raise HTTPException(409, "Discussion files are busy; retry shortly") from exc
+
+
+@router.post("/discussion/start")
+def discussion_start(body: discussion.Start):
+    try:
+        return {"data": discussion.start(body)}
+    except BlockingIOError as exc:
+        raise HTTPException(409, "Discussion files are busy; retry shortly") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/discussion/import")
+def discussion_import(body: discussion.Import):
+    try:
+        return {"data": discussion.stage(body.result)}
+    except BlockingIOError as exc:
+        raise HTTPException(409, "Discussion files are busy; retry shortly") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/discussion/confirm")
+def discussion_confirm(body: discussion.Confirm):
+    try:
+        return {"data": discussion.confirm(body.preview_digest)}
+    except BlockingIOError as exc:
+        raise HTTPException(409, "Discussion files are busy; retry shortly") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/discussion/supplement")
+def discussion_supplement():
+    try:
+        return {"data": discussion.supplement()}
+    except BlockingIOError as exc:
+        raise HTTPException(409, "Discussion files are busy; retry shortly") from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/plans")
+def get_plans():
+    return {"data": plans.view()}
+
+
+@router.get("/plans/monitor")
+def get_plan_monitor():
+    from app.agent_review.plan_engine import status
+    return {"data": status()}
+
+
+@router.post("/plans/monitor")
+def run_plan_monitor():
+    from app.agent_review.plan_engine import start
+    return {"data": start()}
+
+
+class PlanEngineSettings(BaseModel):
+    enabled: bool
+    external_only: bool
+
+
+@router.post("/plans/settings")
+def set_plan_engine_settings(body: PlanEngineSettings):
+    from app.agent_review.plan_engine import configure
+    return {"data": configure(body.enabled, body.external_only)}
+
+
+@router.post("/plans/memory")
+def save_plan_memory(body: plans.Memory):
+    try:
+        return {"data": plans.add_memory(body)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ResearchUpdate(BaseModel):
+    status: str
+    note: str = Field(default="", max_length=6000)
+
+
+@router.post("/plans/memory/{memory_id}")
+def review_plan_memory(memory_id: str, body: ResearchUpdate):
+    try:
+        return {"data": plans.review_memory(memory_id, body.status)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/plans/needs/{need_id}")
+def update_plan_need(need_id: str, body: ResearchUpdate):
+    try:
+        return {"data": plans.update_need(need_id, body.status, body.note)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/plans/export")
+async def export_plan_discussion(body: plans.Discussion):
+    try:
+        return {"data": await asyncio.to_thread(plans.export_discussion, body)}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class PlanImport(BaseModel):
+    result_json: str = Field(max_length=100000)
+    confirm: bool = False
+
+
+@router.post("/plans/import")
+def import_plan_discussion(body: PlanImport):
+    import json
+    try:
+        return {"data": plans.import_proposal(json.loads(body.result_json), body.confirm)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class ExternalResult(BaseModel):
+    result_json: str = Field(max_length=100000)
+    confirm: bool = False
+
+
+@router.post("/exchange/export")
+async def export_external_analysis():
+    from app.agent_review.exchange import export_request
+    try:
+        return {"success": True, "data": await asyncio.to_thread(export_request)}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/exchange/import")
+async def import_external_analysis(body: ExternalResult):
+    from app.agent_review.exchange import import_result
+    from app.agent_review.service import _extract_json
+    try:
+        result = _extract_json(body.result_json)
+        return {"success": True, "data": await asyncio.to_thread(import_result, result, confirm=body.confirm)}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 
 class AutomationSettingsUpdate(BaseModel):
+    analysis_after_account_update: bool | None = None
     enabled: bool | None = None
     run_time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     premarket_enabled: bool | None = None
@@ -50,12 +210,34 @@ class AutomationSettingsUpdate(BaseModel):
     auto_execute_tools: bool | None = None
     auto_model_review: bool | None = None
     max_model_calls_per_day: int | None = Field(default=None, ge=0, le=3)
+    max_proactive_tasks_per_day: int | None = Field(default=None, ge=1, le=8)
 
 
 class ActionAnnotation(BaseModel):
     confirmed: bool
     reason: str | None = Field(default=None, max_length=500)
     dismissed: bool = False
+
+
+class DecisionResponse(BaseModel):
+    version: str = Field(min_length=1, max_length=64)
+    state: str = Field(pattern="^(pending|monitoring|dismissed)$")
+    note: str = Field(default="", max_length=500)
+
+
+@router.get("/workbench")
+def research_workbench():
+    from app.agent_review.research import build_workbench
+    return {"success": True, "data": build_workbench()}
+
+
+@router.post("/workbench/{action_id}/response")
+def respond_to_decision(action_id: str, body: DecisionResponse):
+    from app.agent_review.research import respond_to_action
+    try:
+        return {"success": True, "data": respond_to_action(action_id, body.version, body.state, body.note)}
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/status")
@@ -135,7 +317,7 @@ async def execute_pending_agent_review_tasks():
 async def create_daily_agent_review(force_context: bool = Query(False)):
     if _review_lock.locked():
         raise HTTPException(status_code=409, detail="已有复盘任务正在运行")
-    timeout_seconds = float(os.getenv("AGENT_REVIEW_REQUEST_TIMEOUT_SECONDS", "240"))
+    timeout_seconds = float(os.getenv("AGENT_REVIEW_REQUEST_TIMEOUT_SECONDS", "540"))
     async with _review_lock:
         try:
             result = await asyncio.wait_for(
@@ -154,7 +336,7 @@ async def run_agent_review_cycle():
     if _review_lock.locked():
         raise HTTPException(status_code=409, detail="已有复盘任务正在运行")
     latest, _ = _latest_tasks()
-    timeout_seconds = float(os.getenv("AGENT_REVIEW_REQUEST_TIMEOUT_SECONDS", "240")) + 90
+    timeout_seconds = float(os.getenv("AGENT_REVIEW_REQUEST_TIMEOUT_SECONDS", "540")) + 90
     async with _review_lock:
         try:
             executed = await asyncio.to_thread(
@@ -184,6 +366,27 @@ def get_agent_automation_status():
     return {"success": True, "data": automation_status()}
 
 
+@router.get("/workflow")
+def get_workflow():
+    from app.agent_review.workflow import workflow_status
+    return {"success": True, "data": workflow_status()}
+
+
+@router.post("/workflow", status_code=202)
+def start_analysis_workflow():
+    from app.agent_review.workflow import start_workflow
+    try:
+        return {"success": True, "data": start_workflow()}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/workflow/cancel")
+def cancel_analysis_workflow():
+    from app.agent_review.runtime import cancel
+    return {"success": True, "data": cancel()}
+
+
 @router.put("/automation/settings")
 def save_agent_automation_settings(payload: AutomationSettingsUpdate):
     try:
@@ -207,12 +410,24 @@ async def run_agent_automation_now():
 @router.post("/automation/premarket/run")
 async def run_agent_premarket_now():
     try:
-        result = await asyncio.to_thread(run_premarket_cycle, trigger="premarket")
+        result = await asyncio.to_thread(run_premarket_cycle, trigger="manual_confidence")
         mark_premarket_cycle_completed()
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"开盘前取证失败：{str(exc)}") from exc
+    return {"success": True, "data": result}
+
+
+@router.post("/automation/confidence-refresh")
+async def refresh_agent_confidence_now():
+    """Manual refresh that leaves the scheduled morning check available."""
+    try:
+        result = await asyncio.to_thread(run_premarket_cycle, trigger="manual_confidence")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"置信度刷新失败：{str(exc)}") from exc
     return {"success": True, "data": result}
 
 

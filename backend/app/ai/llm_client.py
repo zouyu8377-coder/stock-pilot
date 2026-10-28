@@ -28,15 +28,23 @@ LLM_THINKING_TYPE = os.getenv("LLM_THINKING_TYPE", DEFAULT_THINKING_TYPE).strip(
 DEFAULT_TEMPERATURE = "0.6" if LLM_THINKING_TYPE == "disabled" and (MODEL_NAME or "").startswith("kimi-k2.") else "0.1"
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", DEFAULT_TEMPERATURE))
 
-client = OpenAI(
-    api_key=API_KEY,
-    base_url=BASE_URL,
-    timeout=httpx.Timeout(
-        timeout=LLM_TIMEOUT_SECONDS,
-        connect=LLM_CONNECT_TIMEOUT_SECONDS,
-    ),
-    max_retries=LLM_MAX_RETRIES,
-)
+client = None
+
+
+def _get_client():
+    global client
+    if os.getenv("STOCK_PILOT_DATA_ONLY") == "1":
+        raise RuntimeError("LLM calls are prohibited in data-only mode")
+    if client is None:
+        if not API_KEY:
+            raise RuntimeError("LLM_API_KEY is not configured")
+        client = OpenAI(
+            api_key=API_KEY,
+            base_url=BASE_URL,
+            timeout=httpx.Timeout(timeout=LLM_TIMEOUT_SECONDS, connect=LLM_CONNECT_TIMEOUT_SECONDS),
+            max_retries=LLM_MAX_RETRIES,
+        )
+    return client
 
 
 def _build_payload(prompt: str, use_json_mode: bool) -> dict:
@@ -64,12 +72,13 @@ def _build_payload(prompt: str, use_json_mode: bool) -> dict:
 
 def _request_completion(prompt: str, use_json_mode: bool) -> str:
     payload = _build_payload(prompt, use_json_mode)
+    provider = _get_client()
 
     if not LLM_STREAM:
-        response = client.chat.completions.create(**payload)
+        response = provider.chat.completions.create(**payload)
         return response.choices[0].message.content or ""
 
-    stream = client.chat.completions.create(**payload, stream=True)
+    stream = provider.chat.completions.create(**payload, stream=True)
     chunks: list[str] = []
     first_chunk_at: float | None = None
     started = time.perf_counter()

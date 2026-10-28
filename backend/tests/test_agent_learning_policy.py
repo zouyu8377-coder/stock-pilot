@@ -9,6 +9,7 @@ def _loop_state(sample_count: int = 3) -> dict:
             {
                 "recommendation_id": f"rec-{index}",
                 "outcome": {
+                    "causal_verification": "verified",
                     "verdict": "not_supported",
                     "reason_categories": ["risk_omission"],
                 },
@@ -53,3 +54,12 @@ def test_missing_trade_reasons_remain_monitoring_before_sample_threshold(tmp_pat
     assert registry["policies"][0]["policy_id"] == "process:missing_trade_reason"
     assert registry["policies"][0]["status"] == "monitoring"
     assert registry["policies"][0]["adverse_rate_pct"] == 100.0
+
+
+def test_price_only_outcomes_cannot_activate_causal_policy(tmp_path, monkeypatch):
+    monkeypatch.setattr(learning_policy, "POLICY_DIR", tmp_path)
+    monkeypatch.setattr(learning_policy, "POLICY_PATH", tmp_path / "policies.json")
+    state = _loop_state(10)
+    for item in state["recommendations"]:
+        item["outcome"].pop("causal_verification")
+    assert learning_policy.refresh_learning_policies(state)["summary"]["active_count"] == 0

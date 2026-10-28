@@ -462,6 +462,9 @@ def build_weekly_operation_summary(reference_time: datetime | None = None) -> di
         "window_type": "rolling_five_trading_days",
         "window_start": trading_dates[0],
         "window_end": trading_dates[-1],
+        "records_checked_through": reference_date,
+        "market_history_through": max(market_dates) if market_dates else None,
+        "window_is_market_limited": trading_dates[-1] < reference_date,
         "trading_dates": trading_dates,
         "action_count": sum(item["operation_count"] for item in items),
         "symbol_count": len(items),
@@ -780,7 +783,8 @@ def _decision_quality(
             else "not_applicable" if category != "risk"
             else "low"
         ),
-        "thesis_validity": "supported" if verdict == "supported" else "uncertain" if verdict == "mixed" else "challenged",
+        "thesis_validity": "unverified",
+        "assessment_boundary": "仅评价后续价格路径；收益不能证明或否定基本面逻辑及因果关系。",
     }
 
 
@@ -1304,6 +1308,34 @@ def annotate_portfolio_action(
     raise KeyError("调仓记录不存在")
 
 
+def current_account_record_status() -> dict[str, Any]:
+    """Read saved structure separately from confirmed fills; never infer execution prices."""
+    current = portfolio_service.load_snapshot().model_dump(mode="json")
+    current_time = _parse_time(current.get("snapshot_time"))
+    previous = []
+    for path in portfolio_service.snapshots_dir.glob("*.json"):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+            at = _parse_time(row.get("snapshot_time"))
+            if row.get("snapshot_id") != current.get("snapshot_id") and at and current_time and at < current_time:
+                previous.append((at, row))
+        except (OSError, ValueError, TypeError):
+            continue
+    change = None
+    if previous:
+        before = max(previous, key=lambda pair: pair[0])[1]
+        change = _snapshot_change_event(before, current)
+        change.update(event_type="saved_account_snapshot_diff", user_confirmed=False, recorded_at=current.get("snapshot_time"),
+                      boundary="仅为两次保存间的净持仓变化，非逐笔成交；实际日期、成交价和原因未确认。")
+    return {
+        "snapshot_id": current.get("snapshot_id"),
+        "holdings_updated_at": current_time.astimezone(LOCAL_TZ).isoformat() if current_time else None,
+        "holdings_source": current.get("source_type"),
+        "latest_saved_change": change,
+        "boundary": "当前持仓以此快照为准。交易台账仅含已登记操作，空记录不代表没有交易；行情截止日不代表持仓或台账更新时间。",
+    }
+
+
 def build_learning_feedback(*, recent_limit: int = 8) -> dict[str, Any]:
     from app.agent_review.learning_policy import learning_policy_snapshot
 
@@ -1408,6 +1440,7 @@ def build_learning_feedback(*, recent_limit: int = 8) -> dict[str, Any]:
         "recent_failures": [compact(item) for item in recent_failures],
         "recent_successes": [compact(item) for item in recent_successes],
         "operation_feedback": {
+            "account_record_status": current_account_record_status(),
             "confirmed_action_count": len(confirmed_actions),
             "strategy_comparison_counts": strategy_counts,
             "recent_action_comparisons": recent_action_comparisons,

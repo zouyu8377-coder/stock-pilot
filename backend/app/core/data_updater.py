@@ -7,9 +7,10 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as clock_time, timedelta
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 import baostock as bs
 import pandas as pd
@@ -36,17 +37,24 @@ REQUIRED_BENCHMARK_SYMBOLS = {"sh.000300"}
 _BAOSTOCK_LOGGED_IN = False
 
 
-def get_last_trading_date(ref_date: Optional[date] = None) -> date:
-    d = ref_date or date.today()
-    weekday = d.weekday()
+def get_last_trading_date(
+    ref_date: Optional[date] = None,
+    ref_time: clock_time | None = None,
+) -> date:
+    """Return the latest completed A-share daily-K date.
 
-    if weekday == 5:
-        return d - timedelta(days=1)
-    if weekday == 6:
-        return d - timedelta(days=2)
-    if weekday == 0:
-        return d - timedelta(days=3)
-    return d - timedelta(days=1)
+    A daily K is treated as complete after the 15:30 post-close buffer. Passing a
+    date without a time is useful in tests and means the day has completed.
+    """
+    now = datetime.now()
+    d = ref_date or now.date()
+    current_time = ref_time or (clock_time(16, 0) if ref_date else now.time())
+    if d.weekday() < 5 and current_time >= clock_time(15, 30):
+        return d
+    candidate = d - timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+    return candidate
 
 
 def load_update_status() -> dict:
@@ -310,13 +318,34 @@ def fetch_increment(symbol: str, start_date: str) -> Optional[pd.DataFrame]:
 
 def is_symbol_updated(path: Path, target_date: date) -> bool:
     try:
-        df = normalize_columns(pd.read_parquet(path))
+        df = normalize_columns(pd.read_parquet(path, columns=["date"]))
         if "date" not in df.columns:
             return False
-        last_date = pd.to_datetime(df["date"], errors="coerce").max().date()
+        if df.empty:
+            return False
+        last_value = df["date"].iloc[-1]
+        last_date = pd.Timestamp(last_value).date()
         return last_date >= target_date
     except Exception:
         return False
+
+
+def write_market_history(frame: pd.DataFrame, path: Path) -> None:
+    """A reader or a timed-out worker must never leave a half-written daily-K file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp-" + uuid4().hex)
+    try:
+        frame.to_parquet(temp, index=False)
+        for attempt in range(8):
+            try:
+                os.replace(temp, path)
+                break
+            except PermissionError:
+                if attempt == 7:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def check_update_status(target_date: date) -> tuple[bool, list[str], int]:
@@ -357,7 +386,7 @@ def update_single_symbol(path: Path, target_date: date) -> tuple[bool, str | Non
         combined = combined.dropna(subset=["date"])
         combined = combined.drop_duplicates(subset=["date"], keep="last")
         combined = combined.sort_values("date")
-        combined.to_parquet(path, index=False)
+        write_market_history(combined, path)
         return True, None
     except Exception as e:
         reason = str(e)
@@ -451,6 +480,12 @@ def run_sync_update(target_date: date, priority_symbols: set[str] | None = None,
             "phase": "complete",
         }
         save_update_status(status)
+        try:
+            from app.market_breadth import rebuild_market_breadth
+
+            rebuild_market_breadth(target_date)
+        except Exception as exc:
+            print(f"[DataUpdater] Market breadth rebuild skipped: {exc}")
         return {"action": "none", "total": total, "updated": 0, "failed": 0}
 
     print(f"[DataUpdater] Need to update {len(outdated)}/{total} symbols via BaoStock")
@@ -619,6 +654,18 @@ def run_sync_update(target_date: date, priority_symbols: set[str] | None = None,
         "average_symbol_seconds": round(sum(slow_samples) / len(slow_samples), 2) if slow_samples else None,
     }
     save_update_status(status)
+    breadth_ready = is_complete or (
+        not priority_only
+        and market_processed >= len(market_paths)
+        and (total - len(remaining)) / max(total, 1) >= 0.98
+    )
+    if breadth_ready:
+        try:
+            from app.market_breadth import rebuild_market_breadth
+
+            rebuild_market_breadth(target_date)
+        except Exception as exc:
+            print(f"[DataUpdater] Market breadth rebuild skipped: {exc}")
 
     print(
         "[DataUpdater] BaoStock update finished: "

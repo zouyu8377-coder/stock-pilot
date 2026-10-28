@@ -116,7 +116,7 @@ def refresh_learning_policies(loop_state: dict[str, Any]) -> dict[str, Any]:
     evaluated = []
     for item in [*loop_state.get("recommendations", []), *loop_state.get("portfolio_actions", [])]:
         outcome = item.get("outcome") or {}
-        if outcome.get("verdict"):
+        if outcome.get("verdict") and outcome.get("causal_verification") == "verified":
             evaluated.append((item, outcome))
 
     policies = []

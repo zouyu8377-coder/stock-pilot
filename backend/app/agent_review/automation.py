@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+from app.agent_review import runtime
 
 from app.agent_review.outcomes import (
     build_weekly_operation_summary,
@@ -24,13 +25,17 @@ from app.agent_review.service import (
     load_latest_review,
 )
 from app.agent_review.tasks import (
+    COVERAGE_GAP_ORIGIN,
     execute_pending_tasks,
     list_tasks,
+    plan_coverage_gap_tasks,
     sync_review_tasks,
     task_evidence,
     task_health,
 )
 from app.rotation.service import build_rotation_bundle
+from app.portfolio.dashboard_cache import invalidate_dashboard_cache
+from app.agent_review.coverage_planner import build_coverage_plan
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -45,6 +50,7 @@ def _is_weekly_review_day(value: datetime) -> bool:
 _RUN_LOCK = threading.Lock()
 
 DEFAULT_SETTINGS = {
+    "analysis_after_account_update": False,
     "enabled": False,
     "run_time": "15:31",
     "premarket_enabled": True,
@@ -53,11 +59,14 @@ DEFAULT_SETTINGS = {
     "auto_execute_tools": True,
     "auto_model_review": True,
     "max_model_calls_per_day": 2,
+    "max_proactive_tasks_per_day": 5,
     "last_scheduled_date": None,
     "last_premarket_date": None,
 }
 
 LOW_CONFIDENCE_ORIGINS = {"low_confidence_auto", "low_confidence_model_planned"}
+PREMARKET_EVIDENCE_ORIGINS = {*LOW_CONFIDENCE_ORIGINS, COVERAGE_GAP_ORIGIN}
+CONFIDENCE_REFRESH_TRIGGERS = {"premarket", "manual_confidence"}
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -96,6 +105,10 @@ def update_automation_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if not 0 <= calls <= 3:
         raise ValueError("每日模型调用上限必须在 0 到 3 之间")
     settings["max_model_calls_per_day"] = calls
+    proactive_tasks = int(settings["max_proactive_tasks_per_day"])
+    if not 1 <= proactive_tasks <= 8:
+        raise ValueError("每日主动取证上限必须在 1 到 8 之间")
+    settings["max_proactive_tasks_per_day"] = proactive_tasks
     _write_json(SETTINGS_PATH, settings)
     return settings
 
@@ -115,6 +128,17 @@ def _model_calls_today(*, trigger: str | None = None) -> int:
     )
 
 
+def _confidence_refresh_model_calls_today() -> int:
+    """Only scheduled morning refreshes consume the daily morning quota."""
+    today = datetime.now(TZ).date().isoformat()
+    return sum(
+        int(item.get("model_calls") or 0)
+        for item in _runs()
+        if str(item.get("started_at_local") or "").startswith(today)
+        and item.get("trigger") == "premarket"
+    )
+
+
 def _review_local_date(review: dict[str, Any] | None) -> str | None:
     if not review or not review.get("completed_at"):
         return None
@@ -122,6 +146,7 @@ def _review_local_date(review: dict[str, Any] | None) -> str | None:
     return value.astimezone(TZ).date().isoformat()
 
 
+@runtime.tracked("manual")
 def run_automatic_cycle(*, trigger: str = "manual") -> dict[str, Any]:
     if not _RUN_LOCK.acquire(blocking=False):
         raise RuntimeError("自动任务循环正在运行")
@@ -187,15 +212,16 @@ def run_automatic_cycle(*, trigger: str = "manual") -> dict[str, Any]:
 
         latest = load_latest_review()
         today = started.date().isoformat()
-        call_budget = max(
+        manual = not runtime.is_automatic(trigger)
+        call_budget = 2 if manual else max(
             0,
             int(settings["max_model_calls_per_day"])
-            - _model_calls_today(trigger="scheduled" if trigger == "scheduled" else None),
+            - _model_calls_today(trigger=trigger),
         )
-        review_required = trigger == "scheduled" or _review_local_date(latest) != today
+        review_required = manual or trigger == "scheduled" or _review_local_date(latest) != today
         if settings["auto_model_review"] and call_budget > 0 and review_required:
-            latest = generate_daily_review(force_context=False)
             run["model_calls"] += 1
+            latest = generate_daily_review(force_context=False)
             review_step = "weekly_review" if _is_weekly_review_day(started) else "daily_review"
             run["steps"].append({"step": review_step, "status": "completed", "run_id": latest["run_id"]})
         elif latest:
@@ -212,10 +238,10 @@ def run_automatic_cycle(*, trigger: str = "manual") -> dict[str, Any]:
                 "failed": sum(1 for item in executed if item.get("status") == "failed"),
             })
 
-        remaining_budget = max(
+        remaining_budget = (2 - int(run["model_calls"])) if manual else max(
             0,
             int(settings["max_model_calls_per_day"])
-            - _model_calls_today(trigger="scheduled" if trigger == "scheduled" else None)
+            - _model_calls_today(trigger=trigger)
             - int(run["model_calls"]),
         )
         if (
@@ -225,8 +251,8 @@ def run_automatic_cycle(*, trigger: str = "manual") -> dict[str, Any]:
             and remaining_budget > 0
             and task_evidence(origin_run_id=latest["run_id"])
         ):
-            latest = generate_followup_review(parent_run_id=latest["run_id"])
             run["model_calls"] += 1
+            latest = generate_followup_review(parent_run_id=latest["run_id"])
             run["steps"].append({"step": "followup_review", "status": "completed", "run_id": latest["run_id"]})
             if settings["auto_execute_tools"]:
                 followup_executed = execute_pending_tasks(origin_run_id=latest["run_id"])
@@ -235,7 +261,7 @@ def run_automatic_cycle(*, trigger: str = "manual") -> dict[str, Any]:
                         "step": "followup_tool_execution",
                         "status": "completed",
                         "executed": len(followup_executed),
-                        "note": "新证据将在下一次复盘中吸收，避免突破当日模型预算。",
+                        "note": "新证据将在下一次复盘中吸收；单轮最多进行一次后续模型复核。",
                     })
 
         run["status"] = "completed"
@@ -252,6 +278,7 @@ def run_automatic_cycle(*, trigger: str = "manual") -> dict[str, Any]:
         _RUN_LOCK.release()
 
 
+@runtime.tracked("premarket")
 def run_premarket_cycle(*, trigger: str = "premarket") -> dict[str, Any]:
     """Verify low-confidence conclusions before the market without duplicating a close review."""
     if not _RUN_LOCK.acquire(blocking=False):
@@ -280,22 +307,37 @@ def run_premarket_cycle(*, trigger: str = "premarket") -> dict[str, Any]:
             return run
 
         sync_review_tasks(latest)
+        coverage_plan = plan_coverage_gap_tasks(
+            latest,
+            max_tasks=int(settings["max_proactive_tasks_per_day"]),
+        )
         low_confidence_tasks = [
             item
             for item in list_tasks(origin_run_id=latest["run_id"], limit=500)
-            if str(item.get("planning_origin") or "") in LOW_CONFIDENCE_ORIGINS
+            if str(item.get("planning_origin") or "") in PREMARKET_EVIDENCE_ORIGINS
             and item.get("status") in {"pending", "retry_wait"}
         ]
         executed = []
         if settings["auto_execute_tools"]:
             executed = execute_pending_tasks(
                 origin_run_id=latest["run_id"],
-                planning_origins=LOW_CONFIDENCE_ORIGINS,
+                planning_origins=PREMARKET_EVIDENCE_ORIGINS,
+                max_tasks=int(settings["max_proactive_tasks_per_day"]),
             )
         usable_evidence = [
             item for item in executed
             if item.get("status") in {"completed", "partial"}
         ]
+        run["steps"].append({
+            "step": "proactive_coverage_planning",
+            "status": "completed",
+            "created": coverage_plan["created_count"],
+            "candidate_count": coverage_plan["summary"]["candidate_count"],
+            "coverage_before": coverage_plan["summary"],
+            "budget": int(settings["max_proactive_tasks_per_day"]),
+        })
+        invalidate_dashboard_cache()
+        coverage_after = build_coverage_plan(max_candidates=0, force=True)["summary"]
         run["steps"].append({
             "step": "premarket_evidence_check",
             "status": "completed",
@@ -303,12 +345,18 @@ def run_premarket_cycle(*, trigger: str = "premarket") -> dict[str, Any]:
             "executed": len(executed),
             "usable_evidence": len(usable_evidence),
             "failed": sum(1 for item in executed if item.get("status") == "failed"),
+            "coverage_before": coverage_plan["summary"],
+            "coverage_after": coverage_after,
         })
 
-        model_budget_available = _model_calls_today(trigger="premarket") < 1
-        if settings["auto_model_review"] and usable_evidence and model_budget_available:
-            updated = generate_followup_review(parent_run_id=latest["run_id"])
+        model_budget_available = not runtime.is_automatic(trigger) or _confidence_refresh_model_calls_today() < 1
+        decision_relevant_evidence = [
+            item for item in usable_evidence
+            if (item.get("coverage_gap") or {}).get("decision_sensitive", True)
+        ]
+        if settings["auto_model_review"] and decision_relevant_evidence and model_budget_available:
             run["model_calls"] = 1
+            updated = generate_followup_review(parent_run_id=latest["run_id"])
             run["steps"].append({
                 "step": "premarket_confidence_update",
                 "status": "completed",
@@ -348,10 +396,37 @@ def automation_status() -> dict[str, Any]:
         if str(item.get("planning_origin") or "") in LOW_CONFIDENCE_ORIGINS
         and item.get("status") in {"pending", "retry_wait"}
     ]
-    latest_premarket_run = next(
-        (item for item in reversed(runs) if item.get("trigger") == "premarket"),
+    latest_confidence_run = next(
+        (item for item in reversed(runs) if item.get("trigger") in CONFIDENCE_REFRESH_TRIGGERS),
         None,
     )
+    coverage_tasks = [
+        item for item in latest_tasks
+        if str(item.get("planning_origin") or "") == COVERAGE_GAP_ORIGIN
+        and item.get("status") in {"pending", "retry_wait", "manual_required"}
+    ]
+    latest_coverage_plan = next(
+        (
+            step for step in reversed((latest_confidence_run or {}).get("steps", []))
+            if step.get("step") == "proactive_coverage_planning"
+        ),
+        None,
+    )
+    latest_evidence_check = next(
+        (
+            step for step in reversed((latest_confidence_run or {}).get("steps", []))
+            if step.get("step") == "premarket_evidence_check"
+        ),
+        None,
+    )
+    # Older runs did not persist the pre-refresh snapshot. The paired planning
+    # step is from the same run and preserves the historical comparison.
+    if latest_evidence_check and not latest_evidence_check.get("coverage_before") and latest_coverage_plan:
+        previous_coverage = latest_coverage_plan.get("coverage_before")
+        if previous_coverage:
+            latest_evidence_check = {**latest_evidence_check, "coverage_before": previous_coverage}
+    current_plan = build_coverage_plan(max_candidates=30) if latest_review else None
+    current_coverage = current_plan["summary"] if current_plan else None
     return {
         "settings": settings,
         "running": _RUN_LOCK.locked(),
@@ -373,8 +448,17 @@ def automation_status() -> dict[str, Any]:
             "run_time": settings["premarket_time"],
             "pending_low_confidence_count": len(low_confidence_tasks),
             "last_premarket_date": settings.get("last_premarket_date"),
-            "latest_run_completed_at": latest_premarket_run.get("completed_at_local") if latest_premarket_run else None,
+            "latest_run_completed_at": latest_confidence_run.get("completed_at_local") if latest_confidence_run else None,
             "model_call_policy": "有新增可用证据时最多调用DeepSeek一次；无任务或无新证据时不调用",
+        },
+        "coverage_planner": {
+            "pending_count": len(coverage_tasks),
+            "daily_budget": int(settings["max_proactive_tasks_per_day"]),
+            "last_plan": latest_coverage_plan,
+            "last_evidence_check": latest_evidence_check,
+            "current_coverage": current_coverage,
+            "remaining_gaps": (current_plan or {}).get("candidates", [])[:8],
+            "policy": "按持仓权重、决策影响、事件紧迫度、数据陈旧度和自动可取性排序；只执行预算内任务。",
         },
         "latest_review_completed_at": latest_review.get("completed_at") if latest_review else None,
         "server_time": now.isoformat(),
@@ -382,6 +466,8 @@ def automation_status() -> dict[str, Any]:
 
 
 def should_run_scheduled_cycle() -> bool:
+    if not runtime.retry_state("scheduled")["allowed"]:
+        return False
     settings = get_automation_settings()
     if not settings["enabled"] or _RUN_LOCK.locked():
         return False
@@ -399,6 +485,8 @@ def should_run_scheduled_cycle() -> bool:
 
 
 def should_run_premarket_cycle() -> bool:
+    if not runtime.retry_state("premarket")["allowed"]:
+        return False
     settings = get_automation_settings()
     if not settings["enabled"] or not settings.get("premarket_enabled") or _RUN_LOCK.locked():
         return False
@@ -408,17 +496,13 @@ def should_run_premarket_cycle() -> bool:
     if settings.get("last_premarket_date") == now.date().isoformat():
         return False
     hour, minute = [int(value) for value in str(settings["premarket_time"]).split(":", 1)]
-    if (now.hour, now.minute) < (hour, minute) or (now.hour, now.minute) >= (9, 30):
+    if (now.hour, now.minute) < (hour, minute) or (now.hour, now.minute) >= (15, 30):
         return False
     latest = load_latest_review()
     if not latest:
         return False
-    sync_review_tasks(latest)
-    return any(
-        str(item.get("planning_origin") or "") in LOW_CONFIDENCE_ORIGINS
-        and item.get("status") in {"pending", "retry_wait"}
-        for item in list_tasks(origin_run_id=latest["run_id"], limit=500)
-    )
+    # Inspect the account even without trades or old pending tasks; run once after startup catch-up.
+    return True
 
 
 def mark_scheduled_cycle_completed() -> None:

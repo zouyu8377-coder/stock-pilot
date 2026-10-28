@@ -7,6 +7,12 @@ from app.rotation.service import load_rotation_status
 router = APIRouter()
 
 
+@router.get("/system/data-sync-status")
+def data_sync_status():
+    from app.data_sync.service import load_status
+    return {"success": True, "data": load_status()}
+
+
 def _shape_status(status: dict, target_date: str) -> dict:
     total = int(status.get("total_symbols") or 0)
     completed = int(status.get("completed_count") or 0)

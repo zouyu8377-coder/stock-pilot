@@ -10,7 +10,8 @@ from app.agent_review.schemas import DailyReviewOutput
 
 
 @pytest.fixture(autouse=True)
-def isolate_learning_feedback(monkeypatch):
+def isolate_learning_feedback(monkeypatch, tmp_path):
+    monkeypatch.setattr(service, "REVIEW_DIR", tmp_path / "reviews")
     monkeypatch.setattr(service, "_operation_review_period", lambda reference=None: "daily")
     monkeypatch.setattr(outcomes, "build_learning_feedback", lambda: {
         "contract_version": "agent_learning_feedback.v3",
@@ -90,7 +91,12 @@ def _review() -> DailyReviewOutput:
             "confidence": "medium",
             "evidence_refs": ["rotation:ai"],
             "counter_evidence_refs": [],
-            "action_semantics": "进入观察队列，等待趋势与扩散信号共同确认。",
+            "action_semantics": "暂不新增仓位，等待趋势与扩散信号共同确认。",
+            "decision_basis": ["轮动证据显示早期转强，持续性尚未确认，因此暂不新增。"],
+            "counter_scenario": "相对强度转弱则退出观察队列。",
+            "technical_analysis": "轮动样例显示早期转强，量能持续性待验证。",
+            "news_analysis": "缺少该方向的直接公告与财报，不能确认经营催化。",
+            "confidence_reason": "中：趋势证据部分可用，但消息面与持续性尚有缺口。",
             "invalidation_conditions": ["相对强度重新转弱"],
         }],
         "risks": [],
@@ -134,12 +140,75 @@ def test_validate_review_rejects_unknown_evidence():
     assert any("未提供的证据编号" in error for error in errors)
 
 
+@pytest.mark.parametrize("field", ["technical_analysis", "news_analysis", "confidence_reason"])
+def test_new_analysis_requires_explicit_facets_and_confidence_reason(field):
+    item = _review().opportunities[0]
+    assert not service._decision_quality_errors(item)
+    setattr(item, field, " ")
+    assert service._decision_quality_errors(item)
+
+
+def test_legacy_review_can_still_be_read_without_new_analysis_fields():
+    payload = _review().model_dump(mode="json")
+    for field in ("technical_analysis", "news_analysis", "confidence_reason"):
+        payload["opportunities"][0].pop(field)
+    assert DailyReviewOutput.model_validate(payload).opportunities[0].news_analysis == ""
+
+
 def test_validate_review_rejects_direct_trade_instruction():
     model_input = service.build_review_model_input(_context())
     payload = _review().model_dump(mode="json")
     payload["opportunities"][0]["action_semantics"] = "建议立即买入并加仓。"
     _, errors, _ = service._validate_review(payload, model_input)
     assert "输出包含禁止的直接交易指令" in errors
+
+
+@pytest.mark.parametrize("missing", ["trigger_condition", "horizon", "invalidation_conditions", "evidence_refs", "low_confidence"])
+def test_conditional_action_requires_complete_evidence_and_conditions(missing):
+    payload = _review().model_dump(mode="json")
+    item = payload["opportunities"][0]
+    item.update(suggested_action="increase", trigger_condition="连续两日量能确认", horizon="5个交易日")
+    if missing == "low_confidence":
+        item["confidence"] = "low"
+    else:
+        item[missing] = [] if missing.endswith("conditions") or missing.endswith("refs") else ""
+    review, _, warnings = service._validate_review(payload, service.build_review_model_input(_context()))
+    assert review.opportunities[0].suggested_action == "watch"
+    assert warnings
+
+
+def test_conditional_action_with_evidence_is_preserved():
+    payload = _review().model_dump(mode="json")
+    payload["opportunities"][0].update(suggested_action="increase", confidence="medium", trigger_condition="连续两日量能确认", horizon="5个交易日")
+    payload["opportunities"][0].update(target_symbols=["600000"], account_impact="账户仍有足够现金和仓位余量")
+    model_input = service.build_review_model_input(_context())
+    model_input["evidence_catalog"].append({"evidence_ref": "account_constraint:600000", "scope": "account_constraint", "facts": {
+        "symbol": "600000", "constraints": {"position_headroom_pct": 5, "theme_headroom_pct": 5, "cash_headroom_pct": 10},
+    }})
+    review, errors, _ = service._validate_review(payload, model_input)
+    assert not errors
+    assert review.opportunities[0].suggested_action == "increase"
+
+
+def test_length_failure_is_not_repeated_with_identical_budget(monkeypatch):
+    calls = []
+    monkeypatch.setattr(service, "_call_model", lambda messages: calls.append(1) or ("", {"prompt_tokens": 1, "completion_tokens": 7000, "total_tokens": 7001}, "length"))
+    with pytest.raises(ValueError, match="token"):
+        service._generate_with_correction(service.build_review_model_input(_context()))
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("headroom", [None, 0, -1, "unknown", float("nan")])
+def test_increase_is_blocked_when_account_capacity_missing_or_exhausted(headroom):
+    payload = _review().model_dump(mode="json")
+    payload["opportunities"][0].update(suggested_action="increase", confidence="medium", target_symbols=["600000"],
+        trigger_condition="量能确认", horizon="5天", account_impact="增加风险敞口")
+    model_input = service.build_review_model_input(_context())
+    model_input["evidence_catalog"].append({"evidence_ref": "account_constraint:600000", "scope": "account_constraint", "facts": {
+        "symbol": "600000", "constraints": {"position_headroom_pct": 5, "theme_headroom_pct": 5, "cash_headroom_pct": headroom},
+    }})
+    result, _, _ = service._validate_review(payload, model_input)
+    assert result.opportunities[0].suggested_action == "watch"
 
 
 def test_validate_review_demotes_stale_rotation_opportunity():
@@ -222,6 +291,8 @@ def test_validate_review_requires_every_weekly_operation_symbol(monkeypatch):
 
 
 def test_validate_review_requires_every_daily_operation(monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(service, "_now", lambda: datetime.fromisoformat("2026-07-31T17:00:00+08:00"))
     action_id = "snapshot-a:snapshot-b:600000"
     monkeypatch.setattr(outcomes, "build_learning_feedback", lambda: {
         "contract_version": "agent_learning_feedback.v3",
@@ -412,6 +483,71 @@ def test_followup_review_uses_completed_tool_evidence(tmp_path, monkeypatch):
     assert result["context"]["tool_evidence_count"] == 1
     refs = {item["evidence_ref"] for item in captured["input"]["evidence_catalog"]}
     assert "tool:task-001" in refs
+
+
+def test_transport_deduplicates_only_identical_facts_and_preserves_local_ledger():
+    from copy import deepcopy
+
+    action = {"action_id": "a1", "quantity": 100}
+    source = {
+        "operation_review_period": "daily",
+        "evidence_catalog": [
+            {"evidence_ref": "learning:scorecard", "facts": {"policy_memory": {"active": ["p1"]}}},
+            {"evidence_ref": "operation:a1", "scope": "daily_confirmed_operation", "facts": action},
+        ],
+        "learning_feedback": {
+            "policy_memory": {"active": ["p1"]},
+            "operation_feedback": {"daily_actions": {"action_count": 1, "items": [action]}},
+        },
+        "required_output_contract": {"review_item": {"subject": "string"}, "daily_operation_review": {}, "weekly_operation_review": {}},
+    }
+    original = deepcopy(source)
+    compact = service._model_transport_input(source)
+    assert source == original
+    assert compact["evidence_catalog"] == source["evidence_catalog"]
+    feedback = compact["learning_feedback"]
+    assert "policy_memory" not in feedback
+    assert feedback["shared_feedback_evidence_ref"] == "learning:scorecard"
+    assert feedback["operation_feedback"]["daily_actions"]["item_evidence_refs"] == ["operation:a1"]
+    assert "weekly_operation_review" not in compact["required_output_contract"]
+    assert "review_item" in compact["item_definitions"]
+    source["learning_feedback"]["policy_memory"] = {"active": ["p2"]}
+    source["learning_feedback"]["operation_feedback"]["daily_actions"]["items"] = [{"action_id": "missing"}]
+    compact = service._model_transport_input(source)
+    assert compact["learning_feedback"]["policy_memory"] == {"active": ["p2"]}
+    assert "items" in compact["learning_feedback"]["operation_feedback"]["daily_actions"]
+
+
+def test_model_budget_and_reasoning_usage(monkeypatch):
+    from types import SimpleNamespace
+
+    captured = {}
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="{}"), finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=9000, total_tokens=9100,
+                                  completion_tokens_details=SimpleNamespace(reasoning_tokens=7000)),
+        )
+    monkeypatch.setattr(service, "_load_env", lambda: None)
+    monkeypatch.setenv("LLM_API_KEY", "test-only")
+    monkeypatch.setenv("LLM_BASE_URL", "https://example.invalid")
+    monkeypatch.setenv("AGENT_REVIEW_MAX_TOKENS", "12000")
+    monkeypatch.setenv("AGENT_REVIEW_THINKING", "disabled")
+    monkeypatch.setattr(service, "OpenAI", lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    _, usage, _ = service._call_model([{"role": "user", "content": "test"}])
+    assert captured["max_tokens"] == 12000
+    assert captured["extra_body"]["thinking"]["type"] == "disabled"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert usage["reasoning_tokens"] == 7000
+
+
+def test_quality_gate_accepts_specific_advice_without_fixed_position_keywords():
+    item = _review().opportunities[0]
+    item.action_semantics = "优先保护已有利润，若行业相对强弱继续恶化则缩减风险。"
+    assert service._decision_quality_errors(item) == []
+    item.action_semantics = "先核查。"
+    assert service._decision_quality_errors(item)
 
 
 def test_trade_reason_suggestion_is_constrained_to_editable_draft(monkeypatch):

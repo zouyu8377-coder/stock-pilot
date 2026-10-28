@@ -58,6 +58,7 @@ backend/data/indicators/
 backend/data/deep_analysis/
 backend/data/evals/
 backend/data/agent_reviews/
+backend/data/agent_exchange/
 backend/data/agent_tasks/
 backend/data/agent_outcomes/
 backend/data/agent_automation/
@@ -71,6 +72,8 @@ backend/data/tushare/
 backend/data/metadata/
 backend/data/attractiveness/history.json
 backend/data/disclosure_verification/
+backend/data/facts/
+backend/data/ai_direction_classification/
 backend/data/*.lock
 *.parquet
 
@@ -94,3 +97,9 @@ data/analysis_snapshots/
 # Logs
 logs/
 *.log
+backend/data/agent_workbench/
+backend/data/external_discussion/
+backend/data/data_sync/
+# Isolated collaboration sessions contain user-supplied demonstration questions.
+backend/data/agent_demo/
+backend/data/investment_agents/

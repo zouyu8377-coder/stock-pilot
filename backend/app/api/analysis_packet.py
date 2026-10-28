@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.analysis_packet import build_portfolio_packet, build_single_stock_packet
 from app.analysis_packet.packet_service import build_account_analysis_context, render_compact_markdown, render_packet_markdown
@@ -19,11 +19,15 @@ def create_single_stock_packet(symbol: str, user_question: str | None = Query(de
 
 @router.post("/analysis-packet/portfolio")
 def create_portfolio_packet(
+    response: Response,
     user_question: str | None = Query(default=None),
     mode: str = Query(default="compact"),
     stale_draft: bool = Query(default=False),
+    refresh_at: int | None = Query(default=None),
 ):
     try:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
         if mode == "audit":
             result = build_portfolio_packet(user_question=user_question)
             return {"success": True, **result}

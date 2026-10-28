@@ -3,7 +3,8 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
 
-from app.disclosure_verification import refresh_portfolio_disclosure_verifications
+from app.disclosure_verification import refresh_portfolio_disclosure_verifications, verify_symbol_disclosures
+from app.direction_classification import classify_portfolio_directions, get_direction_classifications
 from app.portfolio import portfolio_service
 from app.analysis_packet.packet_service import build_account_analysis_context
 from app.portfolio.dashboard_cache import get_dashboard_bundle, invalidate_dashboard_cache
@@ -40,9 +41,12 @@ def save_portfolio(payload: PortfolioSnapshotInput):
     state = portfolio_service.save_snapshot(payload)
     invalidate_dashboard_cache()
     etf_share_update = sync_new_etf_share_data(previous_snapshot, state.snapshot)
+    from app.agent_review.workflow import queue_account_update
+    analysis = queue_account_update()
     return {
         "success": True,
         "data": state.model_dump(mode="json"),
+        "analysis": analysis,
         "etf_share_update": [asdict(item) for item in etf_share_update],
     }
 
@@ -241,6 +245,8 @@ def confirm_portfolio_import_draft(
         )
         invalidate_dashboard_cache()
         etf_share_update = sync_new_etf_share_data(previous_snapshot, result["state"].snapshot)
+        from app.agent_review.workflow import queue_account_update
+        analysis = queue_account_update()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Import draft not found") from exc
     except ValueError as exc:
@@ -252,9 +258,35 @@ def confirm_portfolio_import_draft(
             "portfolio": result["state"].model_dump(mode="json"),
             "transaction_batch": result.get("transaction_batch"),
             "operation_samples": result.get("operation_samples", []),
+            "analysis": analysis,
         },
         "etf_share_update": [asdict(item) for item in etf_share_update],
     }
+
+
+@router.post("/portfolio/disclosure-verification/{symbol}/verify")
+def verify_portfolio_disclosure(symbol: str, force: bool = Query(True)):
+    try:
+        data = verify_symbol_disclosures(symbol, force=force)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"公告正文核验失败：{exc}") from exc
+    invalidate_dashboard_cache()
+    return {"success": True, "data": data}
+
+
+@router.get("/portfolio/ai-direction-classification")
+def portfolio_ai_direction_classification():
+    return {"success": True, "data": get_direction_classifications()}
+
+
+@router.post("/portfolio/ai-direction-classification/refresh")
+def refresh_portfolio_ai_direction_classification():
+    try:
+        data = classify_portfolio_directions()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI方向分类失败：{exc}") from exc
+    invalidate_dashboard_cache()
+    return {"success": True, "data": data}
 
 
 @router.post("/portfolio/import/drafts/{draft_id}/suggest-reason")

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.api import portfolio as portfolio_api
 from app.main import app
@@ -129,6 +130,10 @@ def _mock_vision_payload():
         "unrecognized_text": ["模拟脱敏账户"],
         "parse_warnings": [],
     }
+
+
+def _write_test_image(path: Path, *, height: int = 80) -> None:
+    Image.new("RGB", (120, height), color="white").save(path, format="JPEG")
 
 
 def _fake_quote(symbol: str):
@@ -375,7 +380,7 @@ class _VisionResponse:
 
 def test_minimax_vision_contract_normalizes_output_and_records_usage(tmp_path, monkeypatch):
     image = tmp_path / "sample.jpg"
-    image.write_bytes(b"image")
+    _write_test_image(image)
     payload = _mock_vision_payload()
     payload["holdings"][0]["warnings"] = ["a" * 100, "second", "ignored"]
     captured = {}
@@ -394,9 +399,10 @@ def test_minimax_vision_contract_normalizes_output_and_records_usage(tmp_path, m
 
     assert result.status == "draft_parsed"
     assert result.model_name == "minimax-m3"
-    assert result.usage == {"prompt_tokens": 900, "completion_tokens": 700, "total_tokens": 1600}
+    assert result.usage == {"prompt_tokens": 900, "completion_tokens": 700, "total_tokens": 1600, "attempts": 1}
     assert captured["payload"]["max_tokens"] == 4096
     assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert captured["payload"]["thinking"] == {"type": "disabled"}
     first = result.structured_payload["holdings"][0]
     assert "recommendation" not in first
     assert len(first["warnings"]) == 2
@@ -405,7 +411,7 @@ def test_minimax_vision_contract_normalizes_output_and_records_usage(tmp_path, m
 
 def test_minimax_vision_rejects_truncated_response(tmp_path, monkeypatch):
     image = tmp_path / "sample.jpg"
-    image.write_bytes(b"image")
+    _write_test_image(image)
     monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_ENABLED", True)
     monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_BASE_URL", "https://ark.example/v3")
     monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_API_KEY", "secret")
@@ -418,6 +424,91 @@ def test_minimax_vision_rejects_truncated_response(tmp_path, monkeypatch):
 
     assert result.status == "cloud_parse_failed"
     assert "token 上限" in (result.error_summary or "")
+
+
+def test_minimax_vision_retries_with_higher_token_budget_after_length(tmp_path, monkeypatch):
+    image = tmp_path / "sample.jpg"
+    _write_test_image(image)
+    calls = []
+
+    def fake_post(url, *, headers, json, timeout):
+        calls.append(json["max_tokens"])
+        if len(calls) == 1:
+            return _VisionResponse('{"h":[', "length")
+        return _VisionResponse('{"v":3,"a":[100000,null,null,null,null,null],"h":[["药明康德",null,3200,3200,135.713,164,524800,90518.53,20.843]],"w":[]}')
+
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_ENABLED", True)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_BASE_URL", "https://ark.example/v3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_API_KEY", "secret")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MODEL", "minimax-m3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MAX_TOKENS", 4096)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_RETRY_MAX_TOKENS", 8192)
+
+    result = VolcengineArkVisionPortfolioImageParser(http_post=fake_post).parse_image(image)
+
+    assert result.status == "draft_parsed"
+    assert calls == [4096, 8192]
+    assert result.structured_payload["holdings"][0]["raw_name"] == "药明康德"
+    assert any("提高 token" in warning for warning in (result.warnings or []))
+
+
+def test_minimax_vision_retries_after_malformed_json(tmp_path, monkeypatch):
+    image = tmp_path / "sample.jpg"
+    _write_test_image(image)
+    calls = []
+
+    def fake_post(url, *, headers, json, timeout):
+        calls.append(json["max_tokens"])
+        if len(calls) == 1:
+            return _VisionResponse('{"v":3,"h":[["药明康德"')
+        return _VisionResponse('{"v":3,"a":[null,null,null,null,null,null],"h":[["药明康德",null,3200,3200,135.713,164,524800,90518.53,20.843]],"w":[]}')
+
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_ENABLED", True)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_BASE_URL", "https://ark.example/v3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_API_KEY", "secret")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MODEL", "minimax-m3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MAX_TOKENS", 4096)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_RETRY_MAX_TOKENS", 8192)
+
+    result = VolcengineArkVisionPortfolioImageParser(http_post=fake_post).parse_image(image)
+
+    assert result.status == "draft_parsed"
+    assert calls == [4096, 8192]
+    assert any("JSON 格式不完整" in warning for warning in (result.warnings or []))
+
+
+def test_minimax_vision_segments_and_merges_holdings_after_two_length_failures(tmp_path, monkeypatch):
+    image = tmp_path / "tall.jpg"
+    _write_test_image(image, height=2500)
+    calls = []
+    payloads = [
+        '{"v":3,"a":[1880572.2,null,null,null,null,null],"h":[["药明康德",null,3200,3200,135.713,164,524800,90518.53,20.843]],"w":[]}',
+        '{"v":3,"a":[null,null,null,null,null,null],"h":[["紫金矿业",null,8500,8500,32.816,32.760,278460,-478.59,-0.171],["药明康德",null,3200,3200,135.713,164,524800,90518.53,20.843]],"w":[]}',
+        '{"v":3,"a":[null,null,null,null,null,null],"h":[["恒瑞医药",null,4000,4000,52.429,52.660,210640,922.29,0.441]],"w":[]}',
+    ]
+
+    def fake_post(url, *, headers, json, timeout):
+        calls.append(json["max_tokens"])
+        if len(calls) <= 2:
+            return _VisionResponse('{"h":[', "length")
+        return _VisionResponse(payloads[len(calls) - 3])
+
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_ENABLED", True)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_BASE_URL", "https://ark.example/v3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_API_KEY", "secret")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MODEL", "minimax-m3")
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_MAX_TOKENS", 4096)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_RETRY_MAX_TOKENS", 8192)
+    monkeypatch.setattr("app.portfolio.ocr_provider.settings.VOLCENGINE_ARK_VISION_SEGMENT_MAX_TOKENS", 4096)
+
+    result = VolcengineArkVisionPortfolioImageParser(http_post=fake_post).parse_image(image)
+
+    assert result.status == "draft_parsed"
+    assert calls == [4096, 8192, 4096, 4096, 4096]
+    assert result.usage["segments"] == 3
+    assert result.structured_payload["account_summary"]["total_assets"] == 1880572.2
+    assert [row["raw_name"] for row in result.structured_payload["holdings"]] == ["药明康德", "紫金矿业", "恒瑞医药"]
+    assert any("自动分为 3 段" in warning for warning in (result.warnings or []))
 
 
 def test_cloud_provider_requires_consent_before_any_parse(tmp_path):

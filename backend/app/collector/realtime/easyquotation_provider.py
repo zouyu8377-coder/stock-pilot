@@ -13,6 +13,15 @@ def _pick(data: dict, *keys: str):
     return None
 
 
+def _quote_symbol(symbol: str) -> str:
+    """Tencent expects a bare six-digit code, not a ts_code exchange suffix."""
+    value = str(symbol or "").strip().upper()
+    if "." in value:
+        left, right = value.split(".", 1)
+        value = right if left in {"SH", "SZ"} else left
+    return value
+
+
 class EasyQuotationProvider:
     """Tencent realtime quote provider via easyquotation."""
 
@@ -20,19 +29,25 @@ class EasyQuotationProvider:
         self.client = easyquotation.use("tencent")
 
     def get_quote(self, symbol: str):
-        data = self.client.real(symbol)
+        quote_symbol = _quote_symbol(symbol)
+        data = self.client.real(quote_symbol)
         if not data:
             raise ValueError("easyquotation returned empty data")
-        if symbol not in data:
-            raise ValueError(f"Quote not found: {symbol}")
+        if quote_symbol not in data:
+            raise ValueError(f"Quote not found: {quote_symbol}")
 
-        q = data[symbol]
+        q = data[quote_symbol]
         return {
             "symbol": symbol,
             "price": q.get("now"),
+            "open": q.get("open"),
+            "high": q.get("high") or q.get("high_2"),
+            "low": q.get("low") or q.get("low_2"),
             "change_pct": _pick(q, "涨跌(%)", "change_pct"),
             "name": q.get("name"),
             "volume": q.get("volume"),
+            "amount": _pick(q, "成交额(万)", "amount"),
+            "quote_market_time": q.get("datetime"),
             "provider": "easyquotation",
             "hot_status": "ready",
             "market_cap": _pick(q, "总市值", "市值"),

@@ -115,7 +115,9 @@ const scoreTone = (score: number) => {
 
 const deltaTone = (value: number | null | undefined) => {
   if (value === null || value === undefined) return 'text-muted-foreground'
-  return value >= 0 ? 'text-positive' : 'text-negative'
+  if (value > 0) return 'text-market-up'
+  if (value < 0) return 'text-market-down'
+  return 'text-muted-foreground'
 }
 
 const maturityLabel = (value: string) => ({

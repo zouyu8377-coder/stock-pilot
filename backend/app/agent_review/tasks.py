@@ -12,6 +12,8 @@ from uuid import uuid4
 import pandas as pd
 
 from app.agent_context.service import build_portfolio_agent_context
+from app.agent_review.coverage_planner import build_coverage_plan
+from app.agent_review import runtime
 from app.collector.router import collector
 from app.core.data_updater import get_last_trading_date
 from app.disclosure_verification import load_disclosure_verification
@@ -36,6 +38,7 @@ TOOL_LABELS = {
     "manual_review": "人工核查",
 }
 AUTO_TOOLS = {"stock_snapshot", "rotation_refresh", "event_snapshot", "disclosure_snapshot"}
+COVERAGE_GAP_ORIGIN = "coverage_gap_auto"
 
 
 def _now_iso() -> str:
@@ -170,7 +173,7 @@ def _low_confidence_verifications(review: dict[str, Any]) -> list[dict[str, Any]
     }
     for group_name in ("opportunities", "risks", "watch_items"):
         for item in review.get(group_name, []):
-            if item.get("confidence") != "low":
+            if item.get("confidence") != "low" and item.get("suggested_action") != "watch":
                 continue
             subject = str(item.get("subject") or "").strip()
             if not subject or subject in explicit_subjects:
@@ -179,11 +182,11 @@ def _low_confidence_verifications(review: dict[str, Any]) -> list[dict[str, Any]
                 str(value)
                 for value in [*(item.get("evidence_refs") or []), *(item.get("counter_evidence_refs") or [])]
             ]
-            symbols = list(dict.fromkeys(
+            symbols = list(dict.fromkeys([*(item.get("target_symbols") or []), *(
                 match.group(1)
                 for ref in refs
                 if (match := re.search(r"(?:holding|stock):([0-9]{6})", ref))
-            ))
+            )]))
             if any(ref.startswith("rotation:") for ref in refs):
                 evidence_type = "rotation"
                 missing = ["更新轮动行情并确认强度、扩散和阶段信号"]
@@ -199,8 +202,8 @@ def _low_confidence_verifications(review: dict[str, Any]) -> list[dict[str, Any]
             planned.append({
                 "priority": "medium",
                 "subject": subject,
-                "task": f"补齐“{subject}”低置信度判断所缺事实",
-                "reason": "该结论置信度低且没有配套核查任务，系统自动进入取证队列",
+                "task": f"{subject}：{missing[0]}",
+                "reason": "该结论需要观察或补证且没有配套任务，系统自动进入取证队列",
                 "target_symbols": symbols[:5],
                 "evidence_type": evidence_type,
                 "missing_evidence": missing,
@@ -303,6 +306,82 @@ def sync_review_tasks(review_run: dict[str, Any]) -> list[dict[str, Any]]:
             })
         _write_tasks(items)
         return [item for item in items if item.get("origin_run_id") == run_id]
+
+
+def plan_coverage_gap_tasks(
+    review_run: dict[str, Any],
+    *,
+    max_tasks: int = 5,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Turn deterministic dashboard coverage gaps into bounded evidence tasks."""
+    run_id = str(review_run.get("run_id") or "")
+    if not run_id:
+        raise ValueError("覆盖规划需要关联一条已存在的复盘记录")
+    # Keep non-automatable valuation gaps visible in the plan, but never let them
+    # consume the small daily quota intended for data collection.
+    plan = build_coverage_plan(max_candidates=max_tasks * 10, force=force)
+    now = _now_iso()
+    created: list[dict[str, Any]] = []
+    with _LOCK:
+        items = _read_tasks()
+        existing_keys = {(item.get("origin_run_id"), item.get("task_key")) for item in items}
+        for candidate in plan["candidates"]:
+            if candidate.get("evidence_type") == "manual_review":
+                continue
+            if len(created) >= max_tasks:
+                break
+            task_text = str(candidate.get("task") or "")
+            subject = str(candidate.get("subject") or "")
+            key = _task_key(subject, task_text)
+            if (run_id, key) in existing_keys:
+                continue
+            tool_name, arguments, mapping_reason = _infer_tool(candidate)
+            status = "pending" if tool_name in AUTO_TOOLS else "manual_required"
+            task = {
+                "contract_version": TASK_CONTRACT_VERSION,
+                "task_id": f"task-{uuid4().hex[:12]}",
+                "task_key": key,
+                "origin_run_id": run_id,
+                "priority": candidate.get("priority", "medium"),
+                "priority_score": candidate.get("priority_score"),
+                "subject": subject,
+                "task": task_text,
+                "reason": candidate.get("reason", ""),
+                "target_symbols": _symbols_from_verification(candidate, f"{subject} {task_text}"),
+                "evidence_type": candidate.get("evidence_type", "manual"),
+                "missing_evidence": candidate.get("missing_evidence", []),
+                "success_criteria": candidate.get("success_criteria", ""),
+                "planning_origin": COVERAGE_GAP_ORIGIN,
+                "coverage_gap": candidate.get("coverage_gap", {}),
+                "status": status,
+                "tool": {
+                    "name": tool_name,
+                    "label": TOOL_LABELS[tool_name],
+                    "arguments": arguments,
+                    "auto_executable": tool_name in AUTO_TOOLS,
+                    "mapping_reason": mapping_reason,
+                },
+                "created_at": now,
+                "updated_at": now,
+                "started_at": None,
+                "completed_at": None,
+                "attempt_count": 0,
+                "max_attempts": 3,
+                "next_retry_at": None,
+                "last_error_at": None,
+                "failure_category": None,
+                "recovery_count": 0,
+                "result": None,
+                "error": None,
+            }
+            items.append(task)
+            created.append(task)
+            existing_keys.add((run_id, key))
+            if len(created) >= max_tasks:
+                break
+        _write_tasks(items)
+    return {**plan, "created": created, "created_count": len(created)}
 
 
 def list_tasks(*, origin_run_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
@@ -497,7 +576,15 @@ def _disclosure_snapshot(arguments: dict[str, Any]) -> dict[str, Any]:
     remaining_gaps: list[str] = []
     for symbol in symbols:
         facts = get_disclosure_facts(symbol, force=False)
-        verification = load_disclosure_verification(symbol)
+        from app.disclosure_verification.service import verify_symbol_disclosures
+        try:
+            verification = verify_symbol_disclosures(symbol)
+        except Exception as exc:
+            verification = load_disclosure_verification(symbol)
+            remaining_gaps.append(f"{symbol} 本次公告正文核验失败：{str(exc)[:180]}")
+        counts = (verification or {}).get("counts") or {}
+        if not any(counts.get(key) for key in ("supported", "partially_supported", "contradicted")):
+            remaining_gaps.append(f"{symbol} 尚无通过原文引用校验的方向性证据，索引可用不等于持仓逻辑已验证")
         if not facts.get("success"):
             remaining_gaps.append(
                 f"{symbol} 公告与调研索引不可用：{facts.get('message') or 'unknown'}"
@@ -591,6 +678,7 @@ def task_health() -> dict[str, Any]:
     }
 
 
+@runtime.tracked("manual_evidence")
 def execute_task(task_id: str) -> dict[str, Any]:
     with _LOCK:
         items = _read_tasks()
@@ -601,6 +689,12 @@ def execute_task(task_id: str) -> dict[str, Any]:
         tool = task.get("tool") or {}
         if not tool.get("auto_executable"):
             raise ValueError("该任务需要人工核查，不能自动执行")
+        if task.get("status") in {"completed", "dismissed", "superseded", "running"}:
+            raise ValueError("任务已完成、关闭或正在执行，不能重复执行")
+        if int(task.get("attempt_count") or 0) >= int(task.get("max_attempts") or 3):
+            raise ValueError("任务已达到重试上限，请检查失败原因")
+        if task.get("next_retry_at") and datetime.fromisoformat(task["next_retry_at"]) > _now():
+            raise ValueError("任务处于重试冷却期")
         task.update({
             "status": "running",
             "started_at": _now_iso(),
@@ -661,10 +755,12 @@ def execute_task(task_id: str) -> dict[str, Any]:
     return updated
 
 
+@runtime.tracked("manual_evidence")
 def execute_pending_tasks(
     *,
     origin_run_id: str | None = None,
     planning_origins: set[str] | None = None,
+    max_tasks: int | None = None,
 ) -> list[dict[str, Any]]:
     recover_interrupted_tasks()
     tasks = list_tasks(origin_run_id=origin_run_id, limit=500)
@@ -683,6 +779,7 @@ def execute_pending_tasks(
         except ValueError:
             return True
 
+    priority_rank = {"high": 3, "medium": 2, "low": 1}
     executable = [
         task for task in reversed(tasks)
         if due(task)
@@ -692,7 +789,20 @@ def execute_pending_tasks(
             or str(task.get("planning_origin") or "") in planning_origins
         )
     ]
-    return [execute_task(str(task["task_id"])) for task in executable]
+    executable.sort(key=lambda task: (
+        -priority_rank.get(str(task.get("priority") or ""), 0),
+        -float(task.get("priority_score") or 0),
+        str(task.get("created_at") or ""),
+    ))
+    if max_tasks is not None:
+        executable = executable[:max(0, max_tasks)]
+    from app.agent_review import runtime
+    results = []
+    for index, task in enumerate(executable):
+        runtime.progress("inspect", str(task.get("subject") or task.get("task") or "核查证据"), completed=index, total=len(executable))
+        results.append(execute_task(str(task["task_id"])))
+    runtime.progress("inspect", "本批取证结束", completed=len(results), total=len(executable))
+    return results
 
 
 def task_evidence(*, origin_run_id: str) -> list[dict[str, Any]]:
@@ -704,6 +814,7 @@ def task_evidence(*, origin_run_id: str) -> list[dict[str, Any]]:
             "subject": task.get("subject"),
             "evidence_type": task.get("evidence_type"),
             "success_criteria": task.get("success_criteria"),
+            "coverage_gap": task.get("coverage_gap"),
             "facts": task["result"]["payload"],
         }
         for task in reversed(list_tasks(origin_run_id=origin_run_id, limit=100))

@@ -22,6 +22,9 @@ export default {
         ring: '#0f3460',
         positive: '#00d26a',
         negative: '#f73636',
+        // A-share convention: prices and returns use red for gains, green for losses.
+        'market-up': '#ff6b6b',
+        'market-down': '#43d19e',
         warning: '#feca57',
       },
     },

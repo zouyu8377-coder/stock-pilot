@@ -168,6 +168,17 @@ class PortfolioImportService:
         if draft.parser_provider == "volcengine_ark_vision" and not draft.cloud_send_consent:
             raise ValueError("未取得云端发送授权，不会发送截图到云端视觉模型。")
 
+        # A manual rerun replaces prior model diagnostics; retaining an old failure after
+        # a successful retry makes the confirmation draft unnecessarily misleading.
+        draft.parse_warnings = [
+            warning for warning in draft.parse_warnings
+            if str(warning).startswith("已上传截图并创建待确认草稿")
+        ]
+        draft.provider_error_summary = None
+        draft.provider_model = None
+        draft.provider_prompt_version = None
+        draft.provider_finish_reason = None
+        draft.provider_usage = {}
         draft.ocr_status = "ocr_processing"
         self._write_draft(draft)
         provider = self._provider_for(draft.parser_provider)
@@ -559,6 +570,8 @@ class PortfolioImportService:
                     else:
                         existing["quantity"] = remaining
                         existing["available_quantity"] = None
+                        # Broker-style diluted cost: sale proceeds continue to offset the
+                        # remaining position until the symbol is fully closed.
                         existing["avg_cost"] = round(
                             (old_quantity * old_cost - amount) / remaining,
                             6,
@@ -586,6 +599,9 @@ class PortfolioImportService:
                 positions=[PortfolioPositionInput(**item) for item in positions.values()],
             )
             state = self.portfolio_service.save_snapshot(snapshot_input)
+            from app.direction_classification import sync_cached_direction_classifications
+            sync_cached_direction_classifications()
+            state = self.portfolio_service.get_state()
             resulting_snapshot_id = state.snapshot.snapshot_id
 
         batch = self.trade_ledger.append_confirmed_batch(
@@ -752,6 +768,9 @@ class PortfolioImportService:
             positions=positions,
         )
         state = self.portfolio_service.save_snapshot(snapshot_input)
+        from app.direction_classification import sync_cached_direction_classifications
+        sync_cached_direction_classifications()
+        state = self.portfolio_service.get_state()
         self.portfolio_service.add_manual_evidence(ManualEvidenceCreate(
             symbol=None,
             evidence_type=ManualEvidenceType.INTRADAY_SCREENSHOT,

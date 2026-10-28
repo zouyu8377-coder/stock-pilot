@@ -1,0 +1,14 @@
+const fs = require('fs');
+const ts = require('../frontend/node_modules/typescript');
+const assert = require('assert/strict');
+const source = fs.readFileSync('frontend/src/utils/decisionIdentity.ts', 'utf8');
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+const exportsObject = {};
+new Function('exports', compiled)(exportsObject);
+const sectors = [{ sector_id: 'insurance', name: '保险', primary_symbol: '512070.SH' }, { sector_id: 'agriculture', name: '农业' }];
+const item = (subject, evidence_refs = [], target_symbols = []) => ({ subject, evidence_refs, target_symbols });
+const list = [item('保险板块潜在机会'), item('保险', ['rotation:insurance']), item('农业板块潜在机会')];
+assert.equal(exportsObject.uniqueModelOpportunities(list, sectors).length, 2);
+assert.equal(exportsObject.sectorIdentity(item('其他标题', [], ['512070']), sectors), 'sector:insurance');
+assert.notEqual(exportsObject.sectorIdentity(item('银行'), sectors), 'sector:insurance');
+console.log('Cross-source opportunity identity tests passed.');

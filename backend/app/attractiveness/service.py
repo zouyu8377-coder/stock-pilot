@@ -9,6 +9,7 @@ import pandas as pd
 
 from app.attractiveness.valuation import get_valuation_reference
 from app.attractiveness.relative_strength import build_relative_benchmarks
+from app.facts.disclosure_service import get_disclosure_facts
 from app.portfolio.schemas import PortfolioState
 
 
@@ -18,7 +19,8 @@ CONSENSUS_PATH = ROOT / "consensus_registry.json"
 DIMENSION_WEIGHTS = {
     "evidence_change": 30,
     "trend_strength": 25,
-    "valuation_consensus": 20,
+    "price_position": 20,
+    "valuation_reference": 0,
     "catalyst": 15,
     "execution": 10,
 }
@@ -81,7 +83,7 @@ def _event_map(event_radar: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
 def _question_statuses(verification: dict[str, Any]) -> dict[str, str]:
     rank = {"not_found": 0, "partially_supported": 1, "supported": 2, "contradicted": 3}
     result: dict[str, str] = {}
-    for item in verification.get("items") or []:
+    for item in verification.get("current_items", verification.get("items")) or []:
         question = str(item.get("question") or "").strip()
         status = str(item.get("status") or "")
         if not question or status not in rank:
@@ -96,14 +98,40 @@ def _evidence_dimension(
     theme_position: dict[str, Any],
     previous_counts: dict[str, Any] | None = None,
     previous_questions: dict[str, str] | None = None,
+    disclosure: dict[str, Any] | None = None,
+    trend: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     verification = theme_position.get("announcement_verification") or {}
     if verification.get("status") != "verified":
+        disclosure = disclosure or {}
+        disclosure_data = disclosure.get("data") or {}
+        announcements = disclosure_data.get("announcements") or []
+        surveys = disclosure_data.get("surveys") or []
+        has_index = disclosure.get("data_status") == "available"
+        trend_available = (trend or {}).get("data_status") == "available"
+        coverage = (35 if has_index else 0) + (15 if trend_available else 0)
+        reasons = []
+        if has_index:
+            source = disclosure_data.get("announcement_source") or "公告索引"
+            reasons.append(
+                f"已取得公告/调研索引：公告 {len(announcements)} 项、调研 {len(surveys)} 项（{source}；未对正文作方向性推断）"
+            )
+        if trend_available:
+            reasons.append("市场走势事实可用；方向判断仍由趋势维度单独承担")
+        if not reasons:
+            reasons.append("公告正文验证尚未形成可用结论，且暂无可用的索引或市场事实补充")
         return {
-            "score": None,
-            "coverage": 0,
-            "reasons": ["公告正文验证尚未形成可用结论"],
-            "as_of": verification.get("generated_at"),
+            # Index-level evidence supports neutral monitoring, but does not
+            # justify a bullish/bearish conclusion without primary-text review.
+            "score": 50 if coverage else None,
+            "coverage": min(100, coverage),
+            "reasons": reasons,
+            "as_of": verification.get("generated_at") or disclosure.get("cache", {}).get("announcements", {}).get("fetched_at"),
+            "evidence_sources": {
+                "announcement_index": has_index,
+                "market_facts": trend_available,
+                "primary_text_verified": False,
+            },
         }
     counts = verification.get("counts") or {}
     supported = int(counts.get("supported") or 0)
@@ -284,17 +312,11 @@ def _valuation_dimension(
                     market_valuation.get("pe_percentile_3y"),
                     market_valuation.get("pb_percentile_3y"),
                     market_valuation.get("ps_percentile_3y"),
-                    market_valuation.get("price_percentile_3y"),
                 )
                 if value is not None
             ]
             if percentiles:
                 average = sum(percentiles) / len(percentiles)
-                basis = (
-                    "自身3年价格分位"
-                    if market_valuation.get("price_percentile_3y") is not None
-                    else "自身3年估值平均分位"
-                )
                 return {
                     "score": _clamp(100 - average),
                     "coverage": (
@@ -302,7 +324,7 @@ def _valuation_dimension(
                         if market_valuation.get("asset_type") == "etf"
                         else min(75, 45 + len(percentiles) * 15)
                     ),
-                    "reasons": [f"{basis} {average:.1f}%（越低代表价格位置越低）"],
+                    "reasons": [f"自身3年估值平均分位 {average:.1f}%（仅作参考）"],
                     "reference": market_valuation,
                 }
         return {
@@ -340,6 +362,98 @@ def _valuation_dimension(
             "implied_upside_pct": round(upside, 2),
             "market_valuation": market_valuation,
         },
+    }
+
+
+def _price_position_dimension(
+    market_valuation: dict[str, Any],
+    trend: dict[str, Any] | None = None,
+    benchmarks: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Score entry location separately from the broader trend-strength dimension.
+
+    Historical price percentile is a long-horizon context, not a timing signal.
+    The remaining components describe whether an entry is stretched, repairing, or
+    unsupported by recent relative performance. Missing volume data is surfaced as
+    a coverage gap instead of being silently treated as neutral.
+    """
+    trend = trend or {}
+    benchmarks = benchmarks or {}
+    percentile = market_valuation.get("price_percentile_3y")
+    components: list[tuple[str, float, float]] = []
+    reasons: list[str] = []
+    coverage = 0.0
+
+    if percentile is not None:
+        value = float(percentile)
+        components.append(("长期历史位置", _clamp(100 - value), 30))
+        coverage += 30
+        reasons.append(f"长期：自身3年价格分位 {value:.1f}%（仅回答历史位置，不等于买卖时点）")
+        drawdown = market_valuation.get("price_drawdown_from_3y_high_pct")
+        if drawdown is not None:
+            reasons.append(f"长期：距3年高点 {float(drawdown):+.1f}%")
+
+    ma20_distance = trend.get("price_vs_ma20_pct")
+    if ma20_distance is not None:
+        distance = float(ma20_distance)
+        entry_score = max(20, 85 - distance * 4.5) if distance >= 0 else max(20, 60 + distance * 4)
+        components.append(("短线均线位置", _clamp(entry_score), 25))
+        coverage += 25
+        if distance >= 0:
+            reasons.append(f"短线：现价在 MA20 上方 {distance:+.2f}%，距离越大越需防范追高")
+        else:
+            reasons.append(f"短线：现价在 MA20 下方 {distance:+.2f}%，等待重新站稳更稳妥")
+
+    return_5d = trend.get("return_5d_pct")
+    return_20d = trend.get("return_20d_pct")
+    if return_5d is not None or return_20d is not None:
+        short_return = float(return_5d or 0)
+        medium_return = float(return_20d or 0)
+        momentum_score = _clamp(55 + short_return * 2 + medium_return * 0.6)
+        components.append(("近期量价动能", momentum_score, 20))
+        coverage += 20
+        reasons.append(f"近期：5日 {short_return:+.2f}% / 20日 {medium_return:+.2f}%")
+
+    excess_values: list[float] = []
+    for key in ("market", "industry", "theme"):
+        reference = benchmarks.get(key) or {}
+        if reference.get("status") != "available":
+            continue
+        reference_return = reference.get("return_20d_pct")
+        if return_20d is not None and reference_return is not None:
+            excess_values.append(float(return_20d) - float(reference_return))
+            reasons.append(f"板块确认：相对{reference.get('label') or key} 20日超额 {float(return_20d) - float(reference_return):+.2f}%")
+    if excess_values:
+        components.append(("板块相对确认", _clamp(55 + sum(excess_values) / len(excess_values) * 2), 15))
+        coverage += 15
+
+    volume_ratio = trend.get("volume_ratio_5d") or trend.get("amount_ratio_5d")
+    if volume_ratio is not None:
+        ratio = float(volume_ratio)
+        components.append(("量能确认", _clamp(55 + (ratio - 1) * 25), 10))
+        coverage += 10
+        reasons.append(f"量能：近5日相对20日均值 {ratio:.2f} 倍")
+    else:
+        reasons.append("量能：当前持仓趋势快照未提供5日/20日成交量或成交额比，未计入评分")
+
+    if not components:
+        return {
+            "score": None,
+            "coverage": 0,
+            "reasons": ["暂无可用的历史位置、均线、动能或板块确认数据"],
+            "reference": market_valuation,
+        }
+    total_weight = sum(weight for _, _, weight in components)
+    score = sum(value * weight for _, value, weight in components) / total_weight
+    return {
+        "score": _clamp(score),
+        "coverage": _clamp(coverage),
+        "reasons": reasons,
+        "components": [
+            {"label": label, "score": round(value), "weight": weight}
+            for label, value, weight in components
+        ],
+        "reference": market_valuation,
     }
 
 
@@ -422,12 +536,24 @@ def _execution_dimension(symbol: str, name: str, trend: dict[str, Any], active: 
 
 
 def _score_dimensions(dimensions: list[dict[str, Any]]) -> tuple[int | None, int]:
-    available = [item for item in dimensions if item.get("score") is not None]
+    available = [item for item in dimensions if item.get("score") is not None and int(item.get("weight") or 0) > 0]
     available_weight = sum(int(item["weight"]) for item in available)
     if not available_weight:
         return None, 0
     score = sum(float(item["score"]) * int(item["weight"]) for item in available) / available_weight
-    coverage = sum(int(item["weight"]) * float(item.get("coverage") or 0) / 100 for item in dimensions)
+    # Valuation is useful investment context, but its model-dependent interpretation
+    # must not lower confidence in the underlying factual evidence set.
+    confidence_dimensions = [
+        item for item in dimensions
+        if item.get("confidence_included", True) and int(item.get("weight") or 0) > 0
+    ]
+    confidence_weight = sum(int(item["weight"]) for item in confidence_dimensions)
+    coverage = (
+        sum(int(item["weight"]) * float(item.get("coverage") or 0) for item in confidence_dimensions)
+        / confidence_weight
+        if confidence_weight
+        else 0
+    )
     return _clamp(score), _clamp(coverage)
 
 
@@ -633,6 +759,7 @@ def build_attractiveness_radar(
         theme_position = theme_positions.get(symbol, {})
         previous = previous_by_symbol.get(symbol, {})
         valuation_reference = get_valuation_reference(symbol)
+        disclosure = get_disclosure_facts(symbol)
         evidence = (
             _etf_evidence_dimension(theme_position, valuation_reference)
             if symbol.startswith(("15", "16", "51", "56", "58"))
@@ -640,6 +767,8 @@ def build_attractiveness_radar(
                 theme_position,
                 previous.get("evidence_counts"),
                 previous.get("question_statuses"),
+                disclosure,
+                trend,
             )
         )
         execution = _execution_dimension(symbol, position.name, trend, float(position.quantity or 0) > 0)
@@ -648,9 +777,16 @@ def build_attractiveness_radar(
             {"key": "evidence_change", "label": "预期差与证据变化", "weight": 30, **evidence},
             {"key": "trend_strength", "label": "趋势与相对强度", "weight": 25, **_trend_dimension(trend, benchmarks)},
             {
-                "key": "valuation_consensus",
-                "label": "估值与价格位置",
+                "key": "price_position",
+                "label": "入场位置与结构",
                 "weight": 20,
+                **_price_position_dimension(valuation_reference, trend, benchmarks),
+            },
+            {
+                "key": "valuation_reference",
+                "label": "估值（参考，不计权重）",
+                "weight": 0,
+                "confidence_included": False,
                 **_valuation_dimension(
                     symbol,
                     position.market_price or position.system_quote_price,
@@ -703,7 +839,7 @@ def build_attractiveness_radar(
                 "valuation_status": next(
                     (
                         (item.get("reference") or {}).get("status", "configured_reference")
-                        for item in dimensions if item["key"] == "valuation_consensus"
+                        for item in dimensions if item["key"] == "valuation_reference"
                     ),
                     "unavailable",
                 ),
@@ -762,6 +898,6 @@ def build_attractiveness_radar(
         },
         "boundary": (
             "吸引力衡量新增风险敞口的相对价值，不等同于目标价或买入指令。"
-            "缺失估值和价格位置时不填中性分，只降低覆盖率；最终动作仍需同时满足健康度与执行约束。"
+            "估值与价格位置为可选参考，不计入事实覆盖率或账户置信度；最终动作仍需同时满足健康度与执行约束。"
         ),
     }

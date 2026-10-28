@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
-import { API_BASE_URL, analyzeStock, getColdDataStatus, searchStocks, type AnalyzeResponse, type ColdDataStatus, type StockSearchItem } from './api/client'
+import { API_BASE_URL, analyzeStock, refreshAgentConfidenceNow, searchStocks, verifyPortfolioDisclosure, type AnalyzeResponse, type StockSearchItem } from './api/client'
 import {
   API_BASE_LABEL,
   DEFAULT_API_BASE_URL,
@@ -17,23 +17,33 @@ import PortfolioPanel from './components/PortfolioPanel.vue'
 import AccountDashboard from './components/AccountDashboard.vue'
 import RotationRadar from './components/RotationRadar.vue'
 import AgentReview from './components/AgentReview.vue'
-import CockpitBriefing from './components/CockpitBriefing.vue'
+import CockpitBriefing from './components/DiscussionWorkbench.vue'
+import TaskStatusStrip from './components/TaskStatusStrip.vue'
 import PositionContextPanel from './components/PositionContextPanel.vue'
+import AssistantStatusDot from './components/AssistantStatusDot.vue'
+import AccountSourceStatus from './components/AccountSourceStatus.vue'
+import { refreshAssistantStatus } from './composables/useAssistantStatus'
+import { accountPrivacyHidden, toggleAccountPrivacy } from './composables/useAccountPrivacy'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import { getSearchHistory, updateSearchHistory, type SearchHistoryItem } from './utils/searchHistory'
 import { APP_VERSION } from './version'
 
 const activeView = ref<'dashboard' | 'portfolio' | 'discovery' | 'review'>('dashboard')
 const discoveryMode = ref<'rotation' | 'research'>('rotation')
+const accountDashboardRef = ref<InstanceType<typeof AccountDashboard> | null>(null)
+const evidenceRefreshVersion = ref(0)
 const portfolioPanelRef = ref<InstanceType<typeof PortfolioPanel> | null>(null)
+const refreshAccountDashboard = () => accountDashboardRef.value?.refresh()
+const selectedDecisionContext = ref<Record<string, any> | null>(null)
+const selectedEvidenceRefreshing = ref(false)
 const portfolioImportKind = ref<'current_holdings' | 'trade_history' | null>(null)
 const portfolioImportRequest = ref(0)
 const symbol = ref('600519')
 const loading = ref(false)
 const result = ref<AnalyzeResponse | null>(null)
 const error = ref('')
-const coldDataStatus = ref<ColdDataStatus | null>(null)
-const coldDataError = ref(false)
-let coldDataTimer: number | undefined
+let assistantStatusTimer: ReturnType<typeof setInterval> | undefined
+const assistantTabs = [{ key: 'dashboard', label: '驾驶舱' }, { key: 'portfolio', label: '资料采集' }, { key: 'discovery', label: '发现与研究' }] as const
 const apiSettingsOpen = ref(false)
 const apiAddress = ref(API_BASE_URL)
 const apiSettingsError = ref('')
@@ -152,75 +162,6 @@ const scheduleStockSearch = () => {
   stockSearchTimer = window.setTimeout(fetchStockMatches, 180)
 }
 
-const loadColdDataStatus = async () => {
-  try {
-    coldDataStatus.value = await getColdDataStatus()
-    coldDataError.value = false
-  } catch {
-    coldDataError.value = true
-  }
-}
-
-const coldDataDotClass = computed(() => {
-  if (coldDataError.value) return 'bg-negative'
-  const components = coldDataStatus.value?.components
-  const statuses = [
-    coldDataStatus.value?.status,
-    components?.stock?.status,
-    components?.etf?.status,
-    components?.rotation?.status,
-  ].filter(Boolean)
-  if (statuses.some((status) => status === 'running' || status === 'checking')) return 'bg-warning animate-pulse'
-  if (statuses.some((status) => status === 'partial_failed' || status === 'unavailable' || status === 'market_deferred' || status === 'stale')) return 'bg-warning'
-  if (statuses.length > 0 && statuses.every((status) => status === 'complete')) return 'bg-positive'
-  return 'bg-muted-foreground'
-})
-
-const formatColdComponent = (label: string, component?: ColdDataStatus) => {
-  if (!component) return `${label} --`
-  const status = component.status
-  if (status === 'running' || status === 'checking') {
-    const phase = component.phase
-    const coreReadyText = component.core_total ? `核心完成 ${component.core_completed ?? 0}/${component.core_total}` : '核心已就绪'
-    if (phase === 'core_running') {
-      return `${label} 核心 ${component.core_completed ?? 0}/${component.core_total ?? 0}，全市场后台待补`
-    }
-    const progress = component.progress ?? 0
-    const remaining = component.remaining_count ?? 0
-    const failed = component.failed_count ?? 0
-    const current = component.current_symbol ? ` ${component.current_symbol}` : ''
-    if (phase === 'market_backfill' && component.core_total) {
-      return `${label} 核心完成；全市场 ${progress.toFixed(1)}% / 剩 ${remaining}${current}`
-    }
-    if (phase === 'market_backfill') {
-      return `${label} ${coreReadyText}；全市场 ${progress.toFixed(1)}% / 剩 ${remaining}${current}`
-    }
-    return `${label} ${progress.toFixed(1)}% / 剩 ${remaining} / 失败 ${failed}${current}`
-  }
-  if (status === 'market_deferred') {
-    const coreReadyText = component.core_total ? `核心完成 ${component.core_completed ?? 0}/${component.core_total}` : '核心已就绪'
-    return `${label} ${coreReadyText}；非持仓全市场未补齐 ${component.remaining_count ?? 0}`
-  }
-  if (status === 'complete') return `${label} 完成 ${component.completed_count}/${component.total_symbols}`
-  if (status === 'stale') return `${label} 滞后 ${component.completed_count}/${component.total_symbols}`
-  if (status === 'partial_failed') return `${label} 部分失败 ${component.completed_count}/${component.total_symbols}`
-  if (status === 'unavailable') return `${label} 不可用`
-  return `${label} ${status || '--'}`
-}
-
-const coldDataLabel = computed(() => {
-  if (coldDataError.value) return '冷数据状态离线'
-  const components = coldDataStatus.value?.components
-  if (components?.stock || components?.etf || components?.rotation) {
-    return [
-      formatColdComponent('股票', components.stock),
-      formatColdComponent('ETF', components.etf),
-      formatColdComponent('轮动', components.rotation),
-    ].join(' | ')
-  }
-  return formatColdComponent('冷数据', coldDataStatus.value || undefined)
-})
-
 const openSuggestions = () => {
   refreshHistory()
   shouldFilterHistory.value = false
@@ -278,14 +219,14 @@ const handleClickOutside = (e: MouseEvent) => {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
-  loadColdDataStatus()
-  coldDataTimer = window.setInterval(loadColdDataStatus, 10000)
+  refreshAssistantStatus()
+  assistantStatusTimer = setInterval(() => { if (!document.hidden) refreshAssistantStatus() }, 10000)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
-  if (coldDataTimer) window.clearInterval(coldDataTimer)
   if (stockSearchTimer) window.clearTimeout(stockSearchTimer)
+  if (assistantStatusTimer) clearInterval(assistantStatusTimer)
 })
 
 const resolveInputSymbol = async () => {
@@ -316,6 +257,9 @@ const handleAnalyze = async () => {
     symbol.value = resolvedSymbol
     result.value = await analyzeStock(resolvedSymbol)
     if (result.value?.stocks?.[0]) {
+      selectedDecisionContext.value = await accountDashboardRef.value?.getDecisionContext(
+        result.value.stocks[0].symbol,
+      ) || null
       updateSearchHistory({
         symbol: result.value.stocks[0].symbol,
         name: result.value.stocks[0].name,
@@ -329,11 +273,26 @@ const handleAnalyze = async () => {
   }
 }
 
-const openResearchForSymbol = async (nextSymbol: string) => {
+const openResearchForSymbol = async (nextSymbol: string, decisionContext?: Record<string, any>) => {
+  selectedDecisionContext.value = decisionContext || null
   symbol.value = nextSymbol
   activeView.value = 'discovery'
   discoveryMode.value = 'research'
   await handleAnalyze()
+}
+
+const refreshSelectedEvidence = async (targetSymbol?: string) => {
+  if (selectedEvidenceRefreshing.value) return
+  selectedEvidenceRefreshing.value = true
+  try {
+    if (targetSymbol) await verifyPortfolioDisclosure(targetSymbol)
+    else await refreshAgentConfidenceNow()
+    selectedDecisionContext.value = null
+    await refreshAccountDashboard()
+    evidenceRefreshVersion.value += 1
+  } finally {
+    selectedEvidenceRefreshing.value = false
+  }
 }
 
 const openPortfolioImport = async (kind: 'current_holdings' | 'trade_history') => {
@@ -353,14 +312,14 @@ const openRotation = () => {
 <template>
   <div class="min-h-screen bg-background">
     <header class="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-      <div class="mx-auto flex h-14 min-w-0 max-w-[1600px] items-center justify-between overflow-hidden px-3 sm:px-6">
-        <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto sm:gap-3">
+      <div class="mx-auto flex min-h-14 min-w-0 max-w-[1600px] items-center justify-between px-3 py-2 sm:px-6">
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:flex-nowrap sm:gap-3">
           <div class="hidden h-9 w-9 items-center justify-center rounded-lg bg-primary/10 sm:flex">
             <svg class="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
             </svg>
           </div>
-          <span class="shrink-0 whitespace-nowrap text-sm font-semibold tracking-tight text-foreground sm:text-lg">Stock-Pilot</span>
+          <span class="shrink-0 whitespace-nowrap text-sm font-semibold text-foreground sm:text-lg">Stock-Pilot</span>
           <button
             class="hidden rounded bg-secondary/60 px-2 py-0.5 text-[11px] font-mono text-muted-foreground hover:bg-secondary hover:text-foreground sm:inline-flex"
             :title="`修改 API 地址：${API_BASE_URL}`"
@@ -368,65 +327,15 @@ const openRotation = () => {
           >
             {{ APP_VERSION }} · API {{ API_BASE_LABEL }}
           </button>
-          <nav class="ml-1 flex shrink-0 whitespace-nowrap rounded border border-border bg-card p-1 text-xs sm:ml-3">
-            <button
-              :class="['h-8 rounded px-3', activeView === 'dashboard' || activeView === 'review' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground']"
-              @click="activeView = 'dashboard'"
-            >
-              驾驶舱
-            </button>
-            <button
-              :class="['h-8 rounded px-3', activeView === 'portfolio' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground']"
-              @click="activeView = 'portfolio'"
-            >
-              持仓与交易
-            </button>
-            <button
-              :class="['h-8 rounded px-3', activeView === 'discovery' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground']"
-              @click="openRotation"
-            >
-              发现与研究
-            </button>
+          <nav aria-label="业务助手" class="order-2 flex w-full min-w-0 shrink-0 items-center justify-between whitespace-nowrap rounded border border-border bg-card p-1 text-xs sm:order-none sm:ml-3 sm:w-auto sm:justify-start">
+            <div v-for="tab in assistantTabs" :key="tab.key" :class="['flex items-center rounded pr-1', activeView === tab.key || (tab.key === 'dashboard' && activeView === 'review') ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground']">
+              <button :aria-current="activeView === tab.key || (tab.key === 'dashboard' && activeView === 'review') ? 'page' : undefined" class="h-8 px-2 sm:px-3" @click="tab.key === 'discovery' ? openRotation() : activeView = tab.key">{{ tab.label }}</button>
+              <AssistantStatusDot :assistant="tab.key" :label="tab.label" />
+            </div>
+            <button type="button" :aria-label="accountPrivacyHidden ? '显示账户信息' : '隐藏账户信息'" :title="accountPrivacyHidden ? '显示账户信息' : '隐藏账户信息'" :aria-pressed="accountPrivacyHidden" class="ml-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border-l border-border text-sky-200 hover:bg-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300" @click="toggleAccountPrivacy"><EyeOff v-if="accountPrivacyHidden" :size="16" /><Eye v-else :size="16" /></button>
           </nav>
         </div>
 
-        <div class="hidden min-w-0 items-center gap-4 text-xs xl:flex">
-          <div class="flex min-w-0 items-center gap-2" :title="coldDataStatus?.updated_at || ''">
-            <div :class="['h-2 w-2 shrink-0 rounded-full', coldDataDotClass]"></div>
-            <span class="max-w-[720px] truncate text-muted-foreground">{{ coldDataLabel }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div
-              :class="[
-                'h-2 w-2 rounded-full',
-                result?.stocks?.[0]?.hot_status === 'ready' ? 'bg-positive'
-                  : result?.stocks?.[0]?.hot_status === 'stale' ? 'bg-warning'
-                    : result?.stocks?.[0]?.hot_status === 'loading' ? 'bg-warning animate-pulse' : 'bg-muted-foreground',
-              ]"
-            ></div>
-            <span class="text-muted-foreground">Hot {{ result?.stocks?.[0]?.hot_status || '--' }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div
-              :class="[
-                'h-2 w-2 rounded-full',
-                result?.stocks?.[0]?.cold_status === 'ready' ? 'bg-positive'
-                  : result?.stocks?.[0]?.cold_status === 'loading' ? 'bg-warning animate-pulse' : 'bg-muted-foreground',
-              ]"
-            ></div>
-            <span class="text-muted-foreground">K线 {{ result?.stocks?.[0]?.cold_status || '--' }}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <div
-              :class="[
-                'h-2 w-2 rounded-full',
-                result?.stocks?.[0]?.ai_status === 'ready' ? 'bg-positive'
-                  : result?.stocks?.[0]?.ai_status === 'loading' ? 'bg-warning animate-pulse' : 'bg-muted-foreground',
-              ]"
-            ></div>
-            <span class="text-muted-foreground">AI {{ result?.stocks?.[0]?.ai_status || '--' }}</span>
-          </div>
-        </div>
       </div>
     </header>
 
@@ -468,22 +377,28 @@ const openRotation = () => {
     </div>
 
     <main class="mx-auto max-w-[1600px] px-3 py-4 sm:px-6">
-      <AccountDashboard v-show="activeView === 'dashboard'" @select-symbol="openResearchForSymbol">
-        <template #intelligence>
+      <TaskStatusStrip v-if="activeView === 'review'" />
+      <AccountDashboard ref="accountDashboardRef" v-show="activeView === 'dashboard'" @select-symbol="openResearchForSymbol">
+        <template #intelligence="{ accountOverview }">
           <CockpitBriefing
+            :account-overview="accountOverview"
             @open-review="activeView = 'review'"
             @open-rotation="openRotation"
             @open-import="openPortfolioImport"
             @select-symbol="openResearchForSymbol"
+            @refresh-dashboard="refreshAccountDashboard"
           />
         </template>
       </AccountDashboard>
 
+      <div v-if="activeView === 'portfolio'" class="mb-3 flex justify-end"><button class="h-9 rounded border border-border px-3 text-xs text-sky-300" @click="activeView = 'dashboard'; refreshAccountDashboard()">返回工作台</button></div>
+      <AccountSourceStatus v-if="activeView === 'portfolio'" />
       <PortfolioPanel
         v-if="activeView === 'portfolio'"
         ref="portfolioPanelRef"
         :open-import-kind="portfolioImportKind"
         :open-import-request="portfolioImportRequest"
+        @account-saved="activeView = 'dashboard'; refreshAccountDashboard()"
       />
 
       <section v-if="activeView === 'review'" class="space-y-4">
@@ -586,7 +501,12 @@ const openRotation = () => {
       <div v-if="result?.stocks?.length" class="flex flex-col gap-4 xl:flex-row">
         <div class="min-w-0 flex-1 space-y-4">
           <StockCard :stock="result.stocks[0]" />
-          <PositionContextPanel :symbol="result.stocks[0].symbol" />
+          <PositionContextPanel
+            :symbol="result.stocks[0].symbol"
+            :decision-context="selectedDecisionContext"
+            :refresh-key="evidenceRefreshVersion"
+            @verify-disclosure="refreshSelectedEvidence"
+          />
           <KLineChart :symbol="result.stocks[0].symbol" :indicators="result.stocks[0].indicators" />
           <AutoFactsPanel :symbol="result.stocks[0].symbol" />
           <AnalysisPacketPanel :symbol="result.stocks[0].symbol" />

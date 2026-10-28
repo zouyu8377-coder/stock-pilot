@@ -7,6 +7,7 @@ from typing import Any
 
 from app.attractiveness import build_attractiveness_radar
 from app.portfolio.schemas import PortfolioPosition, PortfolioState
+from app.portfolio.task_evidence import completed_market_trend_overrides
 
 
 def _compact_symbol(symbol: str) -> str:
@@ -42,6 +43,89 @@ def _weight_by_symbol(state: PortfolioState, context: dict[str, Any]) -> dict[st
         if symbol and weight is not None:
             weights[_compact_symbol(symbol)] = float(weight or 0)
     return weights
+
+
+def _build_account_performance(state: PortfolioState) -> dict[str, Any]:
+    """Build deterministic account facts; no model output is used here."""
+    metrics = state.metrics
+    active_positions = [item for item in state.snapshot.positions if float(item.quantity or 0) > 0]
+    total_market_value = float(metrics.total_market_value or 0)
+    total_unrealized_pnl = metrics.current_holding_unrealized_pnl
+    known_positions = [item for item in active_positions if item.unrealized_pnl is not None]
+    covered_market_value = sum(float(item.market_value or 0) for item in known_positions)
+    coverage_pct = _round(covered_market_value / total_market_value * 100) if total_market_value else None
+
+    contributors: list[dict[str, Any]] = []
+    direction_totals: dict[str, dict[str, Any]] = {}
+    for position in known_positions:
+        pnl = float(position.unrealized_pnl or 0)
+        market_value = float(position.market_value or 0)
+        direction = str(position.primary_theme or "UNCLASSIFIED")
+        contributors.append({
+            "symbol": position.symbol,
+            "name": position.name,
+            "unrealized_pnl": _round(pnl),
+            "unrealized_pnl_pct": _round(position.unrealized_pnl_pct),
+            "market_value": _round(market_value),
+            "contribution_to_holding_pnl_pct": _round(
+                pnl / float(total_unrealized_pnl) * 100,
+            ) if total_unrealized_pnl not in (None, 0) else None,
+            "data_status": position.data_status,
+        })
+        grouped = direction_totals.setdefault(direction, {
+            "direction": direction,
+            "unrealized_pnl": 0.0,
+            "market_value": 0.0,
+            "position_count": 0,
+        })
+        grouped["unrealized_pnl"] += pnl
+        grouped["market_value"] += market_value
+        grouped["position_count"] += 1
+
+    for row in direction_totals.values():
+        row["unrealized_pnl"] = _round(row["unrealized_pnl"])
+        row["market_value"] = _round(row["market_value"])
+        row["contribution_to_holding_pnl_pct"] = _round(
+            float(row["unrealized_pnl"] or 0) / float(total_unrealized_pnl) * 100,
+        ) if total_unrealized_pnl not in (None, 0) else None
+
+    return {
+        "as_of": metrics.quote_retrieved_at.isoformat() if metrics.quote_retrieved_at else None,
+        "account_return": {
+            "pnl": metrics.account_total_pnl,
+            "pnl_pct": metrics.account_total_pnl_pct,
+            "status": metrics.account_total_pnl_status,
+            "basis": "user_confirmed_total_cost",
+            "basis_amount": metrics.account_actual_total_cost,
+            "note": "账户总盈亏以用户确认的账户总成本为基准，包含已实现与未实现损益。",
+        },
+        "holding_return": {
+            "pnl": total_unrealized_pnl,
+            "pnl_pct": metrics.current_holding_unrealized_pnl_pct,
+            "status": metrics.current_holding_unrealized_pnl_status,
+            "basis": "current_open_positions_cost_basis",
+            "note": "持仓浮盈仅反映当前仍持有标的，不能替代账户总盈亏。",
+        },
+        "attribution": {
+            "status": "available" if coverage_pct is not None and coverage_pct >= 95 else "partial",
+            "coverage_pct": coverage_pct,
+            "covered_position_count": len(known_positions),
+            "active_position_count": len(active_positions),
+            "top_contributors": sorted(contributors, key=lambda item: abs(float(item["unrealized_pnl"] or 0)), reverse=True)[:5],
+            "direction_contributors": sorted(direction_totals.values(), key=lambda item: abs(float(item["unrealized_pnl"] or 0)), reverse=True)[:5],
+            "note": "当前归因按持仓浮盈聚合；交易导致的已实现损益将在交易台账口径完善后纳入。",
+        },
+        "benchmark": {
+            "status": "not_ready",
+            "benchmark": "沪深300",
+            "note": "组合含资金进出和交易变动，尚未建立现金流调整后的时间加权收益序列，暂不展示可能误导的组合超额收益。",
+        },
+        "reconciliation": {
+            "status": metrics.valuation_consistency_status,
+            "checks": metrics.valuation_consistency_checks,
+            "errors": metrics.valuation_consistency_errors,
+        },
+    }
 
 
 def _status(position: PortfolioPosition) -> str:
@@ -209,10 +293,23 @@ def _event_required_tags(event: dict[str, Any]) -> set[str]:
     return tags
 
 
-def _event_relevance(position: PortfolioPosition, event: dict[str, Any], weight: float) -> dict[str, Any]:
+def _event_relevance(
+    position: PortfolioPosition,
+    event: dict[str, Any],
+    weight: float,
+    extra_tags: set[str] | None = None,
+) -> dict[str, Any]:
     risks = set(position.risk_flags or [])
-    tags = _position_tags(position)
+    tags = _position_tags(position) | set(extra_tags or [])
     category = event["category"]
+    tech_tags = {"AI", "AI_THEME_ETF", "PCB", "SEMICONDUCTOR_EQUIPMENT", "HBM", "STORAGE"}
+    if category in {"ai_supply_chain", "semiconductor_earnings"} and not (tags & tech_tags):
+        return {
+            "score": 0,
+            "reason": "仅存在广义风险偏好间接影响，不计为产业链直接关联。",
+            "matched_channels": [],
+            "relation_type": "indirect_risk_appetite",
+        }
     score = 0
     reasons: list[str] = []
     matched_channels: list[dict[str, Any]] = []
@@ -242,7 +339,7 @@ def _event_relevance(position: PortfolioPosition, event: dict[str, Any], weight:
         })
     if matched_channels:
         reasons = [item["reason"] for item in matched_channels[:2]] + reasons
-    if category in {"macro_fed", "macro_inflation", "macro_jobs"}:
+    if category in {"macro_fed", "macro_inflation", "macro_jobs", "macro_growth"}:
         score += 1
         if tags & {"AI", "PCB", "SEMICONDUCTOR_EQUIPMENT", "AI_THEME_ETF"}:
             score += 2
@@ -265,16 +362,30 @@ def _event_relevance(position: PortfolioPosition, event: dict[str, Any], weight:
             score += 2
             theme_reasons.append("半导体景气与资本开支敏感")
         reasons = [*theme_reasons, *reasons]
+    relation_type = "direct_driver"
+    if category in {"macro_fed", "macro_inflation", "macro_jobs", "macro_growth"}:
+        direct_macro = (
+            category in {"macro_fed", "macro_inflation"} and bool(tags & {"GOLD"})
+        ) or (
+            category == "macro_growth" and bool(tags & {"COPPER", "TUNGSTEN", "MOLYBDENUM", "METAL_RESOURCE"})
+        )
+        if not direct_macro:
+            relation_type = "indirect_risk_appetite"
+            score = min(score, 4)
+            reasons.insert(0, "广义风险偏好间接影响，不视为标的经营或产业链直接驱动")
     return {
         "score": score,
         "reason": "；".join(dict.fromkeys(reasons).keys()) or "组合内标的可能受全市场风险偏好变化影响",
         "matched_channels": matched_channels,
+        "relation_type": relation_type,
     }
 
 
 def build_market_event_radar(state: PortfolioState, weights: dict[str, float], today: date | None = None) -> dict[str, Any]:
     today = today or datetime.now(timezone.utc).date()
     registry = _load_market_event_registry()
+    from app.direction_classification import get_direction_classifications
+    ai_by_symbol = get_direction_classifications().get("by_symbol", {})
     portfolio_tags = _portfolio_tags(state)
     registry_events: list[dict[str, Any]] = []
     high_impact_count = 0
@@ -298,7 +409,11 @@ def build_market_event_radar(state: PortfolioState, weights: dict[str, float], t
         for position in state.snapshot.positions:
             compact = _compact_symbol(position.symbol)
             weight = weights.get(compact, 0.0)
-            relevance = _event_relevance(position, seed, weight)
+            ai_tags = {
+                str(tag).upper()
+                for tag in (ai_by_symbol.get(compact) or {}).get("directions", [])
+            }
+            relevance = _event_relevance(position, seed, weight, ai_tags)
             score = int(relevance["score"])
             if score <= 1:
                 continue
@@ -313,6 +428,7 @@ def build_market_event_radar(state: PortfolioState, weights: dict[str, float], t
                 "portfolio_weight_pct": _round(weight),
                 "reason": relevance["reason"],
                 "matched_channels": relevance.get("matched_channels", []),
+                "relation_type": relevance.get("relation_type", "indirect_risk_appetite"),
             })
 
         related.sort(key=lambda item: item.get("portfolio_weight_pct") or 0, reverse=True)
@@ -365,6 +481,12 @@ def build_dashboard(
     persist_attractiveness_history: bool = False,
 ) -> dict[str, Any]:
     trends = _trend_by_symbol(context)
+    # A completed agent snapshot can close a missing local trend gap, but never
+    # overrides an already available account-context data series.
+    for symbol, override in completed_market_trend_overrides().items():
+        current = trends.get(symbol) or {}
+        if current.get("data_status") != "available":
+            trends[symbol] = {**current, **override}
     weights = _weight_by_symbol(state, context)
     opportunity_queue: list[dict[str, Any]] = []
     risk_queue: list[dict[str, Any]] = []
@@ -415,6 +537,8 @@ def build_dashboard(
         event_radar=market_event_radar,
         persist_history=persist_attractiveness_history,
     )
+    from app.direction_classification import get_direction_classifications
+    ai_classifications = get_direction_classifications()
     attractiveness_by_symbol = {
         _compact_symbol(item.get("symbol", "")): item
         for item in attractiveness_radar.get("positions", [])
@@ -422,6 +546,7 @@ def build_dashboard(
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "account_facts": context.get("account_facts", {}),
+        "account_performance": _build_account_performance(state),
         "positions": [
             {
                 **position.model_dump(mode="json"),
@@ -429,6 +554,7 @@ def build_dashboard(
                 "position_status": _status(position),
                 "trend": trends.get(_compact_symbol(position.symbol), {}),
                 "attractiveness": attractiveness_by_symbol.get(_compact_symbol(position.symbol), {}),
+                "ai_direction_classification": ai_classifications.get("by_symbol", {}).get(_compact_symbol(position.symbol)),
             }
             for position in state.snapshot.positions
         ],
@@ -442,6 +568,7 @@ def build_dashboard(
         "theme_evidence_radar": theme_evidence_radar,
         "overseas_tech_chain": overseas_tech_chain,
         "attractiveness_radar": attractiveness_radar,
+        "ai_direction_classification": {key: value for key, value in ai_classifications.items() if key != "by_symbol"},
         "external_ai_tasks": context.get("suggested_questions_for_external_llm", []),
         "boundaries": context.get("ai_analysis_boundary", {}),
     }

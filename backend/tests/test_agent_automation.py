@@ -52,6 +52,12 @@ def test_premarket_cycle_executes_only_low_confidence_tasks_and_rechecks_with_mo
     latest = {"run_id": "review-before-open", "completed_at": "2026-08-02T15:31:00+08:00"}
     monkeypatch.setattr(automation, "load_latest_review", lambda: latest)
     monkeypatch.setattr(automation, "sync_review_tasks", lambda review: [])
+    monkeypatch.setattr(automation, "plan_coverage_gap_tasks", lambda *args, **kwargs: {
+        "created_count": 0,
+        "summary": {"candidate_count": 0, "health_coverage_pct": 49, "attractiveness_coverage_pct": 45, "joint_coverage_pct": 45},
+    })
+    monkeypatch.setattr(automation, "build_coverage_plan", lambda **kwargs: {"summary": {"health_coverage_pct": 49, "attractiveness_coverage_pct": 45, "joint_coverage_pct": 45}})
+    monkeypatch.setattr(automation, "invalidate_dashboard_cache", lambda: None)
     monkeypatch.setattr(automation, "list_tasks", lambda **kwargs: [{
         "task_id": "low-1",
         "planning_origin": "low_confidence_auto",
@@ -73,13 +79,21 @@ def test_premarket_cycle_executes_only_low_confidence_tasks_and_rechecks_with_mo
 
     result = automation.run_premarket_cycle()
 
-    assert captured["planning_origins"] == automation.LOW_CONFIDENCE_ORIGINS
+    assert captured["planning_origins"] == automation.PREMARKET_EVIDENCE_ORIGINS
     assert result["model_calls"] == 1
     assert [step["step"] for step in result["steps"]] == [
+        "proactive_coverage_planning",
         "premarket_evidence_check",
         "premarket_confidence_update",
     ]
-    assert result["steps"][1]["run_id"] == "review-after-evidence"
+    assert result["steps"][2]["run_id"] == "review-after-evidence"
+
+    # Scheduled refreshes stop at the daily quota; manual refreshes keep working.
+    assert automation.run_premarket_cycle()["model_calls"] == 0
+    for _ in range(2):
+        assert automation.run_premarket_cycle(trigger="manual_confidence")["model_calls"] == 1
+    assert automation._confidence_refresh_model_calls_today() == 1
+    assert automation.run_premarket_cycle()["model_calls"] == 0
 
 
 def test_premarket_cycle_does_not_call_model_without_new_evidence(tmp_path, monkeypatch):
@@ -89,6 +103,12 @@ def test_premarket_cycle_does_not_call_model_without_new_evidence(tmp_path, monk
     automation.update_automation_settings({"enabled": True, "premarket_enabled": True})
     monkeypatch.setattr(automation, "load_latest_review", lambda: {"run_id": "review-1"})
     monkeypatch.setattr(automation, "sync_review_tasks", lambda review: [])
+    monkeypatch.setattr(automation, "plan_coverage_gap_tasks", lambda *args, **kwargs: {
+        "created_count": 0,
+        "summary": {"candidate_count": 0, "health_coverage_pct": 49, "attractiveness_coverage_pct": 45, "joint_coverage_pct": 45},
+    })
+    monkeypatch.setattr(automation, "build_coverage_plan", lambda **kwargs: {"summary": {"health_coverage_pct": 49, "attractiveness_coverage_pct": 45, "joint_coverage_pct": 45}})
+    monkeypatch.setattr(automation, "invalidate_dashboard_cache", lambda: None)
     monkeypatch.setattr(automation, "list_tasks", lambda **kwargs: [])
     monkeypatch.setattr(automation, "execute_pending_tasks", lambda **kwargs: [])
     monkeypatch.setattr(
@@ -290,6 +310,12 @@ def test_new_daily_review_can_complete_tool_followup_in_same_cycle(tmp_path, mon
         "followup_review",
         "followup_tool_execution",
     ]
+
+    automation.update_automation_settings({"max_model_calls_per_day": 0})
+    monkeypatch.setattr(automation, "load_latest_review", lambda: {
+        "run_id": "today", "completed_at": datetime.now(automation.TZ).isoformat(),
+    })
+    assert automation.run_automatic_cycle(trigger="manual")["model_calls"] == 2
 
 
 def test_scheduled_trade_review_has_budget_even_after_manual_review(tmp_path, monkeypatch):

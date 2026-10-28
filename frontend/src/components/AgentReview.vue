@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import DecisionReasoning from './DecisionReasoning.vue'
 import {
   annotatePortfolioAction,
   executeAgentReviewTask,
@@ -14,7 +15,7 @@ import {
   getAgentReviewTasks,
   getLatestAgentReview,
   runAgentReviewCycle,
-  runAgentPremarketNow,
+  refreshAgentConfidenceNow,
   runAgentAutomationNow,
   saveAgentAutomationSettings,
   updateAgentReviewTaskStatus,
@@ -323,7 +324,7 @@ const runPremarket = async () => {
   premarketRunning.value = true
   error.value = ''
   try {
-    await runAgentPremarketNow()
+    await refreshAgentConfidenceNow()
     await loadReview()
   } catch (value) {
     error.value = errorMessage(value)
@@ -434,7 +435,7 @@ onMounted(loadReview)
           </label>
         </div>
       </div>
-      <div class="grid gap-3 px-3 py-3 text-xs sm:grid-cols-2 lg:grid-cols-8">
+      <div class="grid gap-3 px-3 py-3 text-xs sm:grid-cols-2 lg:grid-cols-9">
         <label class="space-y-1 text-muted-foreground">
           <span>收盘触发时间</span>
           <input v-model="automationSettings.run_time" type="time" class="h-8 w-full rounded border border-border bg-background px-2 text-foreground" />
@@ -444,8 +445,12 @@ onMounted(loadReview)
           <input v-model="automationSettings.premarket_time" type="time" class="h-8 w-full rounded border border-border bg-background px-2 text-foreground" />
         </label>
         <label class="space-y-1 text-muted-foreground">
-          <span>模型调用上限</span>
+          <span>自动模型调用日上限</span>
           <input v-model.number="automationSettings.max_model_calls_per_day" type="number" min="0" max="3" class="h-8 w-full rounded border border-border bg-background px-2 text-foreground" />
+        </label>
+        <label class="space-y-1 text-muted-foreground">
+          <span>主动取证上限</span>
+          <input v-model.number="automationSettings.max_proactive_tasks_per_day" type="number" min="1" max="8" class="h-8 w-full rounded border border-border bg-background px-2 text-foreground" />
         </label>
         <label class="flex items-end gap-2 pb-2 text-muted-foreground">
           <input v-model="automationSettings.weekdays_only" type="checkbox" class="h-4 w-4 accent-primary" />
@@ -464,7 +469,7 @@ onMounted(loadReview)
             {{ automationSaving ? '保存中…' : '保存设置' }}
           </button>
           <button class="h-8 rounded border border-sky-400/50 px-3 text-sky-300 hover:bg-sky-400/10 disabled:opacity-50" :disabled="premarketRunning" @click="runPremarket">
-            {{ premarketRunning ? '晨检中…' : '立即晨检' }}
+            {{ premarketRunning ? '刷新中…' : '刷新置信度' }}
           </button>
           <button class="h-8 rounded bg-primary px-3 text-primary-foreground hover:bg-primary/90 disabled:opacity-50" :disabled="automationRunning" @click="runAutomation">
             {{ automationRunning ? '循环运行中…' : '立即运行' }}
@@ -474,8 +479,9 @@ onMounted(loadReview)
       <div class="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
         晨间取证 {{ automationSettings.premarket_enabled ? '已启用' : '未启用' }} · {{ automationSettings.premarket_time }}
         · 待核查低置信度 {{ automation?.premarket_trigger?.pending_low_confidence_count || 0 }} 项
+        · 覆盖缺口待办 {{ automation?.coverage_planner?.pending_count || 0 }} 项 / {{ automation?.coverage_planner?.daily_budget || automationSettings.max_proactive_tasks_per_day }} 项
         · 上一次晨检 {{ formatTime(automation?.premarket_trigger?.latest_run_completed_at) }}
-        <span class="text-slate-400">（有新证据才调用 DeepSeek，最多 1 次）</span>
+        <span class="text-slate-400">（有新证据才调用 DeepSeek；自动晨检每日最多 1 次，手动触发不受日限额约束）</span>
         <br />
         今日已确认交易 {{ automation?.trade_trigger?.today_confirmed_action_count || 0 }} 条
         <span :class="automation?.trade_trigger?.review_period === 'weekly' || automation?.trade_trigger?.has_confirmed_trade_today ? 'text-positive' : 'text-muted-foreground'">
@@ -492,6 +498,11 @@ onMounted(loadReview)
           </span>
         </span>
         <span v-if="automation?.latest_run"> · 最近循环 {{ formatTime(automation.latest_run.completed_at_local) }} · {{ automation.latest_run.status }}</span>
+        <span v-if="automation?.coverage_planner?.last_plan?.coverage_before" class="block mt-1 text-slate-400">
+          上次主动取证前覆盖：健康 {{ automation.coverage_planner.last_plan.coverage_before.health_coverage_pct ?? '--' }}%
+          · 吸引力 {{ automation.coverage_planner.last_plan.coverage_before.attractiveness_coverage_pct ?? '--' }}%
+          · 联合 {{ automation.coverage_planner.last_plan.coverage_before.joint_coverage_pct ?? '--' }}%
+        </span>
       </div>
     </div>
 
@@ -640,6 +651,7 @@ onMounted(loadReview)
                 <div class="text-[11px] font-medium text-foreground">行动语义</div>
                 <p class="mt-1 text-xs leading-5 text-muted-foreground">{{ item.action_semantics }}</p>
               </div>
+              <DecisionReasoning :item="item" />
               <div v-if="item.evidence_refs.length" class="mt-2 flex flex-wrap gap-1">
                 <span v-for="evidence in item.evidence_refs" :key="evidence" class="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
                   {{ evidence }}
@@ -704,6 +716,11 @@ onMounted(loadReview)
                   <div class="font-medium text-foreground">{{ task.subject }}</div>
                   <div class="mt-1 leading-5 text-muted-foreground">{{ task.task }}</div>
                   <div class="mt-1 text-[11px] text-muted-foreground/70">{{ task.reason }}</div>
+                  <div v-if="task.coverage_gap" class="mt-1 text-[10px] leading-4 text-sky-300">
+                    主动取证 · {{ task.coverage_gap.label || '覆盖缺口' }}
+                    {{ task.coverage_gap.coverage_before_pct ?? '--' }}% → {{ task.coverage_gap.target_coverage_pct ?? '--' }}%
+                    <span v-if="task.coverage_gap.account_weight_pct != null"> · 持仓权重 {{ task.coverage_gap.account_weight_pct }}%</span>
+                  </div>
                   <div
                     v-if="task.target_symbols?.length || task.evidence_type"
                     class="mt-1 font-mono text-[10px] text-slate-400"
@@ -887,9 +904,9 @@ onMounted(loadReview)
                     <div class="mt-0.5 font-mono text-[10px] text-muted-foreground">{{ item.symbol }} · {{ item.operation_count }} 次</div>
                   </td>
                   <td class="px-2 py-2 text-foreground">{{ operationPatternLabel(item.pattern) }}</td>
-                  <td class="px-2 py-2 text-right font-mono text-positive">{{ formatQuantity(item.buy_quantity) }}</td>
-                  <td class="px-2 py-2 text-right font-mono text-negative">{{ formatQuantity(-item.sell_quantity) }}</td>
-                  <td class="px-2 py-2 text-right font-mono" :class="item.net_quantity >= 0 ? 'text-positive' : 'text-negative'">{{ formatQuantity(item.net_quantity) }}</td>
+                  <td class="px-2 py-2 text-right font-mono text-market-up">{{ formatQuantity(item.buy_quantity) }}</td>
+                  <td class="px-2 py-2 text-right font-mono text-market-down">{{ formatQuantity(-item.sell_quantity) }}</td>
+                  <td class="px-2 py-2 text-right font-mono" :class="item.net_quantity > 0 ? 'text-market-up' : item.net_quantity < 0 ? 'text-market-down' : 'text-muted-foreground'">{{ formatQuantity(item.net_quantity) }}</td>
                   <td class="px-2 py-2 text-right font-mono text-foreground">{{ item.reversal_count }}</td>
                   <td class="px-2 py-2 text-muted-foreground">
                     一致 {{ item.strategy_comparison_counts.aligned || 0 }}

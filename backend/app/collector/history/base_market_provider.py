@@ -12,7 +12,19 @@ def normalize_symbol(symbol: str) -> str:
     600 / 601 / 603 / 605 / 688 -> sh
     000 / 001 / 002 / 003 / 300 -> sz
     """
-    symbol = symbol.strip()
+    symbol = symbol.strip().upper()
+    # Portfolio and API payloads may use ts_code (603259.SH) while local
+    # base_market files use baostock naming (sh.603259.parquet).
+    if "." in symbol:
+        left, right = symbol.split(".", 1)
+        if left in {"SH", "SZ"}:
+            if not right.isdigit() or len(right) != 6:
+                raise ValueError(f"Invalid exchange-qualified symbol: {symbol}")
+            return f"{left.lower()}.{right}"
+        elif right in {"SH", "SZ"}:
+            if not left.isdigit() or len(left) != 6:
+                raise ValueError(f"Invalid exchange-qualified symbol: {symbol}")
+            return f"{right.lower()}.{left}"
 
     if symbol.startswith(("600", "601", "603", "605", "688", "510", "511", "512", "513", "515", "516", "517", "518", "588", "589")):
         return f"sh.{symbol}"

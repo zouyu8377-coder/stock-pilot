@@ -227,6 +227,11 @@ export interface AgentReviewDataStatus {
 }
 
 export interface AgentReviewItem {
+  decision_basis?: string[]
+  counter_scenario?: string
+  technical_analysis?: string
+  news_analysis?: string
+  confidence_reason?: string
   item_id: string
   subject: string
   conclusion: string
@@ -235,6 +240,11 @@ export interface AgentReviewItem {
   counter_evidence_refs: string[]
   action_semantics: string
   invalidation_conditions: string[]
+  suggested_action?: 'hold' | 'increase' | 'reduce' | 'watch' | 'wait'
+  trigger_condition?: string
+  horizon?: string
+  target_symbols?: string[]
+  account_impact?: string
 }
 
 export interface AgentReviewTask {
@@ -243,7 +253,7 @@ export interface AgentReviewTask {
   task: string
   reason: string
   target_symbols?: string[]
-  evidence_type?: 'market_snapshot' | 'rotation' | 'event_outcome' | 'announcement' | 'financial' | 'manual'
+  evidence_type?: 'market_snapshot' | 'rotation' | 'event_outcome' | 'announcement' | 'financial' | 'manual' | 'manual_review'
   missing_evidence?: string[]
   success_criteria?: string
 }
@@ -341,9 +351,22 @@ export interface AgentReviewTask {
   task: string
   reason: string
   target_symbols?: string[]
-  evidence_type?: 'market_snapshot' | 'rotation' | 'event_outcome' | 'announcement' | 'financial' | 'manual'
+  evidence_type?: 'market_snapshot' | 'rotation' | 'event_outcome' | 'announcement' | 'financial' | 'manual' | 'manual_review'
   missing_evidence?: string[]
   success_criteria?: string
+  planning_origin?: string
+  priority_score?: number | null
+  coverage_gap?: {
+    dimension?: string
+    label?: string
+    coverage_before_pct?: number
+    target_coverage_pct?: number
+    account_weight_pct?: number
+    decision_impact?: number
+    decision_sensitive?: boolean
+    priority_score?: number
+    related_dimensions?: string[]
+  }
   status: 'pending' | 'running' | 'retry_wait' | 'completed' | 'partial' | 'failed' | 'manual_required' | 'dismissed' | 'superseded'
   tool: {
     name: 'stock_snapshot' | 'rotation_refresh' | 'event_snapshot' | 'disclosure_snapshot' | 'manual_review'
@@ -383,6 +406,7 @@ export interface AgentReviewStatus {
 }
 
 export interface AgentAutomationSettings {
+  analysis_after_account_update?: boolean
   enabled: boolean
   run_time: string
   premarket_enabled: boolean
@@ -391,6 +415,7 @@ export interface AgentAutomationSettings {
   auto_execute_tools: boolean
   auto_model_review: boolean
   max_model_calls_per_day: number
+  max_proactive_tasks_per_day: number
   last_scheduled_date?: string | null
   last_premarket_date?: string | null
 }
@@ -445,6 +470,69 @@ export interface AgentAutomationStatus {
     last_premarket_date?: string | null
     latest_run_completed_at?: string | null
     model_call_policy: string
+  }
+  coverage_planner?: {
+    pending_count: number
+    daily_budget: number
+    last_plan?: {
+      created?: number
+      candidate_count?: number
+      coverage_before?: {
+        health_coverage_pct?: number
+        attractiveness_coverage_pct?: number
+        joint_coverage_pct?: number
+      }
+    } | null
+    last_evidence_check?: {
+      executed?: number
+      usable_evidence?: number
+      failed?: number
+      coverage_before?: {
+        health_coverage_pct?: number
+        attractiveness_coverage_pct?: number
+        joint_coverage_pct?: number
+      }
+      coverage_after?: {
+        health_coverage_pct?: number
+        attractiveness_coverage_pct?: number
+        joint_coverage_pct?: number
+      }
+    } | null
+    current_coverage?: {
+      health_coverage_pct?: number
+      attractiveness_coverage_pct?: number
+      joint_coverage_pct?: number
+      candidate_count?: number
+      retryable_candidate_count?: number
+      source_blocked_count?: number
+      manual_review_count?: number
+    } | null
+    remaining_gaps?: Array<{
+      subject: string
+      task: string
+      evidence_type: string
+      coverage_gap?: {
+        label?: string
+        account_weight_pct?: number
+        projected_health_gain_pp?: number
+        projected_attractiveness_gain_pp?: number
+        dimension_impacts?: Array<{
+          dimension?: string
+          label?: string
+          coverage_before_pct?: number
+          target_coverage_pct?: number
+          metric?: 'health' | 'attractiveness'
+          max_account_coverage_gain_pp?: number
+        }>
+      }
+      refreshability?: {
+        state: 'retryable' | 'source_blocked' | 'manual_required'
+        label: string
+        can_improve_on_refresh: boolean
+        reason: string
+      }
+    }>
+    policy: string
   }
   latest_review_completed_at?: string | null
   server_time: string
@@ -969,6 +1057,14 @@ export interface AnalysisPacketResponse {
 export interface PortfolioDashboard {
   generated_at: string
   account_facts: Record<string, any>
+  account_performance?: {
+    as_of?: string | null
+    account_return?: Record<string, any>
+    holding_return?: Record<string, any>
+    attribution?: Record<string, any>
+    benchmark?: Record<string, any>
+    reconciliation?: Record<string, any>
+  }
   positions: Array<PortfolioPosition & {
     portfolio_weight_pct?: number | null
     trend?: Record<string, any>
@@ -1167,6 +1263,7 @@ export async function createPortfolioAnalysisPacket(userQuestion = '', options: 
     params: {
       ...(userQuestion ? { user_question: userQuestion } : {}),
       ...(options.staleDraft ? { stale_draft: true } : {}),
+      refresh_at: Date.now(),
     },
   })
   return response.data
@@ -1217,6 +1314,20 @@ export async function confirmPortfolioImportDraft(
   return response.data.data
 }
 
+export async function refreshPortfolioAiDirectionClassification(): Promise<any> {
+  const response = await client.post<{ success: boolean; data: any }>('/api/portfolio/ai-direction-classification/refresh')
+  return response.data.data
+}
+
+export async function verifyPortfolioDisclosure(symbol: string, force = true): Promise<any> {
+  const response = await client.post<{ success: boolean; data: any }>(
+    `/api/portfolio/disclosure-verification/${symbol}/verify`,
+    undefined,
+    { params: { force } },
+  )
+  return response.data.data
+}
+
 export async function suggestPortfolioTradeReason(draftId: string): Promise<{
   reason_summary: string
   confidence: 'high' | 'medium' | 'low'
@@ -1233,6 +1344,16 @@ export async function suggestPortfolioTradeReason(draftId: string): Promise<{
 
 export async function rejectPortfolioImportDraft(draftId: string): Promise<PortfolioImportDraft> {
   const response = await client.delete<{ success: boolean; data: PortfolioImportDraft }>(`/api/portfolio/import/drafts/${draftId}`)
+  return response.data.data
+}
+
+export async function exportExternalAnalysis(): Promise<{ prompt: string; local_path: string; request_id: string }> {
+  const response = await client.post('/api/agent/review/exchange/export', {}, { timeout: 360000 })
+  return response.data.data
+}
+
+export async function importExternalAnalysis(resultJson: string, confirm = false): Promise<any> {
+  const response = await client.post('/api/agent/review/exchange/import', { result_json: resultJson, confirm })
   return response.data.data
 }
 
@@ -1263,7 +1384,7 @@ export async function generateDailyAgentReview(forceContext = false): Promise<Ag
   const response = await client.post<{ success: boolean; data: AgentReviewRun }>(
     '/api/agent/review/daily',
     null,
-    { params: { force_context: forceContext }, timeout: 260000 },
+    { params: { force_context: forceContext }, timeout: 560000 },
   )
   return response.data.data
 }
@@ -1336,9 +1457,84 @@ export async function runAgentAutomationNow(): Promise<AgentAutomationRun> {
   return response.data.data
 }
 
+export interface AnalysisWorkflow {
+  unchanged?: boolean
+  followup_pending?: boolean
+  followup_note?: string
+  new_task_results?: { executed: number; usable: number }
+  job_id?: string
+  status: string
+  error?: string
+  completed_at_local?: string
+  review_run_id?: string
+  steps: { key: string; status: string }[]
+  source?: string
+  stage?: string
+  detail?: string
+  started_at_local?: string
+  last_progress_at?: string
+  elapsed_seconds?: number
+  idle_seconds?: number
+  overdue?: boolean
+  completed_items?: number
+  total_items?: number
+  model_requests?: number
+  tokens?: number
+  retry?: { failures: number; next_retry_at?: string; paused_today?: boolean }
+}
+
+export async function cancelAnalysisWorkflow(): Promise<AnalysisWorkflow> {
+  return (await client.post('/api/agent/review/workflow/cancel')).data.data
+}
+
+export async function getAnalysisWorkflow(): Promise<AnalysisWorkflow> {
+  return (await client.get('/api/agent/review/workflow')).data.data
+}
+
+export async function startAnalysisWorkflow(): Promise<AnalysisWorkflow> {
+  return (await client.post('/api/agent/review/workflow')).data.data
+}
+
+export interface ResearchQuestion {
+  question: string; status: string; checked_at?: string; check_stale: boolean; answer: string; blocker: string; next_step: string
+  sources: { source_title: string; source_url: string; announced_at: string; quote: string; page?: number; status: string }[]
+}
+export interface ResearchDossier {
+  symbol: string; name: string; directions: string[]; questions: ResearchQuestion[]
+  documents: { title: string; pdf_url: string; announced_at: string }[]
+  historical_findings: { question: string; conclusion: string; announced_at: string }[]
+  tasks: { task_id: string; task: string; status: string; error?: string }[]
+}
+export interface HoldingDecision {
+  needs_refresh: boolean
+  id: string; symbol: string; name: string; version: string; primary: AgentReviewItem; related: AgentReviewItem[]
+  state: string; note: string; account_changed: boolean; changed_since_response: boolean; analyzed_at: string; unanswered: number
+  history: { state: string; note: string; at: string }[]
+}
+export interface ResearchWorkbench {
+  account_update?: { status: string; queued_at?: string }
+  needs_refresh: boolean
+  actions: HoldingDecision[]; dossiers: ResearchDossier[]; checked_at: string; analyzed_at?: string; account_changed: boolean
+}
+export async function getResearchWorkbench(): Promise<ResearchWorkbench> {
+  return (await client.get('/api/agent/review/workbench')).data.data
+}
+export async function respondToDecision(item: HoldingDecision, state: string, note = '') {
+  return (await client.post(`/api/agent/review/workbench/${item.id}/response`, { version: item.version, state, note })).data.data
+}
+
 export async function runAgentPremarketNow(): Promise<AgentAutomationRun> {
   const response = await client.post<{ success: boolean; data: AgentAutomationRun }>(
     '/api/agent/review/automation/premarket/run',
+    null,
+    { timeout: 420000 },
+  )
+  return response.data.data
+}
+
+export async function refreshAgentConfidenceNow(): Promise<AgentAutomationRun> {
+  const response = await client.post<{ success: boolean; data: AgentAutomationRun }>(
+    '/api/agent/review/automation/confidence-refresh',
     null,
     { timeout: 420000 },
   )
@@ -1377,4 +1573,19 @@ export async function annotatePortfolioAction(
     payload,
   )
   return response.data.data
+}
+
+export async function planRequest(path = '', body?: unknown): Promise<any> {
+  const url = `/api/agent/review/plans${path}`
+  return (body === undefined ? await client.get(url) : await client.post(url, body)).data.data
+}
+
+export async function discussionRequest(path = '', body?: unknown): Promise<any> {
+  const url = `/api/agent/review/discussion${path}`
+  return (body === undefined ? await client.get(url) : await client.post(url, body, { timeout: 240000 })).data.data
+}
+
+export async function investmentAgentRequest(path = '', body?: unknown, method?: 'PUT'): Promise<any> {
+  const url = `/api/investment-agents${path}`
+  return (method === 'PUT' ? await client.put(url, body) : body === undefined ? await client.get(url) : await client.post(url, body)).data.data
 }

@@ -80,6 +80,27 @@ def test_verify_symbol_disclosures_degrades_when_pdf_is_unavailable(tmp_path, mo
 
     assert result["status"] == "unavailable"
     assert result["items"] == []
+    assert result["pending_announcement_ids"] == ["ann-1"]
+    assert result["processed_announcement_ids"] == []
+
+
+def test_batch_limit_keeps_unread_announcements_for_next_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "ROOT", tmp_path)
+    monkeypatch.setattr(service.settings, "DISCLOSURE_VERIFICATION_MAX_DOCUMENTS", 1)
+    monkeypatch.setattr(service, "_cache_is_fresh", lambda payload: False)
+    monkeypatch.setattr(service, "_symbol_context", lambda symbol: {"questions": ["revenue"], "keywords": []})
+    monkeypatch.setattr(service, "_extract_pdf_pages", lambda content: ["revenue"])
+    monkeypatch.setattr(service, "_select_relevant_text", lambda *args: "revenue")
+    monkeypatch.setattr(service, "_build_prompt", lambda *args: "test")
+    monkeypatch.setattr(service, "_validate_model_items", lambda payload, docs: [
+        {"status": "supported", "announcement_id": doc["announcement_id"]} for doc in docs
+    ])
+    announcements = [{"announcement_id": key, "pdf_url": key, "announced_at": key} for key in ("1", "2", "3")]
+    def run():
+        return service.verify_symbol_disclosures("002463", announcement_fetcher=lambda *args: list(announcements), pdf_fetcher=lambda url: b"pdf", model_caller=lambda prompt: "{}")
+    assert len(run()["pending_announcement_ids"]) == 2
+    assert len(run()["pending_announcement_ids"]) == 1
+    assert run()["processed_announcement_ids"] == ["1", "2", "3"]
 
 
 def test_cached_verification_only_calls_model_for_new_announcement(tmp_path, monkeypatch):
@@ -141,7 +162,7 @@ def test_cached_verification_only_calls_model_for_new_announcement(tmp_path, mon
     assert {item["announcement_id"] for item in updated["documents"]} == {"ann-1", "ann-2"}
 
 
-def test_verification_prioritizes_theme_relevant_announcement(tmp_path, monkeypatch):
+def test_verification_prioritizes_new_report_over_old_keyword_match(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "ROOT", tmp_path)
     monkeypatch.setattr(service.settings, "DISCLOSURE_VERIFICATION_MAX_DOCUMENTS", 1)
     monkeypatch.setattr(service, "_extract_pdf_pages", lambda content: ["[page 1]\nPCB产能增加"])
@@ -179,4 +200,4 @@ def test_verification_prioritizes_theme_relevant_announcement(tmp_path, monkeypa
         }, ensure_ascii=False),
     )
 
-    assert result["documents"][0]["announcement_id"] == "relevant"
+    assert result["documents"][0]["announcement_id"] == "recent"

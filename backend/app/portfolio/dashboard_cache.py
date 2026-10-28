@@ -15,7 +15,7 @@ from app.theme_evidence import THEME_EVIDENCE_REGISTRY_PATH
 
 
 CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "cache" / "portfolio_dashboard.json"
-CACHE_VERSION = "portfolio_dashboard.v7"
+CACHE_VERSION = "portfolio_dashboard.v8"
 _LOCK = threading.Lock()
 
 

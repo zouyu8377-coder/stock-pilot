@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, time as clock_time, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -24,9 +25,11 @@ from app.portfolio.dashboard import build_market_event_radar
 from app.theme_evidence import build_theme_evidence_radar, load_theme_evidence_registry
 from app.services.etf_share_service import ETF_SHARE_LIMIT, etf_share_service
 from app.portfolio import portfolio_service
+from app.market_breadth import get_market_breadth
 
 
 PACKET_VERSION = "analysis_packet.v1"
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 PRIVACY_NOTICE = (
     "This packet is generated locally and may contain personal account information, holdings, costs, cash, repo, "
@@ -92,6 +95,24 @@ def _iso_z(value: datetime | str | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.isoformat().replace("+00:00", "Z")
+
+
+def _display_shanghai_time(value: datetime | str | None) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return "-"
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        try:
+            value = datetime.fromisoformat(normalized)
+        except ValueError:
+            return value
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(SHANGHAI_TZ).isoformat(timespec="seconds")
 
 
 def _jsonable(value: Any) -> Any:
@@ -759,6 +780,7 @@ def build_portfolio_packet(
         data["confirmed_position_role"] = data.get("position_role")
         positions.append(data)
     holding_trend_evidence = _build_holding_trend_evidence(positions, generated_at)
+    market_breadth = get_market_breadth()
     rule_reminders = [_evidence_dict(item) for item in snapshot.system_hypotheses]
     high_volatility = [
         item for item in state.metrics.risk_tag_exposures
@@ -930,6 +952,12 @@ def build_portfolio_packet(
         "holdings": positions,
         "positions": positions,
         "holding_trend_evidence": holding_trend_evidence,
+        "market_data_time_semantics": {
+            "daily_k": "Trend, returns, moving averages and the latest_daily_k_close always use the same latest landed local daily-K date.",
+            "post_close_quote": "A post-close quote is emitted separately only when it is newer than local daily K. It is a source snapshot pending daily-K landing and must not be mixed into trend calculations.",
+            "volume_ratio": "Daily-K volume ratios use completed daily bars. Post-close source volume ratio is labelled separately, alongside session volume divided by the prior five completed trading-day average.",
+        },
+        "market_breadth": market_breadth,
         "primary_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
         "primary_direction_grouping": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
         "official_theme_exposure": [item.model_dump(mode="json") for item in state.metrics.primary_theme_exposures],
@@ -1002,6 +1030,13 @@ def build_portfolio_packet(
 
 _THEME_LABEL_MAP = {
     "AI": "AI",
+    "CXO": "CXO",
+    "INNOVATION_DRUG": "创新药",
+    "MEDICAL_ETF": "医药ETF",
+    "INSURANCE": "保险",
+    "MOLYBDENUM": "钼",
+    "METAL_RESOURCE": "金属资源",
+    "EV_AUTOMOTIVE": "新能源车 / 整车",
     "GOLD": "黄金",
     "COPPER": "铜",
     "TUNGSTEN": "钨",
@@ -1012,7 +1047,7 @@ _THEME_LABEL_MAP = {
     "UNCLASSIFIED": "待分类",
 }
 
-_DIRECTION_TAGS = {"AI", "GOLD", "COPPER", "TUNGSTEN", "PCB", "SEMICONDUCTOR_EQUIPMENT", "OTHER"}
+_DIRECTION_TAGS = {"AI", "GOLD", "COPPER", "TUNGSTEN", "PCB", "SEMICONDUCTOR_EQUIPMENT", "CXO", "INNOVATION_DRUG", "MEDICAL_ETF", "INSURANCE", "MOLYBDENUM", "METAL_RESOURCE", "EV_AUTOMOTIVE", "OTHER"}
 _RISK_TAGS = {"HIGH_VOLATILITY"}
 _EXCLUDED_FROM_COMPACT = {"COMPOSITE_EXPOSURE", "AI_PCB", "AI_THEME_ETF", "METAL_RESOURCE", "CASH_EQUIVALENT"}
 
@@ -1154,6 +1189,58 @@ def _strategy_observation(position: dict[str, Any], price: float | None, indicat
     return "；".join(notes)
 
 
+def _shanghai_quote_time(value: Any, fallback: datetime) -> str:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        fallback = fallback.replace(tzinfo=timezone.utc) if fallback.tzinfo is None else fallback
+        return fallback.astimezone(SHANGHAI_TZ).isoformat()
+    if parsed.tzinfo is None:
+        parsed = parsed.tz_localize(SHANGHAI_TZ)
+    else:
+        parsed = parsed.tz_convert(SHANGHAI_TZ)
+    return parsed.isoformat()
+
+
+def _realtime_session_snapshot(
+    symbol: str,
+    generated_at: datetime,
+    *,
+    daily_k_as_of: Any = None,
+    prior_volume_ma_5: float | None = None,
+) -> dict[str, Any]:
+    """Return an independently usable real-time snapshot, even without local daily K."""
+    quote = collector.get_quote(symbol)
+    quote_time = _shanghai_quote_time(quote.get("quote_market_time"), generated_at)
+    parsed_quote_time = pd.to_datetime(quote_time, errors="coerce")
+    parsed_daily_date = pd.to_datetime(daily_k_as_of, errors="coerce")
+    if pd.isna(parsed_daily_date):
+        status = "realtime_snapshot_no_daily_k"
+    elif not pd.isna(parsed_quote_time) and parsed_quote_time.date() > parsed_daily_date.date():
+        status = "post_close_quote_pending_daily_k" if parsed_quote_time.time() >= clock_time(15, 30) else "intraday_quote"
+    else:
+        status = "realtime_quote_snapshot"
+    volume = quote.get("volume")
+    return {
+        "market_session_as_of": quote_time,
+        "market_session_status": status,
+        "session_open": quote.get("open"),
+        "session_high": quote.get("high"),
+        "session_low": quote.get("low"),
+        "session_close": quote.get("price"),
+        "session_pct_chg": quote.get("change_pct"),
+        "session_volume": volume,
+        "session_amount": quote.get("amount"),
+        "session_turnover_rate": quote.get("turnover_rate"),
+        "session_volume_ratio": quote.get("volume_ratio"),
+        "session_volume_vs_prev_5d_ratio": (
+            round(float(volume) / prior_volume_ma_5, 4)
+            if volume is not None and prior_volume_ma_5
+            else None
+        ),
+        "session_source": quote.get("provider"),
+    }
+
+
 def _build_holding_trend_evidence(positions: list[dict[str, Any]], generated_at: datetime) -> list[dict[str, Any]]:
     evidence: list[dict[str, Any]] = []
     for position in positions:
@@ -1175,12 +1262,49 @@ def _build_holding_trend_evidence(positions: list[dict[str, Any]], generated_at:
                 raise ValueError("daily K close values are empty")
             latest = history.iloc[-1]
             latest_close = round(float(closes.iloc[-1]), 4)
-            current_price = position.get("market_price") or position.get("system_quote_price") or latest_close
+            # Trend indicators must use the same completed daily-K close as their
+            # date label. A newer realtime quote is emitted separately below.
+            current_price = latest_close
             trend_state = _trend_state(current_price, indicators)
             latest_pct = None
             if pct_col:
                 pct_value = pd.to_numeric(pd.Series([latest[pct_col]]), errors="coerce").iloc[0]
                 latest_pct = None if pd.isna(pct_value) else round(float(pct_value), 2)
+            def latest_number(column: str | None) -> float | None:
+                if not column:
+                    return None
+                value = pd.to_numeric(pd.Series([latest[column]]), errors="coerce").iloc[0]
+                return None if pd.isna(value) else round(float(value), 4)
+
+            open_col = _history_col(history, "open")
+            high_col = _history_col(history, "high")
+            low_col = _history_col(history, "low")
+            volume_col = _history_col(history, "volume")
+            amount_col = _history_col(history, "amount")
+            turn_col = _history_col(history, "turn", "turnover")
+            volume_values = pd.to_numeric(history[volume_col], errors="coerce").dropna() if volume_col else pd.Series(dtype=float)
+            amount_values = pd.to_numeric(history[amount_col], errors="coerce").dropna() if amount_col else pd.Series(dtype=float)
+
+            def rolling_mean(values: pd.Series, window: int) -> float | None:
+                return round(float(values.tail(window).mean()), 4) if len(values) >= window else None
+
+            volume_ma = {window: rolling_mean(volume_values, window) for window in (5, 10, 20)}
+            amount_ma = {window: rolling_mean(amount_values, window) for window in (5, 10, 20)}
+            prior_volume_ma = {
+                window: rolling_mean(volume_values.iloc[:-1], window)
+                for window in (5, 10, 20)
+            }
+            latest_volume = latest_number(volume_col)
+            session_quote: dict[str, Any] = {}
+            try:
+                session_quote = _realtime_session_snapshot(
+                    symbol,
+                    generated_at,
+                    daily_k_as_of=latest[date_col] if date_col else None,
+                    prior_volume_ma_5=prior_volume_ma[5],
+                )
+            except Exception:
+                pass
             evidence.append({
                 "symbol": symbol,
                 "name": position.get("name") or symbol,
@@ -1188,10 +1312,32 @@ def _build_holding_trend_evidence(positions: list[dict[str, Any]], generated_at:
                 "source": "local_daily_k_and_compute_indicators",
                 "source_endpoint": "collector.get_history + compute_indicators",
                 "daily_k_as_of": str(latest[date_col])[:10] if date_col else None,
+                "daily_k_close_label": "latest_landed_daily_k_close",
                 "generated_at": generated_at.isoformat(),
                 "current_price": round(float(current_price), 4) if current_price is not None else None,
+                "latest_daily_k_close": latest_close,
                 "latest_close": latest_close,
                 "latest_pct_chg": latest_pct,
+                "open": latest_number(open_col),
+                "high": latest_number(high_col),
+                "low": latest_number(low_col),
+                "volume": latest_volume,
+                "amount": latest_number(amount_col),
+                "turnover_rate": latest_number(turn_col),
+                "volume_ma_5": volume_ma[5],
+                "volume_ma_10": volume_ma[10],
+                "volume_ma_20": volume_ma[20],
+                "amount_ma_5": amount_ma[5],
+                "amount_ma_10": amount_ma[10],
+                "amount_ma_20": amount_ma[20],
+                "volume_vs_ma_5_ratio": round(latest_volume / volume_ma[5], 4) if latest_volume is not None and volume_ma[5] else None,
+                "volume_vs_ma_10_ratio": round(latest_volume / volume_ma[10], 4) if latest_volume is not None and volume_ma[10] else None,
+                "volume_vs_ma_20_ratio": round(latest_volume / volume_ma[20], 4) if latest_volume is not None and volume_ma[20] else None,
+                "volume_ma_5_to_20_ratio": round(volume_ma[5] / volume_ma[20], 4) if volume_ma[5] and volume_ma[20] else None,
+                "volume_prev_5_avg": prior_volume_ma[5],
+                "volume_prev_10_avg": prior_volume_ma[10],
+                "volume_prev_20_avg": prior_volume_ma[20],
+                **session_quote,
                 "return_5d_pct": _interval_return(closes, 5),
                 "return_10d_pct": _interval_return(closes, 10),
                 "return_20d_pct": _interval_return(closes, 20),
@@ -1210,12 +1356,18 @@ def _build_holding_trend_evidence(positions: list[dict[str, Any]], generated_at:
                 "interpretation_limit": "近期走势证据来自本地日K和派生技术指标，仅作弱信号观察，不构成买卖、加仓、减仓或止盈止损指令。",
             })
         except Exception as exc:
+            session_quote: dict[str, Any] = {}
+            try:
+                session_quote = _realtime_session_snapshot(symbol, generated_at)
+            except Exception:
+                pass
             evidence.append({
                 "symbol": symbol,
                 "name": position.get("name") or symbol,
-                "data_status": "unavailable",
+                "data_status": "daily_k_unavailable_realtime_available" if session_quote else "unavailable",
                 "reason": str(exc),
                 "generated_at": generated_at.isoformat(),
+                **session_quote,
                 "interpretation_limit": "近期走势证据不可用；不得据此补造趋势结论。",
             })
     return evidence
@@ -1351,9 +1503,44 @@ def build_account_analysis_context(
             "name": item.get("name"),
             "data_status": item.get("data_status"),
             "daily_k_as_of": item.get("daily_k_as_of"),
+            "daily_k_close_label": item.get("daily_k_close_label"),
             "current_price": item.get("current_price"),
+            "latest_daily_k_close": item.get("latest_daily_k_close"),
             "latest_close": item.get("latest_close"),
             "latest_pct_chg": item.get("latest_pct_chg"),
+            "open": item.get("open"),
+            "high": item.get("high"),
+            "low": item.get("low"),
+            "volume": item.get("volume"),
+            "amount": item.get("amount"),
+            "turnover_rate": item.get("turnover_rate"),
+            "volume_ma_5": item.get("volume_ma_5"),
+            "volume_ma_10": item.get("volume_ma_10"),
+            "volume_ma_20": item.get("volume_ma_20"),
+            "volume_prev_5_avg": item.get("volume_prev_5_avg"),
+            "amount_ma_5": item.get("amount_ma_5"),
+            "amount_ma_10": item.get("amount_ma_10"),
+            "amount_ma_20": item.get("amount_ma_20"),
+            "volume_vs_ma_5_ratio": item.get("volume_vs_ma_5_ratio"),
+            "volume_vs_ma_10_ratio": item.get("volume_vs_ma_10_ratio"),
+            "volume_vs_ma_20_ratio": item.get("volume_vs_ma_20_ratio"),
+            "volume_ma_5_to_20_ratio": item.get("volume_ma_5_to_20_ratio"),
+            "volume_prev_5_avg": item.get("volume_prev_5_avg"),
+            "volume_prev_10_avg": item.get("volume_prev_10_avg"),
+            "volume_prev_20_avg": item.get("volume_prev_20_avg"),
+            "market_session_as_of": item.get("market_session_as_of"),
+            "market_session_status": item.get("market_session_status"),
+            "session_open": item.get("session_open"),
+            "session_high": item.get("session_high"),
+            "session_low": item.get("session_low"),
+            "session_close": item.get("session_close"),
+            "session_pct_chg": item.get("session_pct_chg"),
+            "session_volume": item.get("session_volume"),
+            "session_amount": item.get("session_amount"),
+            "session_turnover_rate": item.get("session_turnover_rate"),
+            "session_volume_ratio": item.get("session_volume_ratio"),
+            "session_volume_vs_prev_5d_ratio": item.get("session_volume_vs_prev_5d_ratio"),
+            "session_source": item.get("session_source"),
             "return_5d_pct": item.get("return_5d_pct"),
             "return_10d_pct": item.get("return_10d_pct"),
             "return_20d_pct": item.get("return_20d_pct"),
@@ -1498,6 +1685,7 @@ def build_account_analysis_context(
         "account_facts": account_facts,
         "holdings": compact_holdings,
         "holding_trend_evidence": compact_trend_evidence,
+        "market_breadth": packet.get("market_breadth", {}),
         "etf_share_observations": packet.get("etf_share_observations", {}),
         "market_event_radar": packet.get("market_event_radar", {}),
         "theme_evidence_radar": _compact_theme_evidence_radar(packet.get("theme_evidence_radar", {})),
@@ -1551,6 +1739,7 @@ def _compact_theme_evidence_radar(radar: dict[str, Any]) -> dict[str, Any]:
                     "name": item.get("name"),
                     "position_status": item.get("position_status"),
                     "weight_pct": item.get("weight_pct"),
+                    "matched_tags": item.get("matched_tags") or [],
                     "relation_strength": item.get("relation_strength"),
                     "relation_label": item.get("relation_label"),
                     "role_in_theme": item.get("role_in_theme"),
@@ -1558,6 +1747,7 @@ def _compact_theme_evidence_radar(radar: dict[str, Any]) -> dict[str, Any]:
                     "open_questions": (item.get("open_questions") or [])[:3],
                     "invalid_condition": item.get("invalid_condition"),
                     "announcement_verification": item.get("announcement_verification"),
+                    "ai_direction_classification": item.get("ai_direction_classification"),
                 }
                 for item in (theme.get("related_positions") or [])[:5]
             ],
@@ -1973,9 +2163,9 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
     lines = [
         "# Stock-Pilot 账户分析上下文",
         "",
-        f"生成时间：{meta['generated_at']}",
-        f"持仓快照时间：{meta.get('portfolio_as_of', '-')}",
-        f"行情取数时间：{meta.get('quote_retrieved_at', '-')}",
+        f"生成时间（北京时间）：{_display_shanghai_time(meta.get('generated_at'))}",
+        f"持仓快照时间（北京时间）：{_display_shanghai_time(meta.get('portfolio_as_of'))}",
+        f"行情取数时间（北京时间）：{_display_shanghai_time(meta.get('quote_retrieved_at'))}",
     ]
     if meta.get("valuation_snapshot_id"):
         lines.append(f"估值快照：{meta.get('valuation_snapshot_id')}")
@@ -2083,6 +2273,83 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         lines.append("近期走势证据来自本地日K和派生技术指标，仅作弱信号观察，不构成买卖、加仓、减仓或止盈止损指令。")
         lines.append("")
 
+    if holding_trend_evidence:
+        lines.extend([
+            "## 持仓量价快照（本地日K）",
+            "",
+            "| 标的 | 日K日期 | 开/高/低/收 | 成交量 | 5/10/20日均量 | 当日/20日均量 | 成交额 | 换手率 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
+        ])
+        for item in holding_trend_evidence:
+            if item.get("data_status") != "available":
+                continue
+            ohlc = "/".join(_fmt_amount(item.get(key)) for key in ("open", "high", "low", "latest_close"))
+            volume_ma = "/".join(_fmt_amount(item.get(f"volume_ma_{window}")) for window in (5, 10, 20))
+            lines.append(
+                f"| {item.get('name') or item.get('symbol')} | {item.get('daily_k_as_of') or '-'} | {ohlc} | "
+                f"{_fmt_amount(item.get('volume'))} | {volume_ma} | {_fmt_amount(item.get('volume_vs_ma_20_ratio'))}x | "
+                f"{_fmt_amount(item.get('amount'))} | {_fmt_amount(item.get('turnover_rate'))}% |"
+            )
+        lines.extend([
+            "",
+            "日K量比口径：当日成交量 / 20日平均成交量；5/10/20日均量均按完整交易日计算。收盘后行情源量比在下表单列。",
+            "",
+        ])
+
+    market_breadth = context.get("market_breadth", {})
+    session_rows = [item for item in holding_trend_evidence if item.get("market_session_as_of")]
+    if session_rows:
+        lines.extend([
+            "## 收盘后实时行情快照（待日K落库确认）",
+            "",
+            "| 标的 | 行情时间 | 开/高/低/现价 | 涨跌幅 | 成交量 | 成交额 | 换手率 | 行情源量比 | 当日/前5完整日均量 |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+        for item in session_rows:
+            ohlc = "/".join(_fmt_amount(item.get(key)) for key in ("session_open", "session_high", "session_low", "session_close"))
+            lines.append(
+                f"| {item.get('name') or item.get('symbol')} | {item.get('market_session_as_of')} | {ohlc} | "
+                f"{_fmt_amount(item.get('session_pct_chg'))}% | {_fmt_amount(item.get('session_volume'))} | "
+                f"{_fmt_amount(item.get('session_amount'))} | {_fmt_amount(item.get('session_turnover_rate'))}% | "
+                f"{_fmt_amount(item.get('session_volume_ratio'))} | {_fmt_amount(item.get('session_volume_vs_prev_5d_ratio'))}x |"
+            )
+        lines.extend([
+            "",
+            "该快照来自收盘后实时行情源，待 BaoStock 日K落库后将由正式日K替代；两者不应混为同一数据时间点。",
+            "",
+        ])
+    if market_breadth.get("data_status") == "available":
+        total = market_breadth.get("total", {})
+        shanghai = market_breadth.get("shanghai", {})
+        shenzhen = market_breadth.get("shenzhen", {})
+        lines.extend([
+            "## 沪深市场广度（本地日K聚合）",
+            "",
+            "| 日K日期 | 覆盖股票数 | 两市成交额 | 较前日 | 5日均额 | 上涨/下跌/平盘 | 涨停/跌停（近似） | 沪市成交额 | 深市成交额 |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            f"| {market_breadth.get('as_of') or '-'} | {market_breadth.get('coverage_count', 0)}/{market_breadth.get('universe_count', 0)} | "
+            f"{_fmt_amount(total.get('turnover_100m_yuan'))}亿元 | {_fmt_amount(total.get('turnover_change_pct'))}% | "
+            f"{_fmt_amount(total.get('turnover_ma_5_100m_yuan'))}亿元 | {total.get('advance_count', 0)}/{total.get('decline_count', 0)}/{total.get('flat_count', 0)} | "
+            f"{total.get('limit_up_count', 0)}/{total.get('limit_down_count', 0)} | "
+            f"{_fmt_amount(shanghai.get('turnover_100m_yuan'))}亿元 | {_fmt_amount(shenzhen.get('turnover_100m_yuan'))}亿元 |",
+            "",
+            (
+                f"数据新鲜度：最近可用日K为 {market_breadth.get('as_of')}，目标日K {market_breadth.get('target_date')} 尚在刷新。"
+                if market_breadth.get("is_stale")
+                else "数据新鲜度：已覆盖当前目标日K。"
+            ),
+            "",
+            market_breadth.get("boundary") or "",
+            "",
+        ])
+    elif market_breadth:
+        lines.extend([
+            "## 沪深市场广度（待刷新）",
+            "",
+            f"目标日K：{market_breadth.get('target_date') or '-'}；{market_breadth.get('reason') or '暂无可用聚合。'}",
+            "",
+        ])
+
     observations = etf_share_obs.get("observations", []) if isinstance(etf_share_obs, dict) else []
     if observations:
         def _fmt_pct(value: Any) -> str:
@@ -2125,7 +2392,9 @@ def render_compact_markdown(context: dict[str, Any]) -> str:
         for event in event_items[:8]:
             related = event.get("related_positions") or []
             related_text = ", ".join(
-                f"{item.get('name') or item.get('symbol')}({item.get('portfolio_weight_pct', '-') }%)"
+                f"{item.get('name') or item.get('symbol')}"
+                f"[{'直接驱动' if item.get('relation_type') == 'direct_driver' else '广义风险偏好间接影响'}]"
+                f"({item.get('portfolio_weight_pct', '-') }%)"
                 for item in related[:4]
             ) or "-"
             channels = ", ".join(

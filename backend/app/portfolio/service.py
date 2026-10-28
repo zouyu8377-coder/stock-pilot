@@ -161,8 +161,8 @@ class PortfolioService:
             return default
 
     def _write_json(self, path: Path, payload: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        from app.data_sync.storage import write
+        write(path, payload)
 
     def load_snapshot(self) -> PortfolioSnapshot:
         data = self._read_json(self.portfolio_path, None)
@@ -173,12 +173,19 @@ class PortfolioService:
         return PortfolioSnapshot(**data)
 
     def save_snapshot(self, payload: PortfolioSnapshotInput) -> PortfolioState:
+        from app.portfolio.storage_lock import portfolio_lock
+        with portfolio_lock(self.root):
+            self._persist_snapshot(payload)
+        return self.get_state()
+
+    def _persist_snapshot(self, payload: PortfolioSnapshotInput, *, preserve_cost_provenance: bool = False) -> PortfolioSnapshot:
         dumped = payload.model_dump()
         actual_cost = dumped.get("account_actual_total_cost")
         if actual_cost is not None and float(actual_cost or 0) > 0:
             dumped["account_actual_total_cost"] = _round(actual_cost)
-            dumped["account_actual_total_cost_source"] = "user_manual_entry"
-            dumped["account_actual_total_cost_confirmed_at"] = datetime.now(timezone.utc)
+            if not preserve_cost_provenance:
+                dumped["account_actual_total_cost_source"] = "user_manual_entry"
+                dumped["account_actual_total_cost_confirmed_at"] = datetime.now(timezone.utc)
         else:
             dumped["account_actual_total_cost"] = None
             dumped["account_actual_total_cost_source"] = None
@@ -188,7 +195,7 @@ class PortfolioService:
         snapshot = PortfolioSnapshot(**dumped)
         self._write_json(self.portfolio_path, snapshot.model_dump(mode="json"))
         self._write_json(self.snapshots_dir / f"{snapshot.snapshot_id}.json", snapshot.model_dump(mode="json"))
-        return self.get_state()
+        return snapshot
 
     def get_state(self) -> PortfolioState:
         valuation_generated_at = datetime.now(timezone.utc)
@@ -304,7 +311,9 @@ class PortfolioService:
                 missing_data.append("quantity_invalid")
             is_watchlist = base.quantity == 0
             can_value = price is not None and base.quantity >= 0
-            can_pnl = can_value and not is_watchlist
+            # Broker screenshots may use a diluted cost basis. It can be negative
+            # after profitable partial sales and remains valid until the symbol is closed.
+            can_pnl = can_value and not is_watchlist and base.avg_cost is not None
             market_value = price * base.quantity if can_value else None
             pnl = (price - base.avg_cost) * base.quantity if can_pnl else None
             pnl_pct = ((price / base.avg_cost - 1) * 100) if can_pnl and base.avg_cost > 0 else None
@@ -388,6 +397,8 @@ class PortfolioService:
                     excluded_symbols.append(p.symbol)
             else:
                 excluded_symbols.append(p.symbol)
+                if p.avg_cost is not None and p.avg_cost <= 0:
+                    nonpositive_cost_symbols.append(p.symbol)
 
         primary_exposures = [
             ThemeExposure(theme=k, market_value=_round(v["market_value"]), weight_pct=_round(v["market_value"] / total_assets * 100), symbols=v["symbols"])
@@ -423,14 +434,14 @@ class PortfolioService:
             )
 
         pnl_status = "available"
-        if excluded_symbols:
-            pnl_status = "partial"
-        elif nonpositive_cost_symbols:
+        if nonpositive_cost_symbols:
             pnl_status = "available_amount_only"
             warnings.append(
                 "部分持仓使用零或负摊薄成本；盈亏金额可用，收益率百分比不适用："
                 + ", ".join(nonpositive_cost_symbols)
             )
+        elif excluded_symbols:
+            pnl_status = "partial"
         has_holding_cost = bool(active_positions)
         pnl_pct_available = (
             has_holding_cost

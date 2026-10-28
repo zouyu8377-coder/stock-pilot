@@ -68,6 +68,7 @@ def _daily_k_summary(history: pd.DataFrame) -> dict[str, Any]:
     volume_col = _column(history, "volume", "成交量")
     amount_col = _column(history, "amount", "成交额")
     pct_col = _column(history, "pctChg", "pct_chg", "涨跌幅")
+    turn_col = _column(history, "turn", "turnover")
     latest = history.iloc[-1]
     summary: dict[str, Any] = {"row_count": int(len(history))}
     for output_key, col in {
@@ -78,10 +79,25 @@ def _daily_k_summary(history: pd.DataFrame) -> dict[str, Any]:
         "volume": volume_col,
         "amount": amount_col,
         "pct_chg": pct_col,
+        "turnover_rate": turn_col,
     }.items():
         if col:
             value = pd.to_numeric(pd.Series([latest[col]]), errors="coerce").iloc[0]
             summary[output_key] = None if pd.isna(value) else float(value)
+    for prefix, col in {"volume": volume_col, "amount": amount_col}.items():
+        if not col:
+            continue
+        values = pd.to_numeric(history[col], errors="coerce").dropna()
+        for window in (5, 10, 20):
+            if len(values) >= window:
+                average = float(values.tail(window).mean())
+                summary[f"{prefix}_ma_{window}"] = round(average, 4)
+                if prefix == "volume" and average and summary.get("volume") is not None:
+                    summary[f"volume_vs_ma_{window}_ratio"] = round(float(summary["volume"]) / average, 4)
+        if prefix == "volume" and len(values) >= 20:
+            ma5 = float(values.tail(5).mean())
+            ma20 = float(values.tail(20).mean())
+            summary["volume_ma_5_to_20_ratio"] = round(ma5 / ma20, 4) if ma20 else None
     if close_col and len(history) >= 20:
         closes = pd.to_numeric(history[close_col], errors="coerce").dropna()
         if len(closes) >= 20:
@@ -160,9 +176,14 @@ def build_basic_stock_snapshot(
             payload={
                 **quote,
                 "quote_retrieved_at": fetched_at.isoformat(),
-                "quote_market_time": None,
-                "quote_time_status": "unavailable",
-                "quote_time_boundary": "Current quote source does not provide a verifiable market quote time; retrieval time is not market quote time.",
+                "quote_market_time": quote.get("quote_market_time"),
+                "quote_time_status": "provider_supplied" if quote.get("quote_market_time") else "unavailable",
+                "quote_time_boundary": (
+                    "Tencent quote time is provider-supplied and used only for a session snapshot; "
+                    "it does not replace a local daily-K close until the daily bar is available."
+                    if quote.get("quote_market_time")
+                    else "Current quote source does not provide a verifiable market quote time; retrieval time is not market quote time."
+                ),
             },
             source=quote.get("provider", "easyquotation/tencent"),
             source_endpoint="easyquotation.real",

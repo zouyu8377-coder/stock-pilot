@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime
 
 from app.core.data_updater import (
@@ -22,7 +23,7 @@ def main():
 
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(datetime.now().isoformat())
+            f.write(json.dumps({"started_at": datetime.now().isoformat(), "pid": os.getpid()}))
 
         target_date = get_last_trading_date()
         priority_symbols = load_priority_symbols()

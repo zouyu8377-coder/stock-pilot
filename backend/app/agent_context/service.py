@@ -94,6 +94,7 @@ def _portfolio_payload(bundle: dict[str, Any]) -> dict[str, Any]:
             "account": context.get("account_facts", {}),
             "holdings": context.get("holdings", []),
             "holding_trend_evidence": context.get("holding_trend_evidence", []),
+            "market_breadth": context.get("market_breadth", {}),
             "market_events": _compact_market_events(context.get("market_event_radar", {})),
             "manual_and_external_evidence": {
                 "etf_share_observations": context.get("etf_share_observations", {}),

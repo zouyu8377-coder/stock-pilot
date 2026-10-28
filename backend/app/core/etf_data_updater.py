@@ -24,6 +24,7 @@ from app.core.data_updater import (
     is_symbol_updated,
     load_priority_symbols,
     normalize_columns,
+    write_market_history,
 )
 
 
@@ -214,7 +215,7 @@ def _download_full_history(code: str) -> tuple[bool, str | None]:
 
     BASE_MARKET_DIR.mkdir(parents=True, exist_ok=True)
     df = normalize_columns(pd.DataFrame(rows, columns=BAOSTOCK_FIELDS.split(",")))
-    df.to_parquet(path, index=False)
+    write_market_history(df, path)
     return True, None
 
 
@@ -238,7 +239,7 @@ def update_single_etf(code: str, target_date: date) -> tuple[bool, str | None]:
         combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
         combined = combined.dropna(subset=["date"])
         combined = combined.drop_duplicates(subset=["date"], keep="last").sort_values("date")
-        combined.to_parquet(path, index=False)
+        write_market_history(combined, path)
         return True, None
     except Exception as exc:
         return False, str(exc)[:240]

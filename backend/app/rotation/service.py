@@ -554,12 +554,12 @@ def _ma_distance_pct(item: dict[str, Any]) -> float | None:
 
 
 def _classify_opportunity(item: dict[str, Any]) -> dict[str, Any]:
-    if item.get("data_quality") == "unavailable":
+    if item.get("data_quality") in {"unavailable", "stale"}:
         return {
             "stage": "avoid_now",
             "label": "暂不参与",
             "chasing_risk": "unknown",
-            "reason": "代理标的行情缺失，暂不纳入机会判断。",
+            "reason": "代理标的行情缺失或过期，待更新后再判断机会。",
         }
     score = item["score"]
     total = float(score.get("total") or 0)
@@ -589,25 +589,30 @@ def _classify_opportunity(item: dict[str, Any]) -> dict[str, Any]:
         chasing_risk = "medium" if chasing_risk == "low" else chasing_risk
         risk_reasons.append("中期涨幅后短线转弱")
 
-    above_ma20 = ma20 is None or (price is not None and price >= ma20)
-    rel_ok = rel20 is None or rel20 >= 0
-    rel_repairing = rel20 is None or rel20 >= -2
+    if any(value is None for value in (price, ma20, rel20, return_5d)):
+        return {
+            "stage": "avoid_now", "label": "待补证据", "chasing_risk": "unknown",
+            "reason": "价格、MA20、相对强度或5日涨跌缺失，不能把缺数据视为趋势确认。",
+        }
+    above_ma20 = price >= ma20
+    rel_ok = rel20 >= 0
+    rel_repairing = rel20 >= -2
 
-    if total >= 58 and trend >= 10 and above_ma20 and rel_ok and chasing_risk != "high":
+    if total >= 58 and trend >= 10 and flow >= 10 and above_ma20 and rel_ok and chasing_risk == "low":
         return {
             "stage": "potential_opportunity",
             "label": "潜在机会",
             "chasing_risk": chasing_risk,
             "reason": "趋势、相对强度和量能已有确认，且短期追高风险未进入高位。",
         }
-    if 42 <= total < 68 and above_ma20 and rel_repairing and (flow >= 10 or (return_5d is not None and return_5d > -3)):
+    if 42 <= total < 68 and above_ma20 and rel_repairing and chasing_risk == "low" and (flow >= 10 or (return_5d is not None and return_5d > -3)):
         return {
             "stage": "early_turning",
             "label": "早期转强",
             "chasing_risk": chasing_risk,
             "reason": "总分未到强势区，但价格位置和相对表现开始修复，适合进入观察池。",
         }
-    if total >= 62 and chasing_risk in {"medium", "high"}:
+    if total >= 62 and trend >= 10 and above_ma20 and rel_repairing and chasing_risk in {"medium", "high"}:
         return {
             "stage": "wait_pullback",
             "label": "强势但等回踩",
@@ -636,11 +641,14 @@ def _position_value(position: dict[str, Any]) -> float:
     return 0.0
 
 
-def _portfolio_context(items: list[dict[str, Any]], universe_items: list[dict[str, Any]]) -> None:
+def _portfolio_context(items: list[dict[str, Any]], universe_items: list[dict[str, Any]], supplied: dict[str, Any] | None = None) -> None:
     try:
-        state = portfolio_service.get_state()
-        snapshot = state.snapshot.model_dump()
-        metrics = state.metrics.model_dump()
+        if supplied is not None:
+            snapshot, metrics = supplied["snapshot"], supplied["metrics"]
+        else:
+            state = portfolio_service.get_state()
+            snapshot = state.snapshot.model_dump()
+            metrics = state.metrics.model_dump()
     except Exception:
         snapshot = {"positions": []}
         metrics = {"total_assets": 0}
@@ -740,7 +748,7 @@ def _status_payload(status: str, items: list[dict[str, Any]], errors: list[str],
     }
 
 
-def build_rotation_bundle() -> dict[str, Any]:
+def build_rotation_bundle(*, portfolio_context: dict[str, Any] | None = None) -> dict[str, Any]:
     universe = load_universe()
     raw_items = universe["items"]
     frames: dict[str, pd.DataFrame] = {}
@@ -811,7 +819,7 @@ def build_rotation_bundle() -> dict[str, Any]:
         item["chasing_risk"] = opportunity["chasing_risk"]
         item["opportunity_reason"] = opportunity["reason"]
         item["ma20_distance_pct"] = _ma_distance_pct(item)
-    _portfolio_context(factors, raw_items)
+    _portfolio_context(factors, raw_items, portfolio_context)
     opportunity_priority = {
         "potential_opportunity": 0,
         "early_turning": 1,

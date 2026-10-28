@@ -1,6 +1,7 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
+import os
 
 from app.api.analyze import router as analyze_router
 from app.api.history import router as history_router
@@ -14,9 +15,11 @@ from app.api.portfolio import router as portfolio_router
 from app.api.rotation import router as rotation_router
 from app.api.agent_context import router as agent_context_router
 from app.api.agent_review import router as agent_review_router
+from app.agent_demo.api import router as collaboration_demo_router
+from app.investment_agents.api import router as investment_agents_router
 from app.core.config import settings
 
-APP_VERSION = "v4.0.0"
+APP_VERSION = "v4.5.0"
 
 app = FastAPI(
     title="Stock Copilot API",
@@ -44,17 +47,23 @@ app.include_router(portfolio_router, prefix="/api")
 app.include_router(rotation_router, prefix="/api")
 app.include_router(agent_context_router, prefix="/api")
 app.include_router(agent_review_router, prefix="/api")
+app.include_router(collaboration_demo_router)
+app.include_router(investment_agents_router)
 
 
 async def _disclosure_verification_loop() -> None:
     from app.disclosure_verification import refresh_portfolio_disclosure_verifications
 
     while True:
-        await asyncio.to_thread(refresh_portfolio_disclosure_verifications)
+        try:
+            await asyncio.to_thread(refresh_portfolio_disclosure_verifications)
+        except Exception as exc:
+            print(f"[DisclosureVerification] Retry next cycle: {str(exc)[:500]}")
         await asyncio.sleep(max(60, settings.DISCLOSURE_INDEX_CHECK_MINUTES * 60))
 
 
 async def _agent_automation_loop() -> None:
+    from app.agent_review.workflow import start_pending_account_analysis
     from app.agent_review.automation import (
         mark_premarket_cycle_completed,
         mark_scheduled_cycle_completed,
@@ -65,18 +74,21 @@ async def _agent_automation_loop() -> None:
     )
 
     while True:
-        if should_run_premarket_cycle():
-            try:
+        try:
+            from app.agent_review.plan_engine import tick, settings as plan_settings
+            await asyncio.to_thread(tick)
+            if plan_settings()["external_only"]:
+                await asyncio.sleep(60)
+                continue
+            await asyncio.to_thread(start_pending_account_analysis)
+            if should_run_premarket_cycle():
                 await asyncio.to_thread(run_premarket_cycle)
                 mark_premarket_cycle_completed()
-            except Exception as exc:
-                print(f"[AgentAutomation] Premarket cycle failed: {str(exc)[:500]}")
-        if should_run_scheduled_cycle():
-            try:
+            if should_run_scheduled_cycle():
                 await asyncio.to_thread(run_automatic_cycle, trigger="scheduled")
                 mark_scheduled_cycle_completed()
-            except Exception as exc:
-                print(f"[AgentAutomation] Scheduled cycle failed: {str(exc)[:500]}")
+        except Exception as exc:
+            print(f"[AgentAutomation] Retry next cycle: {str(exc)[:500]}")
         await asyncio.sleep(60)
 
 
@@ -86,10 +98,19 @@ async def startup_event():
     from app.core.data_updater import check_and_update
     from app.rotation.service import refresh_rotation_if_needed
 
-    asyncio.create_task(check_and_update())
-    asyncio.create_task(asyncio.to_thread(refresh_rotation_if_needed))
-    asyncio.create_task(_disclosure_verification_loop())
-    asyncio.create_task(_agent_automation_loop())
+    if os.environ.get("STOCK_PILOT_AUTO_DATA_SYNC", "1") != "0":
+        from app.data_sync.startup import launch
+        try:
+            launch()
+        except OSError as exc:
+            print(f"[ObjectiveDataSync] Startup launch failed: {exc}")
+
+    # The model-free Windows sync owns collection. Agent2 is explicitly user-triggered.
+    # Legacy automation is opt-in to avoid two workflows racing or calling an expired provider.
+    if os.environ.get("STOCK_PILOT_ENABLE_LEGACY_AUTOMATION") == "1":
+        asyncio.create_task(check_and_update())
+        asyncio.create_task(asyncio.to_thread(refresh_rotation_if_needed))
+        asyncio.create_task(_agent_automation_loop())
 
 
 @app.get("/health")

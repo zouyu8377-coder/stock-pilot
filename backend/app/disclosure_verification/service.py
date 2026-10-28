@@ -10,9 +10,10 @@ from typing import Any, Callable
 import requests
 from pypdf import PdfReader
 
-from app.ai.llm_client import call_llm
 from app.ai.research_engine import extract_json
+from app.agent_review.service import _call_model
 from app.core.config import settings
+from app.disclosure_verification.freshness import annotate_verification
 from app.theme_evidence import load_theme_evidence_registry
 
 
@@ -30,6 +31,21 @@ GENERIC_EVIDENCE_TERMS = (
 )
 
 
+def _call_disclosure_model(prompt: str) -> str:
+    """Use the review model's non-streaming JSON contract for citation verification."""
+    content, _, _ = _call_model([
+        {
+            "role": "system",
+            "content": (
+                "你是公告正文核验器。只输出JSON；只能引用用户提供的PDF正文，"
+                "每个非not_found结论必须逐字复制一段原文短引。"
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ])
+    return content
+
+
 def _compact_symbol(symbol: str) -> str:
     return str(symbol or "").split(".", 1)[0].strip().zfill(6)
 
@@ -43,7 +59,7 @@ def load_disclosure_verification(symbol: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return annotate_verification(json.loads(path.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError):
         return None
 
@@ -69,7 +85,10 @@ def _write_cache(symbol: str, payload: dict[str, Any]) -> None:
 def _announcement_ids(payload: dict[str, Any] | None) -> set[str]:
     if not payload:
         return set()
-    explicit = payload.get("seen_announcement_ids") or []
+    if "processed_announcement_ids" in payload:
+        return {str(value) for value in payload["processed_announcement_ids"] if value}
+    # Legacy seen IDs included unread documents; only verified batches are processed.
+    explicit = payload.get("processed_announcement_ids") or []
     documents = payload.get("documents") or []
     return {
         str(item)
@@ -83,38 +102,62 @@ def _announcement_ids(payload: dict[str, Any] | None) -> set[str]:
 
 def _symbol_context(symbol: str) -> dict[str, Any]:
     compact = _compact_symbol(symbol)
+    from app.direction_classification import get_direction_classifications
+
+    ai_classification = get_direction_classifications().get("by_symbol", {}).get(compact) or {}
+    ai_theme_ids = set(ai_classification.get("theme_ids") or [])
+    from app.disclosure_verification.topics import business_questions
+    from app.portfolio.service import portfolio_service
+    position = next((p for p in portfolio_service.load_snapshot().positions if _compact_symbol(p.symbol) == compact), None)
+    directions = (position.directions if position and position.directions else ai_classification.get("directions") or [])
+    ai_questions = business_questions(directions)
     themes: list[dict[str, Any]] = []
     questions: list[str] = []
     invalid_conditions: list[str] = []
     keywords: set[str] = set(GENERIC_EVIDENCE_TERMS)
     for theme in load_theme_evidence_registry().get("themes", []):
         mapping = (theme.get("symbol_mappings") or {}).get(compact)
-        if not mapping:
+        is_ai_theme = str(theme.get("theme_id") or "") in ai_theme_ids
+        if not mapping and not is_ai_theme:
             continue
+        role = (mapping or {}).get("role_in_theme") or ai_classification.get("role") or "AI方向关联待核验"
         themes.append({
             "theme_id": theme.get("theme_id"),
             "theme_name": theme.get("theme_name"),
-            "role_in_theme": mapping.get("role_in_theme"),
+            "role_in_theme": role,
         })
-        questions.extend(mapping.get("open_questions") or [])
-        if mapping.get("invalid_condition"):
+        questions.extend((mapping or {}).get("open_questions") or [])
+        if is_ai_theme and not mapping and not ai_questions:
+            direction_text = " / ".join(ai_classification.get("directions") or []) or str(theme.get("theme_name") or "该方向")
+            questions.extend([
+                f"公告正文是否支持其主营、产品或服务与{direction_text}方向相关？",
+                "最新定期报告是否披露收入、利润、订单、研发或商业化等可追溯经营事实？",
+            ])
+        if (mapping or {}).get("invalid_condition"):
             invalid_conditions.append(mapping["invalid_condition"])
+        elif is_ai_theme:
+            invalid_conditions.append("AI方向分类与公告正文或主营披露不一致，或缺少可引用的经营事实。")
         for text in [
             theme.get("theme_name"),
-            mapping.get("role_in_theme"),
-            *(mapping.get("open_questions") or []),
+            role,
+            *(mapping or {}).get("open_questions", []),
+            *(ai_classification.get("directions") or []),
         ]:
             keywords.update(re.findall(r"[\u4e00-\u9fffA-Za-z0-9]{2,12}", str(text or "")))
+    questions = [*ai_questions, *questions]
+    if not questions:
+        questions = ["最新经营披露是否支持收入、利润及主营业务的持续性？", "是否存在影响持有逻辑的重大风险或政策变化？"]
     return {
         "symbol": compact,
         "themes": themes,
         "questions": list(dict.fromkeys(questions))[:6],
         "invalid_conditions": list(dict.fromkeys(invalid_conditions))[:3],
         "keywords": sorted(keywords, key=len, reverse=True)[:40],
+        "ai_classification": ai_classification or None,
     }
 
 
-def _fetch_cninfo_announcements(symbol: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
+def _fetch_cninfo_announcements(symbol: str, start_date: str, end_date: str, *, max_pages: int = 20, category: str = "") -> list[dict[str, Any]]:
     from akshare.stock_feature import stock_disclosure_cninfo as cninfo
 
     compact = _compact_symbol(symbol)
@@ -131,7 +174,7 @@ def _fetch_cninfo_announcements(symbol: str, start_date: str, end_date: str) -> 
         "stock": f"{compact},{org_id}",
         "searchkey": "",
         "secid": "",
-        "category": "",
+        "category": category,
         "trade": "",
         "seDate": f"{start_date}~{end_date}",
         "sortName": "",
@@ -142,7 +185,7 @@ def _fetch_cninfo_announcements(symbol: str, start_date: str, end_date: str) -> 
     response.raise_for_status()
     initial = response.json()
     total = int(initial.get("totalAnnouncement") or 0)
-    page_count = max(1, min(20, (total + int(payload["pageSize"]) - 1) // int(payload["pageSize"])))
+    page_count = max(1, min(max_pages, (total + int(payload["pageSize"]) - 1) // int(payload["pageSize"])))
     rows: list[dict[str, Any]] = []
     for page in range(1, page_count + 1):
         page_payload = {**payload, "pageNum": page}
@@ -207,7 +250,7 @@ def _select_relevant_text(pages: list[str], keywords: list[str], max_chars: int 
 
 def _build_prompt(context: dict[str, Any], documents: list[dict[str, Any]]) -> str:
     document_text = "\n\n".join(
-        f"=== 公告：{item['title']} | 日期：{item['announced_at']} | URL：{item['pdf_url']} ===\n{item['selected_text']}"
+        f"=== 文件ID：{item['announcement_id']} | 公告：{item['title']} | 日期：{item['announced_at']} ===\n{item['selected_text']}"
         for item in documents
     )
     return f"""
@@ -233,6 +276,9 @@ def _build_prompt(context: dict[str, Any], documents: list[dict[str, Any]]) -> s
   "model_limit": "模型只负责原文匹配与归类，公告原文才是事实来源"
 }}
 
+强制要求：announcement_id 只能填写上方“文件ID”的纯数字，绝不能填写 URL、标题或文件名。
+quote 必须从下方原文逐字复制连续的一句话或短句，不得改写、概括或拼接；无法复制原文时必须使用 not_found。
+
 公告原文：
 {document_text}
 """.strip()
@@ -240,6 +286,11 @@ def _build_prompt(context: dict[str, Any], documents: list[dict[str, Any]]) -> s
 
 def _validate_model_items(payload: dict[str, Any], documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_id = {item["announcement_id"]: item for item in documents}
+    by_url = {str(item.get("pdf_url") or ""): item for item in documents}
+
+    def normalize_quote(value: Any) -> str:
+        return re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "", str(value or ""))
+
     valid: list[dict[str, Any]] = []
     for item in payload.get("items") or []:
         if not isinstance(item, dict):
@@ -247,12 +298,13 @@ def _validate_model_items(payload: dict[str, Any], documents: list[dict[str, Any
         status = str(item.get("status") or "")
         if status not in {"supported", "partially_supported", "contradicted", "not_found"}:
             continue
-        announcement = by_id.get(str(item.get("announcement_id") or ""))
-        quote = re.sub(r"\s+", "", str(item.get("quote") or ""))
+        provided_id = str(item.get("announcement_id") or "")
+        announcement = by_id.get(provided_id) or by_url.get(provided_id)
+        quote = normalize_quote(item.get("quote"))
         quote_verified = status == "not_found"
         if announcement and quote:
-            source_text = re.sub(r"\s+", "", announcement["selected_text"])
-            quote_verified = quote[:40] in source_text
+            source_text = normalize_quote(announcement["selected_text"])
+            quote_verified = len(quote) >= 12 and quote[: min(40, len(quote))] in source_text
         if status != "not_found" and not quote_verified:
             status = "not_found"
         valid.append({
@@ -277,12 +329,15 @@ def verify_symbol_disclosures(
     force: bool = False,
     announcement_fetcher: Callable[[str, str, str], list[dict[str, Any]]] = _fetch_cninfo_announcements,
     pdf_fetcher: Callable[[str], bytes] = _download_pdf,
-    model_caller: Callable[[str], str] = call_llm,
+    model_caller: Callable[[str], str] = _call_disclosure_model,
 ) -> dict[str, Any]:
     cached = load_disclosure_verification(symbol)
+    context = _symbol_context(symbol)
+    question_signature = json.dumps(context["questions"], ensure_ascii=False, sort_keys=True)
+    if cached and cached.get("question_signature") != question_signature:
+        force = True
     if not force and _cache_is_fresh(cached):
         return cached
-    context = _symbol_context(symbol)
     if not context["questions"]:
         return {
             "symbol": _compact_symbol(symbol),
@@ -308,16 +363,18 @@ def verify_symbol_disclosures(
         ]
         if not new_announcements:
             cached["index_checked_at"] = now.isoformat()
-            cached["seen_announcement_ids"] = sorted(seen_ids | current_ids)
+            cached["discovered_announcement_ids"] = sorted(current_ids)
             cached["trigger"] = "announcement_index_no_change"
             _write_cache(symbol, cached)
             return cached
         announcements = new_announcements
 
-    def announcement_relevance(item: dict[str, Any]) -> tuple[int, str]:
+    failed_ids = {str(item.get("announcement_id")) for item in (cached or {}).get("failures", [])}
+
+    def announcement_relevance(item: dict[str, Any]) -> tuple[str, bool, int]:
         title = str(item.get("title") or "").lower()
         matches = sum(1 for keyword in context["keywords"] if keyword.lower() in title)
-        return matches, str(item.get("announced_at") or "")
+        return str(item.get("announced_at") or ""), str(item.get("announcement_id")) not in failed_ids, matches
 
     announcements.sort(key=announcement_relevance, reverse=True)
     documents: list[dict[str, Any]] = []
@@ -330,7 +387,7 @@ def verify_symbol_disclosures(
                 raise ValueError("PDF has no extractable relevant text")
             documents.append({**announcement, "selected_text": selected, "page_count": len(pages)})
         except Exception as exc:
-            failures.append({"title": announcement.get("title", ""), "reason": str(exc)[:240]})
+            failures.append({"announcement_id": str(announcement.get("announcement_id") or ""), "title": announcement.get("title", ""), "reason": str(exc)[:240]})
     if not documents:
         result = {
             "symbol": _compact_symbol(symbol),
@@ -372,14 +429,22 @@ def verify_symbol_disclosures(
             status: sum(1 for item in result["items"] if item.get("status") == status)
             for status in ("supported", "partially_supported", "contradicted", "not_found")
         }
-    result["seen_announcement_ids"] = sorted(seen_ids | current_ids)
+    processed_ids = seen_ids | {
+        str(document["announcement_id"]) for document in documents
+        if document.get("announcement_id") and result.get("status") == "verified"
+    }
+    result["processed_announcement_ids"] = sorted(processed_ids)
+    result["discovered_announcement_ids"] = sorted(current_ids)
+    result["pending_announcement_ids"] = sorted(current_ids - processed_ids)
+    result["seen_announcement_ids"] = sorted(processed_ids)
+    result["question_signature"] = question_signature
     _write_cache(symbol, result)
     try:
         from app.portfolio.dashboard_cache import invalidate_dashboard_cache
         invalidate_dashboard_cache()
     except ImportError:
         pass
-    return result
+    return annotate_verification(result)
 
 
 def refresh_portfolio_disclosure_verifications(*, force: bool = False) -> dict[str, Any]:

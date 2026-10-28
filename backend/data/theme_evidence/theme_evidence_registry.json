@@ -4,6 +4,44 @@
   "boundary": "主题证据雷达仅用于产业链研究和账户相关观察，不构成买卖、加仓、减仓、目标价或择时指令。",
   "themes": [
     {
+      "theme_id": "insurance_finance",
+      "theme_name": "保险",
+      "description": "保险公司及保险主题资产的研究方向；经营判断以保费、投资收益、偿付能力和定期报告披露为准。",
+      "theme_tags": ["INSURANCE"],
+      "candidate_tags": ["INSURANCE"],
+      "impact_channels": ["rates", "capital_market", "insurance_policy"],
+      "chain_layers": [
+        {
+          "layer_id": "insurance_core",
+          "layer_name": "寿险 / 财险 / 保险资管",
+          "physical_constraint": "保费增长、新业务价值、投资收益、资本充足率与利率环境。",
+          "evidence_questions": ["主营与保险方向是否一致？", "定期报告是否披露保费、投资收益或偿付能力等可追溯事实？"]
+        }
+      ],
+      "symbol_mappings": {},
+      "confirming_events": ["定期报告或月度保费披露验证经营事实", "利率与资本市场环境出现可追溯变化"],
+      "invalidating_events": ["公告正文与保险方向不一致", "缺少可引用的经营与资本约束事实"]
+    },
+    {
+      "theme_id": "medicine_innovation",
+      "theme_name": "医药 / 创新药 / CXO",
+      "description": "围绕创新药、医疗服务、CXO 与医药ETF的研究主题；方向关联由公开名称和公告索引初筛，经营结论必须以公告正文、业绩或业务披露核验。",
+      "theme_tags": ["MEDICINE", "PHARMA", "INNOVATION_DRUG", "CXO", "MEDICAL_ETF"],
+      "candidate_tags": ["MEDICINE", "PHARMA", "INNOVATION_DRUG", "CXO", "MEDICAL_ETF"],
+      "impact_channels": ["drug_approval", "medical_policy", "clinical_data", "healthcare_spending", "rates"],
+      "chain_layers": [
+        {
+          "layer_id": "medicine_innovation_core",
+          "layer_name": "创新药 / 医疗服务 / CXO",
+          "physical_constraint": "研发进展、产品商业化、订单与产能利用率、医保和监管政策。",
+          "evidence_questions": ["主营或产品线是否与医药主题一致？", "业绩、订单或研发披露是否支持关联？"]
+        }
+      ],
+      "symbol_mappings": {},
+      "confirming_events": ["公司公告或定期报告验证主营、订单、研发或商业化进展", "行业政策和临床数据出现可追溯更新"],
+      "invalidating_events": ["公告正文与分类方向不一致", "缺少主营、订单或利润相关的可核验披露"]
+    },
+    {
       "theme_id": "ai_server_pcb",
       "theme_name": "AI服务器 / PCB",
       "description": "围绕AI服务器、高速互连、交换机、算力基础设施相关的PCB和材料链研究。",
